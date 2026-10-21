@@ -1,0 +1,8 @@
+{
+  "created_at": "2026-10-21T21:20:59.311Z",
+  "trusted_commit": "cc23cfe3622e051ccc6cf4f75cc3034c62fd7310",
+  "archive_path": "app/m0-03-release/artifacts/agent-factory-m0.3-cc23cfe3622e.tar.gz",
+  "archive_sha256": "85766a1b7e2559c73346775eee93ad66e7f58afc37765a17d037380f3b952263",
+  "manifest_path": "app/m0-03-release/deployment-manifest.json",
+  "manifest_sha256": "10297ba5e9d58f859de2175b8dd4645a0a7b35a92c1af119d46d42c9bbda5178"
+}

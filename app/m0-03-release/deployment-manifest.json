@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "application_version": "m0.3+cc23cfe3622e",
+  "source_commit": "cc23cfe3622e051ccc6cf4f75cc3034c62fd7310",
+  "content_hashes": {
+    "make-schemas.ts": "9f22af148ca2ab29f8df215364348c088719f0ea64619d7e0949ae6fd62641ee",
+    "runner.ts": "73c9d8b2e9fd5a9abdef654c598db4c13c63081d5515ea80837bc469fd4d1c3f",
+    "schemas/implementer.json": "3a24d30310908bb4d438b049e7a90bdf6afbf405065d86165b9ff294555bc07a",
+    "schemas/planner.json": "391882ccad64d1235f821304c9a705c21cdad1214beb53707ee10d266d7de86b",
+    "schemas/reviewer.json": "e5d24e27fa148e557e17263d04b15f246dff7658ae1aa770dcef76e78c843e05",
+    "schemas/scout.json": "82e9ca143eb6a2fe37d5731811c261e8a2a5ba6264b67f78427693805556740d",
+    "verify.mjs": "5003b11f4afb31be8bb5d9336e6d4fded518af11d6cc1e5400752b42763c1d7a"
+  },
+  "node_range": ">=24.0.0 <25",
+  "capabilities": [
+    "runner-readonly"
+  ],
+  "commands": {
+    "runner_run": [
+      "node",
+      "--experimental-strip-types",
+      "runner.ts",
+      "run"
+    ],
+    "runner_status": [
+      "node",
+      "--experimental-strip-types",
+      "runner.ts",
+      "status"
+    ],
+    "runner_stop": [
+      "node",
+      "--experimental-strip-types",
+      "runner.ts",
+      "stop"
+    ],
+    "verify_fake": [
+      "node",
+      "verify.mjs"
+    ]
+  },
+  "config_schema_version": 1,
+  "state_schema_version": 1,
+  "migrations": {
+    "from": 1,
+    "to": 1
+  },
+  "security_evidence_refs": [
+    "docs/application/M0-02.md",
+    "docs/application/M0-03.md"
+  ]
+}

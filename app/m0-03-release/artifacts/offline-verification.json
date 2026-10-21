@@ -1,0 +1,12 @@
+{
+  "verified_at": "2026-10-21T21:23:14.902Z",
+  "archive_path": "/Users/splswrd/work/agent-factory/app/m0-03-release/artifacts/agent-factory-m0.3-cc23cfe3622e.tar.gz",
+  "archive_sha256": "85766a1b7e2559c73346775eee93ad66e7f58afc37765a17d037380f3b952263",
+  "source_commit": "cc23cfe3622e051ccc6cf4f75cc3034c62fd7310",
+  "commands_verified": {
+    "verify_fake": true,
+    "runner_status": true,
+    "runner_run": "verified via verify_fake fixture suite",
+    "runner_stop": "verified via verify_fake fixture suite"
+  }
+}
