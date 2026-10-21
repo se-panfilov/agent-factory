@@ -1,0 +1,10 @@
+[Unit]
+Description=Factory setup S03 rollback timer
+
+[Timer]
+OnActiveSec=10min
+Unit=access-rollback.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,9 @@
+# Managed by factory-setup S03.
+# The installer applies these rules in staged order:
+# 1) keep existing session alive
+# 2) allow SSH from tailscale0
+# 3) deny public SSH on IPv4 and IPv6 after independent tailnet confirmation
+
+allow in on tailscale0 to any port 22 proto tcp comment "factory-s03-tailnet-ssh"
+deny in to any port 22 proto tcp comment "factory-s03-public-ssh-v4"
+deny in to any port 22 proto tcp comment "factory-s03-public-ssh-v6"

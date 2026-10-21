@@ -1,0 +1,13 @@
+[Unit]
+Description=Factory setup S03 access rollback
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/factory-setup/access-rollback.sh
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
