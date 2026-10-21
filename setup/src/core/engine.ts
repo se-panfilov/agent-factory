@@ -7,6 +7,8 @@ import { NodeAptAdapter } from "../adapters/apt";
 import { createNodePreflightProbe, createPreflightStage } from "../stages/preflight";
 import { createSystemStage } from "../stages/system";
 import { createAccessStage, createNodeAccessAdapter } from "../stages/access";
+import { createNodeDockerAdapter } from "../adapters/docker";
+import { createDockerStage } from "../stages/docker";
 import { hashConfig, initConfig, loadConfig, systemClock, type Clock } from "./config";
 import { ExitCode, type InstallerPlan, type JsonEnvelope, type SetupConfig, type SetupState, type StageId, type StageModule } from "./types";
 import { setupError, toSetupError } from "./errors";
@@ -138,11 +140,13 @@ function bootstrapStage(fsAdapter: FilesystemAdapter): StageModule {
 
 function defaultRegistry(fsAdapter: FilesystemAdapter, processAdapter: ProcessAdapter): StageRegistry {
   const aptAdapter = new NodeAptAdapter(processAdapter, fsAdapter);
+  const dockerAdapter = createNodeDockerAdapter(processAdapter, fsAdapter);
   return createRegistry([
     bootstrapStage(fsAdapter),
     createPreflightStage(createNodePreflightProbe(fsAdapter)),
     createSystemStage(aptAdapter),
-    createAccessStage(createNodeAccessAdapter(processAdapter, fsAdapter, aptAdapter))
+    createAccessStage(createNodeAccessAdapter(processAdapter, fsAdapter, aptAdapter)),
+    createDockerStage(dockerAdapter)
   ]);
 }
 
