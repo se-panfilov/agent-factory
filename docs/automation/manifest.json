@@ -1,0 +1,143 @@
+{
+  "source_sha256": "52d84f2ebedf40980f746fe7d5c2db508c3935ad0b906f4664df09396e95ec62",
+  "stages": 15,
+  "prompts": 16,
+  "inventory_actions": 78,
+  "files": [
+    {
+      "path": "CONTRACT.md",
+      "bytes": 24917,
+      "sha256": "ebb35d5a986447968886d4000c052cea517b46f4207d726904a5e7b7011e59f5"
+    },
+    {
+      "path": "README.md",
+      "bytes": 1727,
+      "sha256": "1facc0cd5cd4bde2a83e8d9594ac8286526c9311da4fcdbaa9737ae8b33a959c"
+    },
+    {
+      "path": "agent-factory-guide.ru.md",
+      "bytes": 399147,
+      "sha256": "cbcc24744a00b24c5ae9809189eae495fdb5ae59714227620fb46a8a0357e245"
+    },
+    {
+      "path": "agent-factory-guide.ru.original-r4.md",
+      "bytes": 387818,
+      "sha256": "52d84f2ebedf40980f746fe7d5c2db508c3935ad0b906f4664df09396e95ec62"
+    },
+    {
+      "path": "automation-analysis.md",
+      "bytes": 40249,
+      "sha256": "ec2811ade1941de55bce055d999ca747faa466689a01155b8a563a39f578b09d"
+    },
+    {
+      "path": "automation-architecture.md",
+      "bytes": 20037,
+      "sha256": "9d048d006bdf7520b89b22d9a4543d14eb2be8a54a91a96545656ec06222167e"
+    },
+    {
+      "path": "automation-plan.md",
+      "bytes": 29491,
+      "sha256": "f7995bd7dcb2d226a30aff2124831f3c3c26ef10b1e217da13145aba342052a1"
+    },
+    {
+      "path": "copilot-execution-plan.md",
+      "bytes": 15546,
+      "sha256": "86498ea1d98918e80fba5c774ec3509d68279e74a5c6053d7c020c346c1eb3a3"
+    },
+    {
+      "path": "copilot-prompts/00-contract-and-foundation.md",
+      "bytes": 12545,
+      "sha256": "f32c28c101f23094627eb1813fc0f4d587b30d069b74036f27f89fb890b6ddb9"
+    },
+    {
+      "path": "copilot-prompts/01-bootstrap.md",
+      "bytes": 13056,
+      "sha256": "dd66628d42736d784231c2061663c00340ebe177c7633567cb67eff8b6c626b4"
+    },
+    {
+      "path": "copilot-prompts/02-core-cli-state.md",
+      "bytes": 12673,
+      "sha256": "f6bcaa8c46cc205cf5906548dfd135d8a0db7c446a8d6dc7cdf19a8633c6a633"
+    },
+    {
+      "path": "copilot-prompts/03-system-dependencies.md",
+      "bytes": 12375,
+      "sha256": "c2ad4283b38eec5ff96ed462841e642a28fbfcc7ae14bf899b9560061d2a2fb3"
+    },
+    {
+      "path": "copilot-prompts/04-secure-access.md",
+      "bytes": 12812,
+      "sha256": "f66f5f74c59ebdd79ab8eb89ef95ebe98fc6b28e96796be97107bb1cf2f9dac4"
+    },
+    {
+      "path": "copilot-prompts/05-docker-host.md",
+      "bytes": 12360,
+      "sha256": "1a0ddc189f2282c1afa9b8bfa7692a41c74a3d475d4bbb06cf4b529f39d13156"
+    },
+    {
+      "path": "copilot-prompts/06-application-release.md",
+      "bytes": 12507,
+      "sha256": "dd163fa38a384367b9aee740fa75219253ffe2a43fae6dca94cc03b93c7f1e64"
+    },
+    {
+      "path": "copilot-prompts/07-configuration-images.md",
+      "bytes": 12318,
+      "sha256": "9539566294efc19bd7e4d6a98315915036c3ee2b3438af65bef386d790351b20"
+    },
+    {
+      "path": "copilot-prompts/08-verification-auth.md",
+      "bytes": 12578,
+      "sha256": "570fd525a769dbac923e730e1bac52c0297b3fb6fc0767f2c31f1e5e211ff361"
+    },
+    {
+      "path": "copilot-prompts/09-project-github.md",
+      "bytes": 12420,
+      "sha256": "64354aa8e69c15e66e8f3f870dd0dba8be32300d7f21395ec7e6ec5ccd350884"
+    },
+    {
+      "path": "copilot-prompts/10-service-storage.md",
+      "bytes": 12604,
+      "sha256": "f2fafb97fbb47ba4890a0aedc34c19d2a753b427e467410c0098c0ef18b381c2"
+    },
+    {
+      "path": "copilot-prompts/11-operations.md",
+      "bytes": 12491,
+      "sha256": "3acd5efbb6155db1a0f55ea09ec039736c42e88c477f422e3539b03befc514a5"
+    },
+    {
+      "path": "copilot-prompts/12-optional-inference.md",
+      "bytes": 12611,
+      "sha256": "5bc5c12821c38be05d821edf6346571ce50d143590fd4c1926880dee726ce7de"
+    },
+    {
+      "path": "copilot-prompts/13-optional-platforms.md",
+      "bytes": 12243,
+      "sha256": "f0811d5a74a9c5a91aaac8a72f69a32702248987e70c2249362d6131c1c0f7ca"
+    },
+    {
+      "path": "copilot-prompts/14-maintenance-update.md",
+      "bytes": 12237,
+      "sha256": "cce0a851fce6371537bba6de821f118ac1445828b9adfd0e48b5e3ad7c16ab2d"
+    },
+    {
+      "path": "copilot-prompts/15-qualification-release.md",
+      "bytes": 13304,
+      "sha256": "401ea5560565ef795c989a7a92b2aace136731e46551d7ae31fec788938e20c3"
+    },
+    {
+      "path": "deployment-walkthrough.md",
+      "bytes": 15727,
+      "sha256": "ca6b37eb98fb3e93c23108892a21d71ced4a03062d828fe66b0c7c2ae26707e4"
+    },
+    {
+      "path": "open-questions.md",
+      "bytes": 4498,
+      "sha256": "54c3a8444e90018926112609c2a43d7c15fb494e68a40d2115da0a67726f6827"
+    },
+    {
+      "path": "phase1-validation.md",
+      "bytes": 5277,
+      "sha256": "b49394aa3076eb82efeac2159367c6e5e2eb86ee94514b52c4cb869166d82555"
+    }
+  ]
+}
