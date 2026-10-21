@@ -145,3 +145,156 @@ export interface StageModule {
   verify(ctx: StageContext): Promise<StageReceipt[]>;
   recover(ctx: StageContext, interruptedOperation: StageOperation): Promise<StageReceipt[]>;
 }
+
+export interface SetupConfig {
+  schema_version: 1;
+  contract_version: "1.0.0";
+  installation_id: string;
+  profile: "supervised" | "service";
+  host: {
+    os: "ubuntu-24.04";
+    arch: "amd64" | "arm64";
+    expected_user: string;
+  };
+  paths: {
+    setup_state_dir: string;
+    setup_cache_dir: string;
+    setup_bin_dir: string;
+    setup_node_dir: string;
+    application_dir: string;
+    application_state_dir: string;
+    application_auth_dir: string;
+    application_work_dir: string;
+  };
+  release: {
+    archive_path: string;
+    sha256: string;
+    source_commit: string;
+  };
+  version_lock_path: string;
+  selected_stages: StageId[];
+  resource_profile: "daily3" | "standard";
+  network: {
+    mode: "cloud-only" | "hybrid";
+    allow_paid_fallback: false;
+    proxy_url?: string;
+  };
+  secret_refs: {
+    auth_dir: string;
+    ca_bundle_path?: string;
+  };
+  github: {
+    repository_allowlist: string[];
+  };
+  optional_features: {
+    inference: boolean;
+    platforms: boolean;
+  };
+}
+
+export interface StateHostFingerprint {
+  machine_id_hash: string;
+  os: "ubuntu-24.04";
+  arch: "amd64" | "arm64";
+  boot_id: string;
+}
+
+export interface PersistedStageState {
+  id: StageId;
+  status: StageStatus;
+  observed_at: string;
+  checks: Record<string, string | number | boolean>;
+  versions: Record<string, string>;
+  applied_hashes: string[];
+  artifacts: string[];
+  dependencies_hash: string;
+}
+
+export interface PersistedGateState {
+  id: string;
+  operation_id: string;
+  plan_hash: string;
+  expires_at: string;
+  status: "pending" | "approved" | "expired" | "rejected";
+}
+
+export interface PersistedInFlightOperation {
+  id: string;
+  stage_id: StageId;
+  kind: OperationKind;
+  started_at: string;
+}
+
+export interface SetupState {
+  schema_version: 1;
+  contract_version: "1.0.0";
+  installer_version: string;
+  installation_id: string;
+  host_fingerprint: StateHostFingerprint;
+  config_hash: string;
+  lock_hash: string;
+  stages: PersistedStageState[];
+  pending_gates: PersistedGateState[];
+  in_flight_operation: PersistedInFlightOperation | null;
+  last_error: {
+    code: string;
+    stage: StageId;
+    operation_id: string;
+    retryable: boolean;
+    public_message: string;
+    next_action: string;
+    evidence_ref: string;
+  } | null;
+}
+
+export interface InstallerPlan {
+  schema_version: 1;
+  contract_version: "1.0.0";
+  installation_id: string;
+  desired_hash: string;
+  plan_hash: string;
+  created_at: string;
+  stages: Array<{
+    stage_id: StageId;
+    optional: boolean;
+    required_capabilities: CapabilityName[];
+    operations: Array<{
+      id: string;
+      stage_id: StageId;
+      kind: OperationKind;
+      resource_id: string;
+      risk: OperationRiskLevel;
+      gate_ids: string[];
+      preconditions: string[];
+      side_effects: string[];
+      timeout_sec: number;
+      retryable: boolean;
+    }>;
+    required_gates: string[];
+  }>;
+}
+
+export interface JsonEnvelope {
+  schema_version: 1;
+  command: string;
+  installation_id: string;
+  desired_hash: string;
+  plan_hash: string | null;
+  overall_status: string;
+  stages: Array<{
+    id: StageId;
+    status: StageStatus;
+    message: string;
+  }>;
+  manual_actions: string[];
+  error: {
+    code: string;
+    stage: StageId | null;
+    operation_id: string;
+    retryable: boolean;
+    public_message: string;
+    next_action: string;
+    evidence_ref: string;
+  } | null;
+  data?: Record<string, unknown>;
+}

@@ -2,7 +2,7 @@
   "name": "@agent-factory/setup",
   "version": "0.0.1",
   "private": true,
-  "description": "Deterministic installer foundation and contract validators",
+  "description": "Deterministic installer core with contract-validated state machine",
   "type": "commonjs",
   "engines": {
     "node": ">=24.0.0 <25"
@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "npm run build --silent && node --test dist/tests/unit/contracts.test.js dist/tests/integration/bootstrap.test.js"
+    "test": "npm run build --silent && node --test dist/tests/unit/*.test.js dist/tests/integration/*.test.js"
   },
   "dependencies": {
     "ajv": "^8.17.1"
