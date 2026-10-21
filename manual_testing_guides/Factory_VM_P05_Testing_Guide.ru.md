@@ -200,7 +200,7 @@ ls setup
 
 ### Ветвь А. Детерминированные тесты кода без изменения Ubuntu
 
-В `setup/` найди реальные scripts (`package.json`, `setup/README.md`, `setup/docs/implementation/P01.md` … `P05.md`). **Не угадывай entrypoint и не запускай весь `npm test`, не проверив, что он действительно изолирован от системных мутаций.** Согласно спецификации P01–P05, обычные unit/integration tests должны пользоваться fake adapters, а live VM tests запускаются отдельно.
+В `../setup` найди реальные scripts (`package.json`, `setup/README.md`, `setup/docs/implementation/P01.md` … `P05.md`). **Не угадывай entrypoint и не запускай весь `npm test`, не проверив, что он действительно изолирован от системных мутаций.** Согласно спецификации P01–P05, обычные unit/integration tests должны пользоваться fake adapters, а live VM tests запускаются отдельно.
 
 На чистой VM для development testing, *при необходимости* временно установи Node 24 из проверенного nvm release, **но не записывай это как проверку S00 bootstrap**:
 
@@ -215,7 +215,7 @@ node --version
 npm --version
 ```
 
-Далее, если `setup/package.json` действительно существует и его `scripts` проверены:
+Далее, если `../setup/package.json` действительно существует и его `scripts` проверены:
 
 ```bash
 cd "$HOME/factory-src/setup"
@@ -228,7 +228,7 @@ node -p 'JSON.stringify(require("./package.json").scripts, null, 2)'
 
 ### Ветвь Б. Host-mutating VM qualification
 
-**Не начинай её просто через `npm test` или неподписанный shell из репозитория.** Используй только отдельные команды `setup/docs/bootstrap.md`, `setup/docs/access-recovery.md`, `setup/docs/docker.md` и VM test entrypoints, которые Copilot фактически реализовал в P01–P05 и которые ты просмотрел как код.
+**Не начинай её просто через `npm test` или неподписанный shell из репозитория.** Используй только отдельные команды `../setup/docs/bootstrap.md`, `setup/docs/access-recovery.md`, `setup/docs/docker.md` и VM test entrypoints, которые Copilot фактически реализовал в P01–P05 и которые ты просмотрел как код.
 
 Перед каждым изменением:
 
