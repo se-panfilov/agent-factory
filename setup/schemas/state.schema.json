@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-factory.local/schemas/state.schema.json",
+  "title": "factory-setup state",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract_version",
+    "installer_version",
+    "installation_id",
+    "host_fingerprint",
+    "config_hash",
+    "lock_hash",
+    "stages",
+    "pending_gates",
+    "in_flight_operation",
+    "last_error"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "contract_version": { "const": "1.0.0" },
+    "installer_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "installation_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "host_fingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["machine_id_hash", "os", "arch", "boot_id"],
+      "properties": {
+        "machine_id_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "os": { "const": "ubuntu-24.04" },
+        "arch": { "type": "string", "enum": ["amd64", "arm64"] },
+        "boot_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        }
+      }
+    },
+    "config_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "lock_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "stages": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/stageState" }
+    },
+    "pending_gates": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/gateState" }
+    },
+    "in_flight_operation": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/inFlightOperation" }
+      ]
+    },
+    "last_error": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/stageError" }
+      ]
+    }
+  },
+  "$defs": {
+    "stageId": {
+      "type": "string",
+      "enum": [
+        "S00",
+        "S01",
+        "S02",
+        "S03",
+        "S04",
+        "S05",
+        "S06",
+        "S07",
+        "S08",
+        "S09",
+        "S10",
+        "S11",
+        "S12",
+        "S13",
+        "S14"
+      ]
+    },
+    "stageStatus": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "planned",
+        "applying",
+        "installed",
+        "verified",
+        "awaiting_manual",
+        "blocked",
+        "failed",
+        "skipped",
+        "interrupted",
+        "drifted"
+      ]
+    },
+    "stageState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "status",
+        "observed_at",
+        "checks",
+        "versions",
+        "applied_hashes",
+        "artifacts",
+        "dependencies_hash"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/stageId" },
+        "status": { "$ref": "#/$defs/stageStatus" },
+        "observed_at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T"
+        },
+        "checks": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "number" },
+              { "type": "boolean" }
+            ]
+          }
+        },
+        "versions": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "applied_hashes": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        },
+        "artifacts": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^/[^\\0]*$" }
+        },
+        "dependencies_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "gateState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "operation_id", "plan_hash", "expires_at", "status"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "operation_id": { "type": "string", "minLength": 1 },
+        "plan_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "expires_at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "approved", "expired", "rejected"]
+        }
+      }
+    },
+    "inFlightOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "stage_id", "kind", "started_at"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "stage_id": { "$ref": "#/$defs/stageId" },
+        "kind": {
+          "type": "string",
+          "enum": ["observe", "mutate", "verify", "manual_gate", "recover"]
+        },
+        "started_at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T"
+        }
+      }
+    },
+    "stageError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "stage",
+        "operation_id",
+        "retryable",
+        "public_message",
+        "next_action",
+        "evidence_ref"
+      ],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "stage": { "$ref": "#/$defs/stageId" },
+        "operation_id": { "type": "string", "minLength": 1 },
+        "retryable": { "type": "boolean" },
+        "public_message": { "type": "string", "minLength": 1 },
+        "next_action": { "type": "string", "minLength": 1 },
+        "evidence_ref": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

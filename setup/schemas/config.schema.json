@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-factory.local/schemas/config.schema.json",
+  "title": "factory-setup config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract_version",
+    "installation_id",
+    "profile",
+    "host",
+    "paths",
+    "release",
+    "version_lock_path",
+    "selected_stages",
+    "resource_profile",
+    "network",
+    "secret_refs",
+    "github",
+    "optional_features"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "contract_version": {
+      "const": "1.0.0"
+    },
+    "installation_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "profile": {
+      "type": "string",
+      "enum": ["supervised", "service"]
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "arch", "expected_user"],
+      "properties": {
+        "os": {
+          "const": "ubuntu-24.04"
+        },
+        "arch": {
+          "type": "string",
+          "enum": ["amd64", "arm64"]
+        },
+        "expected_user": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z_][a-z0-9_-]*$"
+        }
+      }
+    },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "setup_state_dir",
+        "setup_cache_dir",
+        "setup_bin_dir",
+        "setup_node_dir",
+        "application_dir",
+        "application_state_dir",
+        "application_auth_dir",
+        "application_work_dir"
+      ],
+      "properties": {
+        "setup_state_dir": { "$ref": "#/$defs/absolutePath" },
+        "setup_cache_dir": { "$ref": "#/$defs/absolutePath" },
+        "setup_bin_dir": { "$ref": "#/$defs/absolutePath" },
+        "setup_node_dir": { "$ref": "#/$defs/absolutePath" },
+        "application_dir": { "$ref": "#/$defs/absolutePath" },
+        "application_state_dir": { "$ref": "#/$defs/absolutePath" },
+        "application_auth_dir": { "$ref": "#/$defs/absolutePath" },
+        "application_work_dir": { "$ref": "#/$defs/absolutePath" }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["archive_path", "sha256", "source_commit"],
+      "properties": {
+        "archive_path": { "$ref": "#/$defs/absolutePath" },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "source_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "version_lock_path": { "$ref": "#/$defs/absolutePath" },
+    "selected_stages": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "S00",
+          "S01",
+          "S02",
+          "S03",
+          "S04",
+          "S05",
+          "S06",
+          "S07",
+          "S08",
+          "S09",
+          "S10",
+          "S11",
+          "S12",
+          "S13",
+          "S14"
+        ]
+      }
+    },
+    "resource_profile": {
+      "type": "string",
+      "enum": ["daily3", "standard"]
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "allow_paid_fallback"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["cloud-only", "hybrid"]
+        },
+        "allow_paid_fallback": {
+          "const": false
+        },
+        "proxy_url": {
+          "type": "string",
+          "pattern": "^https?://[^\\s]+$"
+        }
+      }
+    },
+    "secret_refs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["auth_dir"],
+      "properties": {
+        "auth_dir": { "$ref": "#/$defs/absolutePath" },
+        "ca_bundle_path": { "$ref": "#/$defs/absolutePath" }
+      }
+    },
+    "github": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository_allowlist"],
+      "properties": {
+        "repository_allowlist": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "optional_features": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inference", "platforms"],
+      "properties": {
+        "inference": { "type": "boolean" },
+        "platforms": { "type": "boolean" }
+      }
+    }
+  },
+  "$defs": {
+    "absolutePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^/[^\\0]*$"
+    }
+  }
+}
