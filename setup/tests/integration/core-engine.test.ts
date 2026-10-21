@@ -232,6 +232,7 @@ function buildRegistry(effectPath: string): StageModule[] {
       return this.verify({
         installationId: "fixture",
         contractVersion: "1.0.0",
+        profile: "supervised",
         desiredHash: "fixture",
         planHash: "fixture"
       });

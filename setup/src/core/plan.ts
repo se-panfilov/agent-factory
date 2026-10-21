@@ -115,6 +115,7 @@ export async function createPlanFile(
     const observation = await stage.observe({
       installationId: config.installation_id,
       contractVersion: "1.0.0",
+      profile: config.profile,
       desiredHash: hashConfig(config),
       planHash: "pending"
     });

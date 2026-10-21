@@ -3,7 +3,9 @@ import os from "node:os";
 import { NodeFilesystemAdapter, type FilesystemAdapter } from "../adapters/filesystem";
 import { NodeHttpAdapter, type HttpAdapter } from "../adapters/http";
 import { NodeProcessAdapter, type ProcessAdapter } from "../adapters/process";
+import { NodeAptAdapter } from "../adapters/apt";
 import { createNodePreflightProbe, createPreflightStage } from "../stages/preflight";
+import { createSystemStage } from "../stages/system";
 import { hashConfig, initConfig, loadConfig, systemClock, type Clock } from "./config";
 import { ExitCode, type InstallerPlan, type JsonEnvelope, type SetupConfig, type SetupState, type StageId, type StageModule } from "./types";
 import { setupError, toSetupError } from "./errors";
@@ -133,10 +135,11 @@ function bootstrapStage(fsAdapter: FilesystemAdapter): StageModule {
   };
 }
 
-function defaultRegistry(fsAdapter: FilesystemAdapter): StageRegistry {
+function defaultRegistry(fsAdapter: FilesystemAdapter, processAdapter: ProcessAdapter): StageRegistry {
   return createRegistry([
     bootstrapStage(fsAdapter),
-    createPreflightStage(createNodePreflightProbe(fsAdapter))
+    createPreflightStage(createNodePreflightProbe(fsAdapter)),
+    createSystemStage(new NodeAptAdapter(processAdapter, fsAdapter))
   ]);
 }
 
@@ -152,7 +155,7 @@ export class SetupEngine {
       clock: deps?.clock ?? systemClock,
       installerVersion: deps?.installerVersion ?? "0.0.1"
     };
-    this.registry = registry ?? defaultRegistry(this.deps.fsAdapter);
+    this.registry = registry ?? defaultRegistry(this.deps.fsAdapter, this.deps.processAdapter);
   }
 
   async run(command: string, options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
@@ -261,6 +264,7 @@ export class SetupEngine {
     const observation = await stage.observe({
       installationId: config.installation_id,
       contractVersion: "1.0.0",
+      profile: config.profile,
       desiredHash: hashConfig(config),
       planHash: "none"
     });
@@ -336,6 +340,7 @@ export class SetupEngine {
         const observation = await stage.observe({
           installationId: config.installation_id,
           contractVersion: "1.0.0",
+          profile: config.profile,
           desiredHash: plan.desired_hash,
           planHash: plan.plan_hash
         });
@@ -385,6 +390,7 @@ export class SetupEngine {
           {
             installationId: config.installation_id,
             contractVersion: "1.0.0",
+            profile: config.profile,
             desiredHash: plan.desired_hash,
             planHash: plan.plan_hash
           },
@@ -418,6 +424,7 @@ export class SetupEngine {
         await stage.verify({
           installationId: config.installation_id,
           contractVersion: "1.0.0",
+          profile: config.profile,
           desiredHash: plan.desired_hash,
           planHash: plan.plan_hash
         });
@@ -473,6 +480,7 @@ export class SetupEngine {
         const observation = await preflight.observe({
           installationId: config.installation_id,
           contractVersion: "1.0.0",
+          profile: config.profile,
           desiredHash: hashConfig(config),
           planHash: "none"
         });
@@ -539,6 +547,7 @@ export class SetupEngine {
       const receipts = await stage.verify({
         installationId: config.installation_id,
         contractVersion: "1.0.0",
+        profile: config.profile,
         desiredHash: hashConfig(config),
         planHash: "verify"
       });
@@ -546,6 +555,7 @@ export class SetupEngine {
         const observation = await stage.observe({
           installationId: config.installation_id,
           contractVersion: "1.0.0",
+          profile: config.profile,
           desiredHash: hashConfig(config),
           planHash: "verify"
         });

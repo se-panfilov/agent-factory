@@ -129,6 +129,7 @@ export interface StageObservation {
 export interface StageContext {
   installationId: string;
   contractVersion: "1.0.0";
+  profile: "supervised" | "service";
   desiredHash: string;
   planHash: string;
 }
