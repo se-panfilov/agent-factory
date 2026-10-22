@@ -1,0 +1,32 @@
+services:
+  {{SERVICE_NAME}}:
+    image: "{{OLLAMA_IMAGE_REF}}"
+    container_name: "{{SERVICE_NAME}}"
+    restart: unless-stopped
+    command: ["serve"]
+    expose:
+      - "11434"
+    networks:
+      - inference_internal
+    volumes:
+      - "{{MODEL_VOLUME_NAME}}:{{MODEL_DIR}}"
+    cpus: 4.0
+    mem_limit: 10g
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "{{HEALTH_ENDPOINT}}/api/version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  {{MODEL_VOLUME_NAME}}:
+
+networks:
+  inference_internal:
+    internal: true

@@ -24,6 +24,9 @@ function parseArgs(argv: string[]): ParsedCommand {
   if (argv[0] === "backup") {
     return parseArgs([`backup-${argv[1] ?? ""}`, ...argv.slice(2)]);
   }
+  if (argv[0] === "inference") {
+    return parseArgs([`inference-${argv[1] ?? ""}`, ...argv.slice(2)]);
+  }
 
   const [command, ...rest] = argv;
   if (command === undefined) {
@@ -66,6 +69,7 @@ function printHelp(): void {
       "  factory-setup auth login --config PATH",
       "  factory-setup auth status --config PATH",
       "  factory-setup smoke --config PATH --provider fake|live --fixture toy",
+      "  factory-setup inference disable --config PATH",
       "  factory-setup cancel --config PATH [--emergency]",
       "  factory-setup recover --config PATH [--lock-only]"
       ,

@@ -18,6 +18,7 @@ import { createNodeProjectStageAdapter, createProjectStage } from "../stages/pro
 import { createNodeSystemdAdapter } from "../adapters/systemd";
 import { createServiceStage } from "../stages/service";
 import { createOperationsStage } from "../stages/operations";
+import { createInferenceStage, runInferenceDisable } from "../stages/inference";
 import { createBackup, verifyBackup } from "../operations/backup";
 import { restoreBackup } from "../operations/restore";
 import { emergencyCancel } from "../operations/emergency";
@@ -172,7 +173,8 @@ function defaultRegistry(fsAdapter: FilesystemAdapter, processAdapter: ProcessAd
     createAuthStage(fsAdapter, processAdapter),
     createProjectStage(fsAdapter, projectAdapter),
     createServiceStage(fsAdapter, systemdAdapter),
-    createOperationsStage(fsAdapter, processAdapter)
+    createOperationsStage(fsAdapter, processAdapter),
+    createInferenceStage(fsAdapter, processAdapter)
   ]);
 }
 
@@ -228,12 +230,14 @@ export class SetupEngine {
           return await this.runAuthStatus(options);
         case "smoke":
           return await this.runSmoke(options);
+        case "inference-disable":
+          return await this.runInferenceDisable(options);
         default:
           throw setupError({
             exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
             code: "unsupported_command",
             publicMessage: `Command '${command}' is not implemented in P02 scope.`,
-            nextAction: "Use commands from init/preflight/plan/apply/status/resume/verify/gate/auth/smoke/cancel/recover/backup/restore."
+            nextAction: "Use commands from init/preflight/plan/apply/status/resume/verify/gate/auth/smoke/inference/cancel/recover/backup/restore."
           });
       }
     } catch (error) {
@@ -512,7 +516,21 @@ export class SetupEngine {
       envelope.overall_status = "ok";
       return { envelope, exitCode: ExitCode.Success };
     } catch (error) {
-      const setup = toSetupError(error);
+      let setup = toSetupError(error);
+      const failedStage = setup.stage;
+      const failedStagePlan = failedStage === null ? null : plan.stages.find((entry) => entry.stage_id === failedStage);
+      if (failedStagePlan?.optional === true && setup.exitCode !== ExitCode.OptionalRequestedStageFailed) {
+        setup = setupError({
+          exitCode: ExitCode.OptionalRequestedStageFailed,
+          code: setup.code,
+          publicMessage: setup.message,
+          nextAction: setup.nextAction,
+          stage: setup.stage,
+          operationId: setup.operationId,
+          retryable: setup.retryable,
+          evidenceRef: setup.evidenceRef
+        });
+      }
       state = withLastError(state, {
         code: setup.code,
         stage: (setup.stage ?? "S01") as StageId,
@@ -916,6 +934,29 @@ export class SetupEngine {
       status: result.status,
       source_sha: result.sourceSha,
       consumed_count: result.consumedCount
+    };
+    return { envelope, exitCode: ExitCode.Success };
+  }
+
+  private async runInferenceDisable(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
+    const config = await loadConfig(this.deps.fsAdapter, options.configPath);
+    let state = await loadState(
+      this.deps.fsAdapter,
+      this.deps.processAdapter,
+      this.deps.clock,
+      config,
+      this.deps.installerVersion
+    );
+    const result = await runInferenceDisable(this.deps.fsAdapter, this.deps.processAdapter, config);
+    state = await this.refreshStageObservation(state, config, "S12", "inference-disable");
+    await saveState(this.deps.fsAdapter, config, state);
+    const envelope = envelopeBase("inference disable", config, state, null);
+    envelope.overall_status = "ok";
+    envelope.data = {
+      scheduled_blocked: result.scheduledBlocked,
+      stopped: result.stopped,
+      already_disabled: result.alreadyDisabled,
+      compose_path: result.composePath
     };
     return { envelope, exitCode: ExitCode.Success };
   }
