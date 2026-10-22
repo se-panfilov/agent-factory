@@ -1,0 +1,43 @@
+name: factory-baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: "Target checkout SHA (must match planned S09 SHA)"
+        required: true
+        default: "{{TARGET_SHA}}"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  baseline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout at pinned SHA
+        uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b
+        with:
+          repository: "{{TARGET_REPOSITORY}}"
+          ref: ${{ inputs.target_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Confirm exact SHA binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          test "$actual_sha" = "${{ inputs.target_sha }}"
+          echo "verified_sha=$actual_sha" >> "$GITHUB_OUTPUT"
+      - name: Upload checkout evidence
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        with:
+          name: checkout-evidence
+          path: |
+            .nvmrc
+            package.json
+            package-lock.json
+            .github/workflows
+            AGENTS.md
