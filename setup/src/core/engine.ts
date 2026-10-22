@@ -20,6 +20,7 @@ import { createServiceStage } from "../stages/service";
 import { createOperationsStage } from "../stages/operations";
 import { createInferenceStage, runInferenceDisable } from "../stages/inference";
 import { createPlatformsStage } from "../stages/platforms";
+import { createUpdateStage } from "../stages/update";
 import { createBackup, verifyBackup } from "../operations/backup";
 import { restoreBackup } from "../operations/restore";
 import { emergencyCancel } from "../operations/emergency";
@@ -176,7 +177,8 @@ function defaultRegistry(fsAdapter: FilesystemAdapter, processAdapter: ProcessAd
     createServiceStage(fsAdapter, systemdAdapter),
     createOperationsStage(fsAdapter, processAdapter),
     createInferenceStage(fsAdapter, processAdapter),
-    createPlatformsStage(fsAdapter)
+    createPlatformsStage(fsAdapter),
+    createUpdateStage(fsAdapter, processAdapter)
   ]);
 }
 
