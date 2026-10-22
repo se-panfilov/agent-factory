@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "contract_version": "1.0.0",
+  "installer": {
+    "version": "0.0.1"
+  },
+  "node": {
+    "version": "24.19.0",
+    "source_url": "https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-x64.tar.xz",
+    "sha256": "14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647"
+  },
+  "npm": {
+    "version": "11.17.0"
+  },
+  "docker": {
+    "ce": "5:29.9.2-1~ubuntu.24.04~noble",
+    "cli": "5:29.9.2-1~ubuntu.24.04~noble",
+    "containerd": "2.4.2-3~ubuntu.24.04~noble",
+    "buildx": "0.38.1-1~ubuntu.24.04~noble",
+    "compose": "5.6.1-1~ubuntu.24.04~noble"
+  },
+  "tailscale": {
+    "version": "1.70.0"
+  },
+  "codex": {
+    "package": "@openai/codex",
+    "version": "0.32.0",
+    "integrity": "sha512-TvqjWzM7uTYID2EWd5bqx8OEQELXljFdO9GOZligpUj4QnE6DZt03EonKpVlPir58ecShOzU0OTPsflp0SIW1w=="
+  },
+  "images": {
+    "base_image_platform_digest": "sha256:a2d43bffc46670d7108bb3c0468c67c5557c4c92e83e1e34cbff1322ad1b94dc",
+    "agent_image_digest": "sha256:a2d43bffc46670d7108bb3c0468c67c5557c4c92e83e1e34cbff1322ad1b94dc"
+  },
+  "sources": {
+    "trusted_fingerprints": [
+      "sha256:be0629ee2bcd8e40bb856abdd3407f0762101b76bd60a36b8867f637733631c0",
+      "sha256:1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570",
+      "sha256:3e03dacf222698c60b8e2f990b809ca1b3e104de127767864284e6c228f1fb39"
+    ],
+    "official_urls": [
+      "https://nodejs.org/dist/v24.19.0/",
+      "https://registry.npmjs.org/@openai/codex",
+      "https://download.docker.com/linux/ubuntu/dists/noble/stable/binary-amd64/",
+      "https://pkgs.tailscale.com/stable/ubuntu/dists/noble/main/binary-amd64/"
+    ]
+  },
+  "artifact_sizes": {
+    "node_tarball_bytes": 31633904
+  },
+  "qualification": {
+    "report_refs": [
+      "setup/docs/qualification.md",
+      "setup/docs/implementation/P15.md"
+    ]
+  }
+}

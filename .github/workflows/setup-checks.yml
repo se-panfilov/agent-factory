@@ -1,0 +1,53 @@
+name: setup-checks
+
+on:
+  pull_request:
+    paths:
+      - "setup/**"
+      - ".github/workflows/setup-checks.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "setup/**"
+      - ".github/workflows/setup-checks.yml"
+
+jobs:
+  setup-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install setup dependencies
+        run: npm --prefix setup ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm --prefix setup run typecheck --silent
+
+      - name: Unit and integration tests
+        run: npm --prefix setup test --silent
+
+      - name: Dry-run release packaging and verification
+        run: |
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$RUNNER_TEMP/release-private.pem"
+          openssl rsa -pubout -in "$RUNNER_TEMP/release-private.pem" -out "$RUNNER_TEMP/release-public.pem"
+          printf 'node-release-keyring-placeholder\n' > "$RUNNER_TEMP/node-release-keys.gpg"
+          npm --prefix setup run release:build -- \
+            --out-dir "$RUNNER_TEMP/setup-release" \
+            --source-commit "$(git rev-parse HEAD)" \
+            --signing-key "$RUNNER_TEMP/release-private.pem" \
+            --verify-key "$RUNNER_TEMP/release-public.pem" \
+            --node-keyring "$RUNNER_TEMP/node-release-keys.gpg" \
+            --key-id "ci-test-key"
+          npm --prefix setup run release:verify -- \
+            --archive "$RUNNER_TEMP/setup-release/factory-setup-v0.0.1.tar.xz" \
+            --checksum "$RUNNER_TEMP/setup-release/factory-setup-v0.0.1.tar.xz.sha256" \
+            --signature "$RUNNER_TEMP/setup-release/factory-setup-v0.0.1.tar.xz.sig" \
+            --verify-key "$RUNNER_TEMP/release-public.pem"

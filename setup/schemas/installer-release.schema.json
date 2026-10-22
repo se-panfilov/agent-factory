@@ -110,6 +110,21 @@
         }
       }
     },
+    "artifact_sizes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_tarball_bytes"],
+      "properties": {
+        "node_tarball_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "setup_release_bytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
     "qualification": {
       "type": "object",
       "additionalProperties": false,

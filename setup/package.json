@@ -10,7 +10,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "npm run build --silent && node --test dist/tests/unit/*.test.js dist/tests/integration/*.test.js"
+    "test": "npm run build --silent && node --test dist/tests/unit/*.test.js dist/tests/integration/*.test.js",
+    "release:build": "node ./release/build-release.mjs",
+    "release:verify": "node ./release/verify-release.mjs"
   },
   "dependencies": {
     "ajv": "^8.17.1"
