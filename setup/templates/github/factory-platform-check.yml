@@ -1,0 +1,78 @@
+name: Factory platform check
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Full commit SHA to check
+        required: true
+        type: string
+      platforms:
+        description: 'JSON array, e.g. ["linux-x64","windows-x64"]'
+        required: true
+        type: string
+      profile:
+        description: Check profile
+        required: true
+        type: choice
+        options: [guard, browser_smoke]
+permissions:
+  contents: read
+concurrency:
+  group: factory-platform-${{ inputs.candidate_sha }}
+  cancel-in-progress: false
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - id: m
+        env:
+          PLATFORMS: ${{ inputs.platforms }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          node -e '
+            const sha = process.env.CANDIDATE_SHA;
+            if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error("bad sha");
+            const labels = { "linux-x64": "ubuntu-24.04", "windows-x64": "windows-2025", "macos-arm64": "macos-15" };
+            const wanted = JSON.parse(process.env.PLATFORMS);
+            if (!Array.isArray(wanted) || wanted.length > 3 || new Set(wanted).size !== wanted.length) throw new Error("bad platforms");
+            const include = wanted.map((p) => {
+              if (!labels[p]) throw new Error("unknown platform " + p);
+              return { platform: p, runs_on: labels[p] };
+            });
+            require("fs").appendFileSync(process.env.GITHUB_OUTPUT, "matrix=" + JSON.stringify({ include }) + "\n");
+          '
+  check:
+    needs: plan
+    name: check (${{ matrix.platform }})
+    runs-on: ${{ matrix.runs_on }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          persist-credentials: false
+      - name: Record actual checkout and runner
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          echo "sha=$(git rev-parse HEAD) os=$RUNNER_OS arch=$RUNNER_ARCH image=${ImageOS:-unknown}-${ImageVersion:-unknown}"
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci --no-audit --no-fund
+      - if: inputs.profile == 'guard'
+        run: npm run pr:guard:ci
+      - if: inputs.profile == 'browser_smoke'
+        run: |
+          echo "BLOCKED: browser_smoke requires reviewed PR12 adapter command via collector integration." >&2
+          exit 1
