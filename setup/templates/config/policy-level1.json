@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "profile": "supervised",
+  "network_mode": "cloud-only",
+  "resource_profile": "daily3",
+  "limits": {
+    "daily_budget": "daily3",
+    "run_timeout_sec": 300
+  },
+  "providers": [
+    {
+      "id": "codex-cloud",
+      "package": "@openai/codex",
+      "enabled": true
+    }
+  ],
+  "roles": {
+    "scout": {
+      "provider": "codex-cloud",
+      "max_parallelism": 1
+    }
+  }
+}

@@ -11,6 +11,7 @@ import { createNodeDockerAdapter } from "../adapters/docker";
 import { createDockerStage } from "../stages/docker";
 import { createNodeApplicationReleaseAdapter } from "../adapters/git";
 import { createApplicationStage } from "../stages/application";
+import { createConfigurationStage } from "../stages/configuration";
 import { hashConfig, initConfig, loadConfig, systemClock, type Clock } from "./config";
 import { ExitCode, type InstallerPlan, type JsonEnvelope, type SetupConfig, type SetupState, type StageId, type StageModule } from "./types";
 import { setupError, toSetupError } from "./errors";
@@ -150,7 +151,8 @@ function defaultRegistry(fsAdapter: FilesystemAdapter, processAdapter: ProcessAd
     createSystemStage(aptAdapter),
     createAccessStage(createNodeAccessAdapter(processAdapter, fsAdapter, aptAdapter)),
     createDockerStage(dockerAdapter),
-    createApplicationStage(applicationAdapter)
+    createApplicationStage(applicationAdapter),
+    createConfigurationStage(fsAdapter, processAdapter)
   ]);
 }
 
