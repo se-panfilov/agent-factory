@@ -1,0 +1,559 @@
+import path from "node:path";
+import { setupError } from "../core/errors";
+import {
+  ExitCode,
+  type SetupConfig,
+  type StageContext,
+  type CapabilityName,
+  type StageModule,
+  type StageObservation,
+  type StagePlan,
+  type StageReceipt
+} from "../core/types";
+import { type ApplicationManifestData, type ApplicationReleaseAdapter, type ExistingCheckoutObservation, type ReleaseInspection } from "../adapters/git";
+
+interface RuntimeSnapshot {
+  config: SetupConfig;
+  checkout: ExistingCheckoutObservation;
+  release: ReleaseInspection;
+}
+
+interface ParsedPlanPreconditions {
+  archiveSha256: string;
+  sourceCommit: string;
+  applicationDir: string;
+  setupCacheDir: string;
+}
+
+function requiredCapabilitiesForProfile(profile: "supervised" | "service"): CapabilityName[] {
+  if (profile === "service") {
+    return ["app-serve", "app-status", "app-stop", "app-recover", "app-migrate"];
+  }
+  return ["runner-readonly"];
+}
+
+function hasCapabilities(manifest: ApplicationManifestData | null, required: string[]): boolean {
+  if (manifest === null) {
+    return false;
+  }
+  const declared = new Set(manifest.capabilities);
+  return required.every((capability) => declared.has(capability));
+}
+
+function checksFromSnapshot(snapshot: RuntimeSnapshot): Record<string, string | number | boolean> {
+  const requiredCapabilities = requiredCapabilitiesForProfile(snapshot.config.profile);
+  const manifest = snapshot.release.manifest;
+  return {
+    archive_exists: snapshot.release.archiveExists,
+    archive_sha256_match: snapshot.release.sha256Matches,
+    release_manifest_present: snapshot.release.manifestPath !== null,
+    release_manifest_valid: snapshot.release.manifestValid,
+    release_manifest_source_commit_match:
+      manifest !== null && manifest.source_commit === snapshot.config.release.source_commit,
+    release_manifest_required_capabilities_present: hasCapabilities(manifest, requiredCapabilities),
+    release_archive_entry_count: snapshot.release.entryCount,
+    release_archive_has_dockerfile: snapshot.release.hasDockerfile,
+    release_archive_has_build_context: snapshot.release.hasBuildContext,
+    release_archive_traversal_detected: snapshot.release.traversalEntries.length > 0,
+    release_archive_symlink_detected: snapshot.release.symlinkEntries.length > 0,
+    release_archive_special_entries_detected: snapshot.release.specialEntries.length > 0,
+    existing_checkout_present: snapshot.checkout.exists,
+    existing_checkout_git_present: snapshot.checkout.hasGitDir,
+    existing_checkout_dirty: snapshot.checkout.dirty,
+    existing_checkout_detached_head: snapshot.checkout.detachedHead,
+    existing_checkout_remote_allowed:
+      snapshot.checkout.originUrl === null
+      || snapshot.config.github.repository_allowlist.length === 0
+      || snapshot.config.github.repository_allowlist.some((allowed) => snapshot.checkout.originUrl?.includes(allowed)),
+    existing_checkout_source_commit_match:
+      snapshot.checkout.deployedSourceCommit === null
+      || snapshot.checkout.deployedSourceCommit === snapshot.config.release.source_commit
+  };
+}
+
+function versionsFromSnapshot(snapshot: RuntimeSnapshot): Record<string, string> {
+  const manifest = snapshot.release.manifest;
+  return {
+    release_archive_sha256_actual: snapshot.release.archiveSha256 ?? "absent",
+    release_archive_sha256_expected: snapshot.config.release.sha256,
+    release_manifest_source_commit: manifest?.source_commit ?? "absent",
+    release_expected_source_commit: snapshot.config.release.source_commit,
+    existing_checkout_head: snapshot.checkout.headCommit ?? "absent",
+    existing_checkout_branch: snapshot.checkout.branch ?? "absent",
+    existing_checkout_origin: snapshot.checkout.originUrl ?? "absent",
+    release_manifest_path: snapshot.release.manifestPath ?? "absent",
+    release_application_version: manifest?.application_version ?? "absent"
+  };
+}
+
+function inferStatus(snapshot: RuntimeSnapshot): StageObservation["status"] {
+  const checks = checksFromSnapshot(snapshot);
+  if (checks.archive_exists !== true) {
+    return "blocked";
+  }
+  if (checks.archive_sha256_match !== true) {
+    return "blocked";
+  }
+  if (checks.release_manifest_present !== true || checks.release_manifest_valid !== true) {
+    return "blocked";
+  }
+  if (checks.release_manifest_source_commit_match !== true) {
+    return "blocked";
+  }
+  if (checks.release_manifest_required_capabilities_present !== true) {
+    return "blocked";
+  }
+  if (
+    checks.release_archive_traversal_detected === true
+    || checks.release_archive_symlink_detected === true
+    || checks.release_archive_special_entries_detected === true
+  ) {
+    return "blocked";
+  }
+  if (checks.existing_checkout_dirty === true) {
+    return "drifted";
+  }
+  if (checks.existing_checkout_remote_allowed !== true) {
+    return "drifted";
+  }
+  if (checks.existing_checkout_source_commit_match !== true) {
+    return "drifted";
+  }
+  if (checks.existing_checkout_present === true && checks.existing_checkout_detached_head !== true) {
+    return "drifted";
+  }
+  if (
+    checks.existing_checkout_present === true
+    && checks.existing_checkout_detached_head === true
+  ) {
+    return "verified";
+  }
+  return "planned";
+}
+
+function requiredGates(snapshot: RuntimeSnapshot): string[] {
+  const gates = ["s05-application-release-reviewed", "s05-source-commit-reviewed"];
+  if (snapshot.release.hasDockerfile || snapshot.release.hasBuildContext) {
+    gates.push("s05-dockerfile-build-reviewed");
+  }
+  return gates;
+}
+
+function parsePlanPreconditions(plan: StagePlan): ParsedPlanPreconditions {
+  let archiveSha256: string | null = null;
+  let sourceCommit: string | null = null;
+  let applicationDir: string | null = null;
+  let setupCacheDir: string | null = null;
+
+  for (const operation of plan.operations) {
+    for (const precondition of operation.preconditions) {
+      if (precondition.startsWith("s05_archive_sha256:")) {
+        archiveSha256 = precondition.slice("s05_archive_sha256:".length);
+      } else if (precondition.startsWith("s05_source_commit:")) {
+        sourceCommit = precondition.slice("s05_source_commit:".length);
+      } else if (precondition.startsWith("s05_application_dir:")) {
+        applicationDir = precondition.slice("s05_application_dir:".length);
+      } else if (precondition.startsWith("s05_setup_cache_dir:")) {
+        setupCacheDir = precondition.slice("s05_setup_cache_dir:".length);
+      }
+    }
+  }
+
+  if (
+    archiveSha256 === null
+    || sourceCommit === null
+    || applicationDir === null
+    || setupCacheDir === null
+    || archiveSha256.length === 0
+    || sourceCommit.length === 0
+    || applicationDir.length === 0
+    || setupCacheDir.length === 0
+  ) {
+    throw setupError({
+      exitCode: ExitCode.CliOrSchemaError,
+      code: "s05_plan_preconditions_missing",
+      publicMessage: "S05 plan preconditions are incomplete.",
+      nextAction: "Regenerate plan for S05 and re-approve gates.",
+      stage: "S05"
+    });
+  }
+  return {
+    archiveSha256,
+    sourceCommit,
+    applicationDir,
+    setupCacheDir
+  };
+}
+
+function validateBlockedSnapshot(snapshot: RuntimeSnapshot): void {
+  const checks = checksFromSnapshot(snapshot);
+  if (checks.archive_exists !== true) {
+    throw setupError({
+      exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
+      code: "s05_m0_release_missing",
+      publicMessage: "M0 application release archive is missing; S05 is blocked.",
+      nextAction: "Provide reviewed owner-exported M0 release archive and rerun plan/apply.",
+      stage: "S05",
+      evidenceRef: snapshot.config.release.archive_path
+    });
+  }
+  if (checks.archive_sha256_match !== true) {
+    throw setupError({
+      exitCode: ExitCode.SecurityBoundaryViolation,
+      code: "s05_release_hash_mismatch",
+      publicMessage: "Release archive hash does not match reviewed pin.",
+      nextAction: "Replace archive with reviewed artifact matching release.sha256.",
+      stage: "S05"
+    });
+  }
+  if (checks.release_manifest_present !== true || checks.release_manifest_valid !== true) {
+    throw setupError({
+      exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
+      code: "s05_deployment_manifest_invalid",
+      publicMessage: "Release deployment-manifest.json is missing or invalid.",
+      nextAction: "Provide reviewed M0/M1 release with valid deployment-manifest.json.",
+      stage: "S05",
+      evidenceRef: snapshot.release.manifestErrors.join(",")
+    });
+  }
+  if (checks.release_manifest_source_commit_match !== true) {
+    throw setupError({
+      exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
+      code: "s05_source_commit_mismatch",
+      publicMessage: "Manifest source_commit does not match configured release.source_commit.",
+      nextAction: "Update config.release.source_commit or provide matching reviewed artifact.",
+      stage: "S05"
+    });
+  }
+  if (checks.release_manifest_required_capabilities_present !== true) {
+    throw setupError({
+      exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
+      code: "s05_required_capabilities_missing",
+      publicMessage: "Release manifest does not provide required capabilities for S05 profile.",
+      nextAction: "Provide reviewed M0 (supervised) or M1 (service) release manifest.",
+      stage: "S05"
+    });
+  }
+  if (checks.release_archive_traversal_detected === true) {
+    throw setupError({
+      exitCode: ExitCode.SecurityBoundaryViolation,
+      code: "s05_archive_path_traversal",
+      publicMessage: "Release archive contains traversal paths.",
+      nextAction: "Regenerate trusted archive without absolute or parent-relative paths.",
+      stage: "S05",
+      evidenceRef: snapshot.release.traversalEntries.slice(0, 5).join(",")
+    });
+  }
+  if (checks.release_archive_symlink_detected === true) {
+    throw setupError({
+      exitCode: ExitCode.SecurityBoundaryViolation,
+      code: "s05_archive_symlink_forbidden",
+      publicMessage: "Release archive contains symlink/hardlink entries, extraction is blocked.",
+      nextAction: "Regenerate trusted archive with regular files/directories only.",
+      stage: "S05",
+      evidenceRef: snapshot.release.symlinkEntries.slice(0, 5).join(",")
+    });
+  }
+  if (checks.release_archive_special_entries_detected === true) {
+    throw setupError({
+      exitCode: ExitCode.SecurityBoundaryViolation,
+      code: "s05_archive_special_entry_forbidden",
+      publicMessage: "Release archive contains unsupported special entries.",
+      nextAction: "Regenerate trusted archive without device/FIFO/special entries.",
+      stage: "S05",
+      evidenceRef: snapshot.release.specialEntries.slice(0, 5).join(",")
+    });
+  }
+  if (checks.existing_checkout_dirty === true) {
+    throw setupError({
+      exitCode: ExitCode.DriftOrRecoveryRequired,
+      code: "s05_existing_checkout_dirty",
+      publicMessage: "Existing application checkout is dirty; destructive reset is forbidden.",
+      nextAction: "Clean or archive existing checkout manually, then rerun S05.",
+      stage: "S05"
+    });
+  }
+  if (checks.existing_checkout_remote_allowed !== true) {
+    throw setupError({
+      exitCode: ExitCode.DriftOrRecoveryRequired,
+      code: "s05_existing_checkout_remote_mismatch",
+      publicMessage: "Existing checkout origin is outside repository allowlist.",
+      nextAction: "Recreate checkout from allowed remote or adjust allowlist with owner review.",
+      stage: "S05"
+    });
+  }
+  if (checks.existing_checkout_present === true && checks.existing_checkout_detached_head !== true) {
+    throw setupError({
+      exitCode: ExitCode.DriftOrRecoveryRequired,
+      code: "s05_existing_checkout_branch_mismatch",
+      publicMessage: "Existing checkout is on a branch; S05 requires immutable release checkout.",
+      nextAction: "Prepare clean detached checkout manually; installer will not reset branches.",
+      stage: "S05"
+    });
+  }
+  if (checks.existing_checkout_source_commit_match !== true) {
+    throw setupError({
+      exitCode: ExitCode.DriftOrRecoveryRequired,
+      code: "s05_existing_checkout_version_mismatch",
+      publicMessage: "Existing checkout version differs from planned release commit.",
+      nextAction: "Move existing checkout aside manually and rerun S05 for fresh deploy.",
+      stage: "S05"
+    });
+  }
+}
+
+function releaseRootFromManifestPath(stagingRoot: string, manifestPath: string | null): string {
+  if (manifestPath === null || manifestPath.length === 0) {
+    return stagingRoot;
+  }
+  const normalized = manifestPath.replaceAll("\\", "/");
+  const segments = normalized.split("/").filter((segment) => segment.length > 0);
+  if (segments.length <= 1) {
+    return stagingRoot;
+  }
+  return path.join(stagingRoot, ...segments.slice(0, -1));
+}
+
+export function createApplicationStage(adapter: ApplicationReleaseAdapter): StageModule {
+  let lastConfig: SetupConfig | null = null;
+  let lastObservation: StageObservation | null = null;
+
+  const snapshot = async (config: SetupConfig): Promise<RuntimeSnapshot> => {
+    const [checkout, release] = await Promise.all([
+      adapter.observeExistingCheckout(config),
+      adapter.inspectArchive(config)
+    ]);
+    return {
+      config,
+      checkout,
+      release
+    };
+  };
+
+  return {
+    id: "S05",
+    dependencies: ["S04"],
+    supportedProfiles: ["supervised", "service"],
+    optional: false,
+    requiredCapabilities: [],
+    async observe(_ctx: StageContext): Promise<StageObservation> {
+      if (lastConfig === null) {
+        return {
+          stageId: "S05",
+          status: "planned",
+          checks: {
+            s05_config_loaded: false
+          },
+          versions: {},
+          observedAt: new Date().toISOString()
+        };
+      }
+      const observedSnapshot = await snapshot(lastConfig);
+      const observation: StageObservation = {
+        stageId: "S05",
+        status: inferStatus(observedSnapshot),
+        checks: checksFromSnapshot(observedSnapshot),
+        versions: versionsFromSnapshot(observedSnapshot),
+        observedAt: new Date().toISOString()
+      };
+      lastObservation = observation;
+      return observation;
+    },
+    plan(desired: unknown, observed: StageObservation): StagePlan {
+      const config = desired as SetupConfig;
+      lastConfig = config;
+
+      const operations: StagePlan["operations"] = observed.status === "verified"
+        ? []
+        : [
+            {
+              id: `s05-extract-release-${config.release.source_commit.slice(0, 12)}`,
+              stageId: "S05",
+              kind: "mutate",
+              resourceId: "application-release-staging",
+              risk: "high",
+              gateIds: ["s05-application-release-reviewed", "s05-source-commit-reviewed", "s05-dockerfile-build-reviewed"],
+              preconditions: [
+                `s05_archive_sha256:${config.release.sha256}`,
+                `s05_source_commit:${config.release.source_commit}`,
+                `s05_application_dir:${config.paths.application_dir}`,
+                `s05_setup_cache_dir:${config.paths.setup_cache_dir}`
+              ],
+              sideEffects: [
+                "extract reviewed application release into isolated staging",
+                "materialize immutable application checkout without reset"
+              ],
+              timeoutSec: 300,
+              retryable: false
+            }
+          ];
+
+      const gates = operations.flatMap((operation) => operation.gateIds);
+      return {
+        stageId: "S05",
+        optional: false,
+        requiredCapabilities: requiredCapabilitiesForProfile(config.profile),
+        operations,
+        requiredGates: [...new Set(gates)]
+      };
+    },
+    async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
+      const config = lastConfig;
+      if (config === null) {
+        throw setupError({
+          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
+          code: "s05_config_not_initialized",
+          publicMessage: "S05 apply requires plan generation in the same process.",
+          nextAction: "Run plan/apply sequence for S05.",
+          stage: "S05"
+        });
+      }
+      const parsed = parsePlanPreconditions(approvedPlan);
+      if (parsed.archiveSha256 !== config.release.sha256 || parsed.sourceCommit !== config.release.source_commit) {
+        throw setupError({
+          exitCode: ExitCode.DriftOrRecoveryRequired,
+          code: "s05_plan_drifted",
+          publicMessage: "S05 plan preconditions drifted from current release config.",
+          nextAction: "Regenerate plan and re-approve gates for S05.",
+          stage: "S05"
+        });
+      }
+
+      const observedSnapshot = await snapshot(config);
+      validateBlockedSnapshot(observedSnapshot);
+
+      if (
+        observedSnapshot.checkout.exists
+        && observedSnapshot.checkout.deployedSourceCommit === config.release.source_commit
+      ) {
+        return [
+          {
+            operationId: approvedPlan.operations[0]?.id ?? "s05-noop-existing-release",
+            stageId: "S05",
+            resourceId: "application-checkout",
+            observedAt: new Date().toISOString(),
+            checks: {
+              noop: true,
+              already_deployed: true
+            },
+            versions: versionsFromSnapshot(observedSnapshot),
+            artifacts: [config.paths.application_dir]
+          }
+        ];
+      }
+
+      const operationId = approvedPlan.operations[0]?.id ?? `s05-apply-${ctx.installationId}`;
+      const stagingRoot = path.join(
+        config.paths.setup_cache_dir,
+        "application-release",
+        config.release.source_commit,
+        operationId
+      );
+      await adapter.extractArchive(config, stagingRoot);
+
+      const releaseRoot = releaseRootFromManifestPath(stagingRoot, observedSnapshot.release.manifestPath);
+      const manifest = observedSnapshot.release.manifest;
+      if (manifest === null) {
+        throw setupError({
+          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
+          code: "s05_manifest_unavailable",
+          publicMessage: "Release manifest is unavailable after extraction.",
+          nextAction: "Regenerate reviewed archive and rerun S05.",
+          stage: "S05"
+        });
+      }
+      const mismatches = await adapter.verifyContentHashes(releaseRoot, manifest.content_hashes);
+      if (mismatches.length > 0) {
+        throw setupError({
+          exitCode: ExitCode.SecurityBoundaryViolation,
+          code: "s05_content_hash_mismatch",
+          publicMessage: "Extracted release content hashes do not match deployment-manifest pins.",
+          nextAction: "Replace archive with reviewed artifact and rerun S05.",
+          stage: "S05",
+          evidenceRef: mismatches.slice(0, 5).join(",")
+        });
+      }
+
+      if (observedSnapshot.checkout.hasGitDir && observedSnapshot.checkout.headCommit !== null) {
+        const commitExists = await adapter.commitExists(config.paths.application_dir, config.release.source_commit);
+        if (!commitExists) {
+          throw setupError({
+            exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
+            code: "s05_source_commit_missing",
+            publicMessage: "Configured source commit is absent in existing checkout git history.",
+            nextAction: "Fetch reviewed commit manually or redeploy clean checkout.",
+            stage: "S05"
+          });
+        }
+      }
+
+      await adapter.materializeRelease(releaseRoot, parsed.applicationDir);
+      const probes = await adapter.probeCommands(parsed.applicationDir, manifest, config);
+      if (!probes.runnerVerifyHelpOk || !probes.runnerStopHelpOk) {
+        throw setupError({
+          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
+          code: "s05_runner_probe_failed",
+          publicMessage: "Required runner offline probes (--help) failed after deploy.",
+          nextAction: "Provide valid M0/M1 release with runnable runner_verify/runner_stop commands.",
+          stage: "S05",
+          evidenceRef: probes.details.join(";")
+        });
+      }
+
+      const receipt: StageReceipt = {
+        operationId,
+        stageId: "S05",
+        resourceId: "application-release",
+        observedAt: new Date().toISOString(),
+        checks: {
+          source_commit_verified: true,
+          content_hashes_verified: true,
+          runner_verify_help_ok: probes.runnerVerifyHelpOk,
+          runner_stop_help_ok: probes.runnerStopHelpOk
+        },
+        versions: {
+          source_commit: config.release.source_commit,
+          application_version: manifest.application_version
+        },
+        artifacts: [parsed.applicationDir]
+      };
+      return [receipt];
+    },
+    async verify(_ctx: StageContext): Promise<StageReceipt[]> {
+      if (lastConfig === null) {
+        throw setupError({
+          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
+          code: "s05_verify_without_config",
+          publicMessage: "S05 verify requires previously loaded config context.",
+          nextAction: "Run plan/apply or status --refresh for S05 before verify.",
+          stage: "S05"
+        });
+      }
+      const observedSnapshot = await snapshot(lastConfig);
+      validateBlockedSnapshot(observedSnapshot);
+      if (observedSnapshot.checkout.deployedSourceCommit !== lastConfig.release.source_commit) {
+        throw setupError({
+          exitCode: ExitCode.DriftOrRecoveryRequired,
+          code: "s05_deployed_commit_mismatch",
+          publicMessage: "Deployed source commit differs from expected release commit.",
+          nextAction: "Inspect checkout and rerun S05 with a fresh clean target.",
+          stage: "S05"
+        });
+      }
+      return [
+        {
+          operationId: "s05-verify",
+          stageId: "S05",
+          resourceId: "application-release",
+          observedAt: new Date().toISOString(),
+          checks: checksFromSnapshot(observedSnapshot),
+          versions: versionsFromSnapshot(observedSnapshot),
+          artifacts: [lastConfig.paths.application_dir]
+        }
+      ];
+    },
+    async recover(ctx: StageContext): Promise<StageReceipt[]> {
+      return this.verify(ctx);
+    }
+  };
+}
