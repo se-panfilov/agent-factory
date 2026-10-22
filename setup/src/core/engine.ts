@@ -17,6 +17,10 @@ import { createAuthStage, readAuthStatus, runAuthLogin as executeAuthLogin, runS
 import { createNodeProjectStageAdapter, createProjectStage } from "../stages/project";
 import { createNodeSystemdAdapter } from "../adapters/systemd";
 import { createServiceStage } from "../stages/service";
+import { createOperationsStage } from "../stages/operations";
+import { createBackup, verifyBackup } from "../operations/backup";
+import { restoreBackup } from "../operations/restore";
+import { emergencyCancel } from "../operations/emergency";
 import { hashConfig, initConfig, loadConfig, systemClock, type Clock } from "./config";
 import { ExitCode, type InstallerPlan, type JsonEnvelope, type SetupConfig, type SetupState, type StageId, type StageModule } from "./types";
 import { setupError, toSetupError } from "./errors";
@@ -43,8 +47,10 @@ export interface CommandOptions {
   nonInteractive?: boolean;
   refresh?: boolean;
   lockOnly?: boolean;
+  emergency?: boolean;
   provider?: "live" | "fake";
   fixture?: "toy";
+  backupId?: string;
 }
 
 function envelopeBase(
@@ -165,7 +171,8 @@ function defaultRegistry(fsAdapter: FilesystemAdapter, processAdapter: ProcessAd
     createVerificationStage(fsAdapter, processAdapter),
     createAuthStage(fsAdapter, processAdapter),
     createProjectStage(fsAdapter, projectAdapter),
-    createServiceStage(fsAdapter, systemdAdapter)
+    createServiceStage(fsAdapter, systemdAdapter),
+    createOperationsStage(fsAdapter, processAdapter)
   ]);
 }
 
@@ -209,6 +216,12 @@ export class SetupEngine {
           return await this.runCancel(options);
         case "recover":
           return await this.runRecover(options);
+        case "backup-create":
+          return await this.runBackupCreate(options);
+        case "backup-verify":
+          return await this.runBackupVerify(options);
+        case "restore":
+          return await this.runRestore(options);
         case "auth-login":
           return await this.runAuthLogin(options);
         case "auth-status":
@@ -220,7 +233,7 @@ export class SetupEngine {
             exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
             code: "unsupported_command",
             publicMessage: `Command '${command}' is not implemented in P02 scope.`,
-            nextAction: "Use commands from init/preflight/plan/apply/status/resume/verify/gate/auth/smoke/cancel/recover."
+            nextAction: "Use commands from init/preflight/plan/apply/status/resume/verify/gate/auth/smoke/cancel/recover/backup/restore."
           });
       }
     } catch (error) {
@@ -670,6 +683,23 @@ export class SetupEngine {
       config,
       this.deps.installerVersion
     );
+    if (options.emergency === true) {
+      const result = await emergencyCancel(
+        {
+          processAdapter: this.deps.processAdapter
+        },
+        config
+      );
+      const envelope = envelopeBase("cancel", config, state, null);
+      envelope.overall_status = "ok";
+      envelope.data = {
+        emergency: true,
+        paused_marker: result.pausedMarkerPath,
+        stopped_containers: result.stoppedContainers,
+        skipped_foreign_containers: result.skippedForeignContainers
+      };
+      return { envelope, exitCode: ExitCode.Success };
+    }
     const cancelPath = await requestCancel(this.deps.fsAdapter, config);
     const envelope = envelopeBase("cancel", config, state, null);
     envelope.overall_status = "ok";
@@ -696,6 +726,118 @@ export class SetupEngine {
     const envelope = envelopeBase("recover", config, state, null);
     envelope.overall_status = "ok";
     envelope.manual_actions.push("No full recovery operation is implemented in P02; lock-only recovery is available.");
+    return { envelope, exitCode: ExitCode.Success };
+  }
+
+  private async runBackupCreate(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
+    const config = await loadConfig(this.deps.fsAdapter, options.configPath);
+    let state = await loadState(
+      this.deps.fsAdapter,
+      this.deps.processAdapter,
+      this.deps.clock,
+      config,
+      this.deps.installerVersion
+    );
+    const result = await createBackup(
+      {
+        fsAdapter: this.deps.fsAdapter,
+        processAdapter: this.deps.processAdapter,
+        now: () => this.deps.clock.now()
+      },
+      config
+    );
+    state = await this.refreshStageObservation(state, config, "S11", "backup-create");
+    await saveState(this.deps.fsAdapter, config, state);
+    const envelope = envelopeBase("backup create", config, state, null);
+    envelope.overall_status = "ok";
+    envelope.data = {
+      backup_id: result.backupId,
+      backup_path: result.backupPath,
+      retained_latest_good: result.retainedLatestGood,
+      pruned_backups: result.pruned
+    };
+    return { envelope, exitCode: ExitCode.Success };
+  }
+
+  private async runBackupVerify(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
+    const config = await loadConfig(this.deps.fsAdapter, options.configPath);
+    let state = await loadState(
+      this.deps.fsAdapter,
+      this.deps.processAdapter,
+      this.deps.clock,
+      config,
+      this.deps.installerVersion
+    );
+    const verified = await verifyBackup(
+      {
+        fsAdapter: this.deps.fsAdapter,
+        processAdapter: this.deps.processAdapter,
+        now: () => this.deps.clock.now()
+      },
+      config,
+      options.backupId
+    );
+    state = await this.refreshStageObservation(state, config, "S11", "backup-verify");
+    await saveState(this.deps.fsAdapter, config, state);
+    const envelope = envelopeBase("backup verify", config, state, null);
+    envelope.overall_status = "ok";
+    envelope.data = {
+      backup_id: verified.backupId,
+      backup_path: verified.backupPath,
+      manifest_path: verified.manifestPath,
+      unknown_usage_observed: verified.unknownUsageObserved
+    };
+    return { envelope, exitCode: ExitCode.Success };
+  }
+
+  private async runRestore(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
+    if (options.planPath === undefined) {
+      throw setupError({
+        exitCode: ExitCode.CliOrSchemaError,
+        code: "plan_required",
+        publicMessage: "restore requires --plan PATH",
+        nextAction: "Generate approved plan and pass --plan for restore."
+      });
+    }
+    if (options.backupId === undefined) {
+      throw setupError({
+        exitCode: ExitCode.CliOrSchemaError,
+        code: "backup_id_required",
+        publicMessage: "restore requires --backup-id ID",
+        nextAction: "Select backup ID from 'backup verify' output and retry restore."
+      });
+    }
+
+    const config = await loadConfig(this.deps.fsAdapter, options.configPath);
+    let state = await loadState(
+      this.deps.fsAdapter,
+      this.deps.processAdapter,
+      this.deps.clock,
+      config,
+      this.deps.installerVersion
+    );
+    const plan = await loadPlan(this.deps.fsAdapter, options.planPath);
+    validatePlanConsistency(config, plan);
+    const restoreResult = await restoreBackup(
+      {
+        fsAdapter: this.deps.fsAdapter,
+        processAdapter: this.deps.processAdapter,
+        now: () => this.deps.clock.now()
+      },
+      config,
+      options.backupId
+    );
+    state = await this.refreshStageObservation(state, config, "S11", "restore");
+    await saveState(this.deps.fsAdapter, config, state);
+    const envelope = envelopeBase("restore", config, state, plan.plan_hash);
+    envelope.overall_status = "ok";
+    envelope.data = {
+      backup_id: restoreResult.backupId,
+      staging_path: restoreResult.stagingPath,
+      restored_paths: restoreResult.restoredPaths,
+      paused_preserved: true,
+      unknown_usage_preserved: true
+    };
     return { envelope, exitCode: ExitCode.Success };
   }
 

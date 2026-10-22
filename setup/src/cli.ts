@@ -21,6 +21,9 @@ function parseArgs(argv: string[]): ParsedCommand {
   if (argv[0] === "auth") {
     return parseArgs([`auth-${argv[1] ?? ""}`, ...argv.slice(2)]);
   }
+  if (argv[0] === "backup") {
+    return parseArgs([`backup-${argv[1] ?? ""}`, ...argv.slice(2)]);
+  }
 
   const [command, ...rest] = argv;
   if (command === undefined) {
@@ -65,6 +68,10 @@ function printHelp(): void {
       "  factory-setup smoke --config PATH --provider fake|live --fixture toy",
       "  factory-setup cancel --config PATH [--emergency]",
       "  factory-setup recover --config PATH [--lock-only]"
+      ,
+      "  factory-setup backup create --config PATH",
+      "  factory-setup backup verify --config PATH [--backup-id ID]",
+      "  factory-setup restore --config PATH --backup-id ID --plan PATH"
     ].join("\n") + "\n"
   );
 }
@@ -148,6 +155,12 @@ async function main(): Promise<void> {
   }
   if (typeof parsed.options.fixture === "string" && parsed.options.fixture === "toy") {
     runOptions.fixture = parsed.options.fixture;
+  }
+  if (typeof parsed.options["backup-id"] === "string") {
+    runOptions.backupId = parsed.options["backup-id"];
+  }
+  if (parsed.options.emergency === true) {
+    runOptions.emergency = true;
   }
 
   const engine = new SetupEngine();

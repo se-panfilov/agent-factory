@@ -1,0 +1,13 @@
+[Unit]
+Description=Agent Factory S11 backup create
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{USER}}
+WorkingDirectory={{WORKING_DIR}}
+ExecStart={{SETUP_BIN}} backup create --config {{CONFIG_PATH}}
+NoNewPrivileges=true
+PrivateTmp=true
+

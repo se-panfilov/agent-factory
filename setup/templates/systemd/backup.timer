@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Agent Factory backup timer
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+Unit=backup.service
+
+[Install]
+WantedBy=timers.target
+
