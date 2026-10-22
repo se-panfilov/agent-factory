@@ -15,6 +15,8 @@ import { createConfigurationStage } from "../stages/configuration";
 import { createVerificationStage } from "../stages/verification";
 import { createAuthStage, readAuthStatus, runAuthLogin as executeAuthLogin, runSmokeCommand } from "../stages/auth";
 import { createNodeProjectStageAdapter, createProjectStage } from "../stages/project";
+import { createNodeSystemdAdapter } from "../adapters/systemd";
+import { createServiceStage } from "../stages/service";
 import { hashConfig, initConfig, loadConfig, systemClock, type Clock } from "./config";
 import { ExitCode, type InstallerPlan, type JsonEnvelope, type SetupConfig, type SetupState, type StageId, type StageModule } from "./types";
 import { setupError, toSetupError } from "./errors";
@@ -151,6 +153,7 @@ function defaultRegistry(fsAdapter: FilesystemAdapter, processAdapter: ProcessAd
   const dockerAdapter = createNodeDockerAdapter(processAdapter, fsAdapter);
   const applicationAdapter = createNodeApplicationReleaseAdapter(processAdapter, fsAdapter);
   const projectAdapter = createNodeProjectStageAdapter(fsAdapter, processAdapter);
+  const systemdAdapter = createNodeSystemdAdapter(processAdapter, fsAdapter);
   return createRegistry([
     bootstrapStage(fsAdapter),
     createPreflightStage(createNodePreflightProbe(fsAdapter)),
@@ -161,7 +164,8 @@ function defaultRegistry(fsAdapter: FilesystemAdapter, processAdapter: ProcessAd
     createConfigurationStage(fsAdapter, processAdapter),
     createVerificationStage(fsAdapter, processAdapter),
     createAuthStage(fsAdapter, processAdapter),
-    createProjectStage(fsAdapter, projectAdapter)
+    createProjectStage(fsAdapter, projectAdapter),
+    createServiceStage(fsAdapter, systemdAdapter)
   ]);
 }
 

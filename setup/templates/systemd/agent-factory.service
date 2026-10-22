@@ -1,0 +1,24 @@
+[Unit]
+Description=Agent Factory service (paused startup)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{USER}}
+WorkingDirectory={{WORKING_DIR}}
+Environment=FACTORY_STATE={{FACTORY_STATE}}
+Environment=FACTORY_AUTH={{FACTORY_AUTH}}
+Environment=FACTORY_WORK={{FACTORY_WORK}}
+Environment=FACTORY_START_PAUSED=1
+ExecStartPre={{EXEC_START_PRE}}
+ExecStart={{EXEC_START}}
+ExecReload={{EXEC_RELOAD}}
+ExecStop={{EXEC_STOP}}
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
