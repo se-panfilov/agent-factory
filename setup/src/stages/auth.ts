@@ -790,26 +790,16 @@ export function createAuthStage(
   fsAdapter: FilesystemAdapter,
   processAdapter: ProcessAdapter
 ): StageModule {
-  let lastConfig: SetupConfig | null = null;
   return {
     id: "S08",
     dependencies: ["S07"],
     supportedProfiles: ["supervised", "service"],
     optional: false,
     requiredCapabilities: ["runner-live-smoke"],
-    async observe(): Promise<StageObservation> {
-      if (lastConfig === null) {
-        return {
-          stageId: "S08",
-          status: "planned",
-          checks: { s08_config_loaded: false },
-          versions: {},
-          observedAt: new Date().toISOString()
-        };
-      }
-      const authenticated = await authPresence(fsAdapter, lastConfig);
-      const liveSmoke = await readLiveSmokeRecord(fsAdapter, lastConfig);
-      const sourceSha = await toySourceSha(processAdapter, lastConfig);
+    async observe(ctx: StageContext): Promise<StageObservation> {
+      const authenticated = await authPresence(fsAdapter, ctx.config);
+      const liveSmoke = await readLiveSmokeRecord(fsAdapter, ctx.config);
+      const sourceSha = await toySourceSha(processAdapter, ctx.config);
       return {
         stageId: "S08",
         status: statusFromObservation({ authenticated, liveSmoke, sourceSha }),
@@ -828,7 +818,6 @@ export function createAuthStage(
     },
     plan(desired: unknown, observed: StageObservation): StagePlan {
       const config = desired as SetupConfig;
-      lastConfig = config;
       const operations: StagePlan["operations"] = observed.status === "verified"
         ? []
         : [
@@ -861,16 +850,8 @@ export function createAuthStage(
       };
     },
     async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
-      if (lastConfig === null) {
-        throw setupError({
-          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-          code: "s08_config_not_initialized",
-          publicMessage: "S08 apply requires plan generation in the same process.",
-          nextAction: "Run plan/apply for S08 with explicit auth+smoke commands in between.",
-          stage: "S08"
-        });
-      }
-      const authenticated = await authPresence(fsAdapter, lastConfig);
+      const config = ctx.config;
+      const authenticated = await authPresence(fsAdapter, config);
       if (!authenticated) {
         throw setupError({
           exitCode: ExitCode.ManualActionRequired,
@@ -880,7 +861,7 @@ export function createAuthStage(
           stage: "S08"
         });
       }
-      const liveSmoke = await readLiveSmokeRecord(fsAdapter, lastConfig);
+      const liveSmoke = await readLiveSmokeRecord(fsAdapter, config);
       if (liveSmoke === null || liveSmoke.status !== "needs_review") {
         throw setupError({
           exitCode: ExitCode.ManualActionRequired,
@@ -914,23 +895,14 @@ export function createAuthStage(
             live_smoke_source_sha: liveSmoke.source_sha,
             run_id: liveSmoke.run_id
           },
-          artifacts: [authStatusPath(lastConfig), liveSmokePath(lastConfig)]
+          artifacts: [authStatusPath(config), liveSmokePath(config)]
         }
       ];
     },
-    async verify(_ctx: StageContext): Promise<StageReceipt[]> {
-      if (lastConfig === null) {
-        throw setupError({
-          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-          code: "s08_verify_without_config",
-          publicMessage: "S08 verify requires previously loaded config context.",
-          nextAction: "Run plan/apply or status --refresh before verify.",
-          stage: "S08"
-        });
-      }
-      const authenticated = await authPresence(fsAdapter, lastConfig);
-      const liveSmoke = await readLiveSmokeRecord(fsAdapter, lastConfig);
-      const sourceSha = await toySourceSha(processAdapter, lastConfig);
+    async verify(ctx: StageContext): Promise<StageReceipt[]> {
+      const authenticated = await authPresence(fsAdapter, ctx.config);
+      const liveSmoke = await readLiveSmokeRecord(fsAdapter, ctx.config);
+      const sourceSha = await toySourceSha(processAdapter, ctx.config);
       if (!authenticated || liveSmoke === null || liveSmoke.status !== "needs_review" || liveSmoke.unknown_usage) {
         throw setupError({
           exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
@@ -964,7 +936,7 @@ export function createAuthStage(
             live_smoke_source_sha: liveSmoke.source_sha,
             toy_fixture_source_sha: sourceSha
           },
-          artifacts: [authStatusPath(lastConfig), liveSmokePath(lastConfig)]
+          artifacts: [authStatusPath(ctx.config), liveSmokePath(ctx.config)]
         }
       ];
     },

@@ -18,6 +18,7 @@ export interface CommandResult {
   stderr: string;
   timedOut: boolean;
   durationMs: number;
+  outputLimitExceeded?: boolean;
 }
 
 export interface CommandOptions {
@@ -76,7 +77,8 @@ export class NodeProcessAdapter implements ProcessAdapter {
         stdio: ["ignore", "pipe", "pipe"],
         env: {
           PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
-          ...options.env
+          LC_ALL: "C",
+          ...Object.fromEntries(Object.entries(options.env ?? {}).filter(([key]) => key !== "PATH"))
         }
       });
 
@@ -84,6 +86,7 @@ export class NodeProcessAdapter implements ProcessAdapter {
       let stderr = "";
       let timedOut = false;
       let outputBytes = 0;
+      let outputLimitExceeded = false;
       let settled = false;
 
       const timer = setTimeout(() => {
@@ -101,6 +104,7 @@ export class NodeProcessAdapter implements ProcessAdapter {
           stderr += value;
         }
         if (outputBytes > options.maxOutputBytes) {
+          outputLimitExceeded = true;
           child.kill("SIGTERM");
         }
       };
@@ -129,7 +133,8 @@ export class NodeProcessAdapter implements ProcessAdapter {
           stdout: trimToBytes(sanitize(stdout), options.maxOutputBytes),
           stderr: trimToBytes(sanitize(stderr), options.maxOutputBytes),
           timedOut,
-          durationMs
+          durationMs,
+          outputLimitExceeded
         });
       });
     });

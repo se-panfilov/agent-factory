@@ -44,7 +44,8 @@ const PATH_FIELDS_IN_CONFIG = [
   "/paths/application_auth_dir",
   "/paths/application_work_dir",
   "/release/archive_path",
-  "/version_lock_path"
+  "/version_lock_path",
+  "/operations/backup_path"
 ] as const;
 
 function toErrorMessage(error: ErrorObject): string {

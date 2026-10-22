@@ -565,38 +565,24 @@ export function createServiceStage(
   fsAdapter: FilesystemAdapter,
   systemdAdapter: SystemdAdapter
 ): StageModule {
-  let lastConfig: SetupConfig | null = null;
-
   return {
     id: "S10",
     dependencies: ["S09"],
     supportedProfiles: ["service"],
     optional: false,
     requiredCapabilities: requiredCapabilitiesForS10(),
-    async observe(_ctx: StageContext): Promise<StageObservation> {
-      if (lastConfig === null) {
-        return {
-          stageId: "S10",
-          status: "planned",
-          checks: {
-            s10_config_loaded: false
-          },
-          versions: {},
-          observedAt: new Date().toISOString()
-        };
-      }
-      const current = await snapshot(fsAdapter, systemdAdapter, lastConfig);
+    async observe(ctx: StageContext): Promise<StageObservation> {
+      const current = await snapshot(fsAdapter, systemdAdapter, ctx.config);
       return {
         stageId: "S10",
         status: statusFromSnapshot(current),
         checks: checksFromSnapshot(current),
-        versions: versionsFromConfig(lastConfig),
+        versions: versionsFromConfig(ctx.config),
         observedAt: new Date().toISOString()
       };
     },
     plan(desired: unknown, observed: StageObservation): StagePlan {
       const config = desired as SetupConfig;
-      lastConfig = config;
       if (config.profile !== "service") {
         throw setupError({
           exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
@@ -639,16 +625,7 @@ export function createServiceStage(
       };
     },
     async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
-      if (lastConfig === null) {
-        throw setupError({
-          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-          code: "s10_config_not_initialized",
-          publicMessage: "S10 apply requires plan generation in the same process.",
-          nextAction: "Run plan/apply sequence for S10.",
-          stage: "S10"
-        });
-      }
-      const config = lastConfig;
+      const config = ctx.config;
       const manifest = await readManifest(fsAdapter, config);
       if (manifest === null) {
         throw setupError({
@@ -781,17 +758,8 @@ export function createServiceStage(
         }
       ];
     },
-    async verify(_ctx: StageContext): Promise<StageReceipt[]> {
-      if (lastConfig === null) {
-        throw setupError({
-          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-          code: "s10_verify_without_config",
-          publicMessage: "S10 verify requires previously loaded config context.",
-          nextAction: "Run plan/apply or status --refresh before verify.",
-          stage: "S10"
-        });
-      }
-      const current = await snapshot(fsAdapter, systemdAdapter, lastConfig);
+    async verify(ctx: StageContext): Promise<StageReceipt[]> {
+      const current = await snapshot(fsAdapter, systemdAdapter, ctx.config);
       if (statusFromSnapshot(current) !== "verified") {
         throw setupError({
           exitCode: ExitCode.DriftOrRecoveryRequired,
@@ -809,7 +777,7 @@ export function createServiceStage(
           resourceId: "systemd-service",
           observedAt: new Date().toISOString(),
           checks: checksFromSnapshot(current),
-          versions: versionsFromConfig(lastConfig),
+          versions: versionsFromConfig(ctx.config),
           artifacts: [SERVICE_UNIT_TARGET_PATH]
         }
       ];

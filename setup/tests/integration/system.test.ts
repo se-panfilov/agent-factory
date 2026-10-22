@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { type AptAdapter, type AptPackagePin, type AptSystemObservation } from "../../src/adapters/apt";
 import { createSystemStage } from "../../src/stages/system";
-import { ExitCode, type StageContext } from "../../src/core/types";
+import { ExitCode, type SetupConfig, type StageContext } from "../../src/core/types";
 
 class FakeAptAdapter implements AptAdapter {
   constructor(private observation: AptSystemObservation) {}
@@ -61,7 +61,8 @@ function ctx(profile: "supervised" | "service"): StageContext {
     contractVersion: "1.0.0",
     profile,
     desiredHash: "d".repeat(64),
-    planHash: "p".repeat(64)
+    planHash: "p".repeat(64),
+    config: {} as SetupConfig
   };
 }
 

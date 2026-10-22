@@ -157,13 +157,14 @@ function makeConfig(root: string): SetupConfig {
   };
 }
 
-function ctx(): StageContext {
+function ctx(config: SetupConfig): StageContext {
   return {
     installationId: "797fa484-91fe-4852-8a57-7d7dd84e2fa3",
     contractVersion: "1.0.0",
     profile: "supervised",
     desiredHash: "e".repeat(64),
-    planHash: "f".repeat(64)
+    planHash: "f".repeat(64),
+    config
   };
 }
 
@@ -230,9 +231,9 @@ test("S06 applies canonical config/image and is idempotent on second run", async
   const processAdapter = new FakeProcessAdapter(codexPath, "0.32.0", DIGEST_B, "machine-A");
   const stage = createConfigurationStage(new NodeFilesystemAdapter(), processAdapter);
 
-  const observed = await stage.observe(ctx());
+  const observed = await stage.observe(ctx(config));
   const plan = stage.plan(config, observed);
-  const receipt = await stage.apply(ctx(), plan);
+  const receipt = await stage.apply(ctx(config), plan);
   assert.equal(receipt.length, 1);
   assert.equal(processAdapter.buildCalls, 1);
   const imageStatePath = path.join(config.paths.setup_state_dir, "s06-agent-image.json");
@@ -246,9 +247,9 @@ test("S06 applies canonical config/image and is idempotent on second run", async
   assert.equal(stateMode, 0o700);
   assert.equal(policyMode, 0o600);
 
-  await stage.apply(ctx(), plan);
+  await stage.apply(ctx(config), plan);
   assert.equal(processAdapter.buildCalls, 1);
-  const after = await stage.observe(ctx());
+  const after = await stage.observe(ctx(config));
   assert.equal(after.status, "verified", JSON.stringify(after.checks));
 });
 
@@ -274,9 +275,9 @@ test("S06 writes .proposed and blocks when user modified policy", async () => {
     { mode: 0o600 }
   );
 
-  const plan = stage.plan(config, await stage.observe(ctx()));
+  const plan = stage.plan(config, await stage.observe(ctx(config)));
   await assert.rejects(
-    async () => stage.apply(ctx(), plan),
+    async () => stage.apply(ctx(config), plan),
     (error) => error instanceof Error
       && "code" in error
       && (error as { code?: string }).code === "s06_policy_modified_requires_gate"
@@ -309,9 +310,9 @@ test("S06 fails closed on unknown policy fields", async () => {
     { mode: 0o600 }
   );
 
-  const plan = stage.plan(config, await stage.observe(ctx()));
+  const plan = stage.plan(config, await stage.observe(ctx(config)));
   await assert.rejects(
-    async () => stage.apply(ctx(), plan),
+    async () => stage.apply(ctx(config), plan),
     (error) => error instanceof Error
       && "code" in error
       && (error as { code?: string }).code === "s06_policy_unknown_fields"
@@ -339,8 +340,8 @@ test("S06 treats image state from another machine as invalid and rebuilds", asyn
     "utf8"
   );
 
-  const plan = stage.plan(config, await stage.observe(ctx()));
-  await stage.apply(ctx(), plan);
+  const plan = stage.plan(config, await stage.observe(ctx(config)));
+  await stage.apply(ctx(config), plan);
   assert.equal(processAdapter.buildCalls, 1);
 });
 
@@ -348,9 +349,9 @@ test("S06 blocks when codex login help probe fails", async () => {
   const { config, codexPath } = await prepareRoot();
   const processAdapter = new FakeProcessAdapter(codexPath, "0.32.0", DIGEST_B, "machine-A", false);
   const stage = createConfigurationStage(new NodeFilesystemAdapter(), processAdapter);
-  const plan = stage.plan(config, await stage.observe(ctx()));
+  const plan = stage.plan(config, await stage.observe(ctx(config)));
   await assert.rejects(
-    async () => stage.apply(ctx(), plan),
+    async () => stage.apply(ctx(config), plan),
     (error) => error instanceof Error
       && "code" in error
       && (error as { code?: string }).code === "s06_codex_probe_failed"

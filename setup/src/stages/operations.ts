@@ -23,7 +23,6 @@ export function createOperationsStage(
   fsAdapter: FilesystemAdapter,
   processAdapter: ProcessAdapter
 ): StageModule {
-  let lastConfig: SetupConfig | null = null;
   const deps = {
     fsAdapter,
     processAdapter,
@@ -36,23 +35,12 @@ export function createOperationsStage(
     supportedProfiles: ["supervised", "service"],
     optional: false,
     requiredCapabilities: [],
-    async observe(_ctx: StageContext): Promise<StageObservation> {
-      if (lastConfig === null) {
-        return {
-          stageId: "S11",
-          status: "planned",
-          checks: {
-            s11_config_loaded: false
-          },
-          versions: {},
-          observedAt: new Date().toISOString()
-        };
-      }
-      const health = await collectHealth(deps, lastConfig);
+    async observe(ctx: StageContext): Promise<StageObservation> {
+      const health = await collectHealth(deps, ctx.config);
       let backupVerified = false;
       let backupId = "none";
       try {
-        const verified = await verifyBackup(deps, lastConfig);
+        const verified = await verifyBackup(deps, ctx.config);
         backupVerified = true;
         backupId = verified.backupId;
       } catch {
@@ -73,7 +61,6 @@ export function createOperationsStage(
     },
     plan(desired: unknown, observed: StageObservation): StagePlan {
       const config = desired as SetupConfig;
-      lastConfig = config;
       const operationNeeded = observed.status !== "verified";
       const operations = operationNeeded
         ? [
@@ -107,29 +94,21 @@ export function createOperationsStage(
       };
     },
     async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
-      if (lastConfig === null) {
-        throw setupError({
-          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-          code: "s11_config_not_initialized",
-          publicMessage: "S11 apply requires plan generation in the same process.",
-          nextAction: "Run plan/apply sequence for S11.",
-          stage: "S11"
-        });
-      }
-      const backup = await createBackup(deps, lastConfig);
-      const verified = await verifyBackup(deps, lastConfig, backup.backupId);
-      const health = await collectHealth(deps, lastConfig);
-      const inventoryPath = `${lastConfig.paths.setup_state_dir}/s11-emergency-inventory.json`;
+      const config = ctx.config;
+      const backup = await createBackup(deps, config);
+      const verified = await verifyBackup(deps, config, backup.backupId);
+      const health = await collectHealth(deps, config);
+      const inventoryPath = `${config.paths.setup_state_dir}/s11-emergency-inventory.json`;
       await fsAdapter.writeText(
         inventoryPath,
         `${JSON.stringify({
           schema_version: 1,
-          installation_id: lastConfig.installation_id,
+          installation_id: config.installation_id,
           owned_container_labels: [
-            `agent-factory.installation_id=${lastConfig.installation_id}`,
+            `agent-factory.installation_id=${config.installation_id}`,
             `agent-factory.operation_id=${approvedPlan.operations[0]?.id ?? "s11"}`
           ],
-          service_unit: lastConfig.profile === "service" ? "agent-factory.service" : null
+          service_unit: config.profile === "service" ? "agent-factory.service" : null
         }, null, 2)}\n`,
         0o600
       );
@@ -156,18 +135,9 @@ export function createOperationsStage(
         }
       ];
     },
-    async verify(_ctx: StageContext): Promise<StageReceipt[]> {
-      if (lastConfig === null) {
-        throw setupError({
-          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-          code: "s11_verify_without_config",
-          publicMessage: "S11 verify requires previously loaded config context.",
-          nextAction: "Run plan/apply or status --refresh before verify.",
-          stage: "S11"
-        });
-      }
-      const verified = await verifyBackup(deps, lastConfig);
-      const health = await collectHealth(deps, lastConfig);
+    async verify(ctx: StageContext): Promise<StageReceipt[]> {
+      const verified = await verifyBackup(deps, ctx.config);
+      const health = await collectHealth(deps, ctx.config);
       if (health.degradedReasons.length > 0) {
         throw setupError({
           exitCode: ExitCode.DriftOrRecoveryRequired,

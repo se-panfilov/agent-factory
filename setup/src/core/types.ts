@@ -132,6 +132,7 @@ export interface StageContext {
   profile: "supervised" | "service";
   desiredHash: string;
   planHash: string;
+  config: SetupConfig;
 }
 
 export interface StageModule {
@@ -190,6 +191,11 @@ export interface SetupConfig {
   optional_features: {
     inference: boolean;
     platforms: boolean;
+  };
+  operations?: {
+    backup_path: string;
+    retention_days: number;
+    health_secret_ref?: string;
   };
 }
 

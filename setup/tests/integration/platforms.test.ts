@@ -59,7 +59,8 @@ function makeCtx(config: SetupConfig): StageContext {
     contractVersion: "1.0.0",
     profile: config.profile,
     desiredHash: "d".repeat(64),
-    planHash: "e".repeat(64)
+    planHash: "e".repeat(64),
+    config
   };
 }
 

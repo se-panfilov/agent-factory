@@ -7,7 +7,7 @@ import {
   type DockerRuntimeObservation
 } from "../../src/adapters/docker";
 import { createDockerStage } from "../../src/stages/docker";
-import { ExitCode, type StageContext } from "../../src/core/types";
+import { ExitCode, type SetupConfig, type StageContext } from "../../src/core/types";
 
 function ctx(): StageContext {
   return {
@@ -15,7 +15,8 @@ function ctx(): StageContext {
     contractVersion: "1.0.0",
     profile: "supervised",
     desiredHash: "d".repeat(64),
-    planHash: "p".repeat(64)
+    planHash: "p".repeat(64),
+    config: {} as SetupConfig
   };
 }
 

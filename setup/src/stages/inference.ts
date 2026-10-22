@@ -867,37 +867,26 @@ export function createInferenceStage(
   processAdapter: ProcessAdapter,
   adapter: InferenceAdapter = new NodeInferenceAdapter(processAdapter)
 ): StageModule {
-  let lastConfig: SetupConfig | null = null;
   return {
     id: "S12",
     dependencies: ["S09"],
     supportedProfiles: ["supervised", "service"],
     optional: true,
     requiredCapabilities: [],
-    async observe(): Promise<StageObservation> {
-      if (lastConfig === null) {
-        return {
-          stageId: "S12",
-          status: "planned",
-          checks: {
-            s12_config_loaded: false
-          },
-          versions: {},
-          observedAt: new Date().toISOString()
-        };
-      }
-      const optionalEnabled = lastConfig.optional_features.inference;
-      const pins = optionalEnabled ? await readPins(fsAdapter, lastConfig).catch(() => null) : null;
+    async observe(ctx: StageContext): Promise<StageObservation> {
+      const config = ctx.config;
+      const optionalEnabled = config.optional_features.inference;
+      const pins = optionalEnabled ? await readPins(fsAdapter, config).catch(() => null) : null;
       const runtime = pins === null
         ? { dockerAvailable: false, running: false, publicPortsDetected: false }
-        : await adapter.observeRuntime(lastConfig, pins);
+        : await adapter.observeRuntime(config, pins);
       const resources = optionalEnabled
-        ? await adapter.observeResources(lastConfig)
+        ? await adapter.observeResources(config)
         : { ramAvailableBytes: 0, diskAvailableBytes: 0, diskAvailableInodes: 0 };
-      const health = optionalEnabled ? await readHealth(fsAdapter, lastConfig) : null;
-      const state = optionalEnabled ? await readState(fsAdapter, lastConfig) : null;
-      const isolation = optionalEnabled ? await readS08IsolationEvidence(fsAdapter, lastConfig) : { ok: true, evidenceRef: "not-required" };
-      const integrationEvidence = optionalEnabled ? await readIntegrationEvidence(fsAdapter, lastConfig) : null;
+      const health = optionalEnabled ? await readHealth(fsAdapter, config) : null;
+      const state = optionalEnabled ? await readState(fsAdapter, config) : null;
+      const isolation = optionalEnabled ? await readS08IsolationEvidence(fsAdapter, config) : { ok: true, evidenceRef: "not-required" };
+      const integrationEvidence = optionalEnabled ? await readIntegrationEvidence(fsAdapter, config) : null;
       const routingEnabledValue = optionalEnabled ? routingEligible(integrationEvidence) : false;
       const status = statusFromSnapshot({
         optionalEnabled,
@@ -944,7 +933,6 @@ export function createInferenceStage(
     },
     plan(desired: unknown, observed: StageObservation): StagePlan {
       const config = desired as SetupConfig;
-      lastConfig = config;
       if (!config.optional_features.inference) {
         return {
           stageId: "S12",
@@ -989,22 +977,14 @@ export function createInferenceStage(
       };
     },
     async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
-      if (lastConfig === null) {
-        throw setupError({
-          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-          code: "s12_config_not_initialized",
-          publicMessage: "S12 apply requires plan generation in the same process.",
-          nextAction: "Run plan/apply sequence for S12.",
-          stage: "S12"
-        });
-      }
-      if (!lastConfig.optional_features.inference) {
+      const config = ctx.config;
+      if (!config.optional_features.inference) {
         return [];
       }
-      const pins = await readPins(fsAdapter, lastConfig);
-      const composePathValue = composePath(lastConfig, pins);
-      const resources = await adapter.observeResources(lastConfig);
-      const runtimeBefore = await adapter.observeRuntime(lastConfig, pins);
+      const pins = await readPins(fsAdapter, config);
+      const composePathValue = composePath(config, pins);
+      const resources = await adapter.observeResources(config);
+      const runtimeBefore = await adapter.observeRuntime(config, pins);
       const requiredRam = inferRequiredRamBytes(pins);
       if (resources.ramAvailableBytes < requiredRam) {
         throw setupError({
@@ -1044,7 +1024,7 @@ export function createInferenceStage(
           stage: "S12"
         });
       }
-      const isolation = await readS08IsolationEvidence(fsAdapter, lastConfig);
+      const isolation = await readS08IsolationEvidence(fsAdapter, config);
       if (!isolation.ok) {
         throw setupError({
           exitCode: ExitCode.OptionalRequestedStageFailed,
@@ -1068,8 +1048,8 @@ export function createInferenceStage(
         }
       }
 
-      await adapter.stageModelAndStartServing(lastConfig, pins, composePathValue);
-      const runtimeAfter = await adapter.observeRuntime(lastConfig, pins);
+      await adapter.stageModelAndStartServing(config, pins, composePathValue);
+      const runtimeAfter = await adapter.observeRuntime(config, pins);
       if (!runtimeAfter.running) {
         throw setupError({
           exitCode: ExitCode.OptionalRequestedStageFailed,
@@ -1088,10 +1068,10 @@ export function createInferenceStage(
           stage: "S12"
         });
       }
-      const integrationEvidence = await readIntegrationEvidence(fsAdapter, lastConfig);
-      await writeHealthAndState(fsAdapter, lastConfig, pins, composePathValue, routingEligible(integrationEvidence), isolation.evidenceRef);
+      const integrationEvidence = await readIntegrationEvidence(fsAdapter, config);
+      await writeHealthAndState(fsAdapter, config, pins, composePathValue, routingEligible(integrationEvidence), isolation.evidenceRef);
 
-      const health = await readHealth(fsAdapter, lastConfig);
+      const health = await readHealth(fsAdapter, config);
       return [
         {
           operationId: approvedPlan.operations[0]?.id ?? `s12-apply-${ctx.installationId}`,
@@ -1110,28 +1090,20 @@ export function createInferenceStage(
             s12_model_num_ctx: String(pins.model.num_ctx),
             s12_model_license: pins.model.license
           },
-          artifacts: [composePathValue, healthPath(lastConfig), statePath(lastConfig)]
+          artifacts: [composePathValue, healthPath(config), statePath(config)]
         }
       ];
     },
-    async verify(_ctx: StageContext): Promise<StageReceipt[]> {
-      if (lastConfig === null) {
-        throw setupError({
-          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-          code: "s12_verify_without_config",
-          publicMessage: "S12 verify requires previously loaded config context.",
-          nextAction: "Run plan/apply or status --refresh before verify.",
-          stage: "S12"
-        });
-      }
-      if (!lastConfig.optional_features.inference) {
+    async verify(ctx: StageContext): Promise<StageReceipt[]> {
+      const config = ctx.config;
+      if (!config.optional_features.inference) {
         return [];
       }
-      const pins = await readPins(fsAdapter, lastConfig);
-      const health = await readHealth(fsAdapter, lastConfig);
-      const state = await readState(fsAdapter, lastConfig);
-      const runtime = await adapter.observeRuntime(lastConfig, pins);
-      const isolation = await readS08IsolationEvidence(fsAdapter, lastConfig);
+      const pins = await readPins(fsAdapter, config);
+      const health = await readHealth(fsAdapter, config);
+      const state = await readState(fsAdapter, config);
+      const runtime = await adapter.observeRuntime(config, pins);
+      const isolation = await readS08IsolationEvidence(fsAdapter, config);
       if (health === null || state === null) {
         throw setupError({
           exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
@@ -1169,7 +1141,7 @@ export function createInferenceStage(
           evidenceRef: isolation.evidenceRef
         });
       }
-      const integrationEvidence = await readIntegrationEvidence(fsAdapter, lastConfig);
+      const integrationEvidence = await readIntegrationEvidence(fsAdapter, config);
       const routeEnabled = routingEligible(integrationEvidence);
       if (health.routing_enabled && !routeEnabled) {
         throw setupError({
@@ -1207,7 +1179,7 @@ export function createInferenceStage(
             s12_model_num_ctx: String(pins.model.num_ctx),
             s12_model_license: pins.model.license
           },
-          artifacts: [healthPath(lastConfig), statePath(lastConfig)]
+          artifacts: [healthPath(config), statePath(config)]
         }
       ];
     },

@@ -236,12 +236,18 @@ export class SetupEngine {
           return await this.runSmoke(options);
         case "inference-disable":
           return await this.runInferenceDisable(options);
+        case "inference-probe":
+          return await this.runInferenceProbe(options);
+        case "update-plan":
+          return await this.runUpdatePlan(options);
+        case "update-apply":
+          return await this.runUpdateApply(options);
         default:
           throw setupError({
             exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
             code: "unsupported_command",
             publicMessage: `Command '${command}' is not implemented in P02 scope.`,
-            nextAction: "Use commands from init/preflight/plan/apply/status/resume/verify/gate/auth/smoke/inference/cancel/recover/backup/restore."
+            nextAction: "Use commands from init/preflight/plan/apply/status/resume/verify/gate/auth/smoke/update/inference/cancel/recover/backup/restore."
           });
       }
     } catch (error) {
@@ -284,9 +290,21 @@ export class SetupEngine {
       contractVersion: "1.0.0",
       profile: config.profile,
       desiredHash: hashConfig(config),
-      planHash
+      planHash,
+      config
     });
     return updateObservedStage(state, observation, observation.status);
+  }
+
+  private stageContext(config: SetupConfig, desiredHash: string, planHash: string) {
+    return {
+      installationId: config.installation_id,
+      contractVersion: "1.0.0" as const,
+      profile: config.profile,
+      desiredHash,
+      planHash,
+      config
+    };
   }
 
   private async runInit(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
@@ -339,7 +357,8 @@ export class SetupEngine {
       contractVersion: "1.0.0",
       profile: config.profile,
       desiredHash: hashConfig(config),
-      planHash: "none"
+      planHash: "none",
+      config
     });
     const nextState = updateObservedStage(state, observation, observation.status);
     await saveState(this.deps.fsAdapter, config, nextState);
@@ -358,15 +377,42 @@ export class SetupEngine {
 
   private async runPlan(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
     const config = await loadConfig(this.deps.fsAdapter, options.configPath);
-    const state = await loadState(
+    let state = await loadState(
       this.deps.fsAdapter,
       this.deps.processAdapter,
       this.deps.clock,
       config,
       this.deps.installerVersion
     );
-    const stageId = options.stageId ?? null;
-    const result = await createPlanFile(this.deps.fsAdapter, config, this.registry, stageId, this.deps.clock);
+    const lock = await acquireLock(this.deps.fsAdapter, this.deps.processAdapter, config);
+    let result: Awaited<ReturnType<typeof createPlanFile>> | null = null;
+    try {
+      state = await loadState(
+        this.deps.fsAdapter,
+        this.deps.processAdapter,
+        this.deps.clock,
+        config,
+        this.deps.installerVersion
+      );
+      const stageId = options.stageId ?? null;
+      result = await createPlanFile(this.deps.fsAdapter, config, this.registry, stageId, this.deps.clock);
+      for (const stagePlan of result.plan.stages) {
+        for (const operation of stagePlan.operations) {
+          state = upsertPlanGates(state, result.plan.plan_hash, operation.id, operation.gate_ids, this.deps.clock);
+        }
+      }
+      await saveState(this.deps.fsAdapter, config, state);
+    } finally {
+      await lock.release();
+    }
+    if (result === null) {
+      throw setupError({
+        exitCode: ExitCode.OperationOrVerificationFailed,
+        code: "plan_generation_failed",
+        publicMessage: "Plan generation did not produce a result.",
+        nextAction: "Inspect previous errors and rerun plan."
+      });
+    }
     const envelope = envelopeBase("plan", config, state, result.plan.plan_hash);
     envelope.overall_status = "ok";
     envelope.data = {
@@ -395,10 +441,17 @@ export class SetupEngine {
     );
     const plan = await loadPlan(this.deps.fsAdapter, options.planPath);
     validatePlanConsistency(config, plan);
-    ensureNonInteractiveGates(state, plan.plan_hash, options.nonInteractive ?? false);
 
     const lock = await acquireLock(this.deps.fsAdapter, this.deps.processAdapter, config);
     try {
+      state = await loadState(
+        this.deps.fsAdapter,
+        this.deps.processAdapter,
+        this.deps.clock,
+        config,
+        this.deps.installerVersion
+      );
+      ensureNonInteractiveGates(state, plan.plan_hash, options.nonInteractive ?? false, this.deps.clock);
       for (const stagePlan of plan.stages) {
         const stage = this.registry.byId.get(stagePlan.stage_id);
         if (stage === undefined) {
@@ -410,13 +463,7 @@ export class SetupEngine {
             stage: stagePlan.stage_id
           });
         }
-        const observation = await stage.observe({
-          installationId: config.installation_id,
-          contractVersion: "1.0.0",
-          profile: config.profile,
-          desiredHash: plan.desired_hash,
-          planHash: plan.plan_hash
-        });
+        const observation = await stage.observe(this.stageContext(config, plan.desired_hash, plan.plan_hash));
         if (
           state.stages.some(
             (entry) => entry.id === stagePlan.stage_id && entry.status === "verified" && observation.status !== "verified"
@@ -432,15 +479,8 @@ export class SetupEngine {
         }
 
         state = updateObservedStage(state, observation, "applying");
-        state = upsertPlanGates(
-          state,
-          plan.plan_hash,
-          stagePlan.operations[0]?.id ?? `${stagePlan.stage_id}-gate`,
-          stagePlan.required_gates,
-          this.deps.clock
-        );
         for (const gateId of stagePlan.required_gates) {
-          ensureGateApproved(state, plan.plan_hash, gateId);
+          ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock);
         }
         await saveState(this.deps.fsAdapter, config, state);
 
@@ -460,13 +500,7 @@ export class SetupEngine {
           });
         }
         const receipts = await stage.apply(
-          {
-            installationId: config.installation_id,
-            contractVersion: "1.0.0",
-            profile: config.profile,
-            desiredHash: plan.desired_hash,
-            planHash: plan.plan_hash
-          },
+          this.stageContext(config, plan.desired_hash, plan.plan_hash),
           {
             stageId: stagePlan.stage_id,
             optional: stagePlan.optional,
@@ -494,19 +528,23 @@ export class SetupEngine {
             message: `receipt:${receipt.resourceId}`
           });
         }
-        await stage.verify({
-          installationId: config.installation_id,
-          contractVersion: "1.0.0",
-          profile: config.profile,
-          desiredHash: plan.desired_hash,
-          planHash: plan.plan_hash
-        });
+        await stage.verify(this.stageContext(config, plan.desired_hash, plan.plan_hash));
+        const observedAfter = await stage.observe(this.stageContext(config, plan.desired_hash, plan.plan_hash));
+        if (observedAfter.status !== "verified") {
+          throw setupError({
+            exitCode: ExitCode.OperationOrVerificationFailed,
+            code: "postcondition_not_verified",
+            publicMessage: `Stage ${stagePlan.stage_id} did not reach verified state after apply.`,
+            nextAction: "Inspect stage checks and rerun with a fresh plan.",
+            stage: stagePlan.stage_id
+          });
+        }
         state = withInFlightOperation(state, null);
-        state = updateObservedStage(state, observation, "verified");
+        state = updateObservedStage(state, observedAfter, "verified");
         await saveState(this.deps.fsAdapter, config, state);
       }
 
-      const cancelRequested = await consumeCancelRequest(this.deps.fsAdapter, config);
+      const cancelRequested = await consumeCancelRequest(this.deps.fsAdapter, config, lock.owner);
       if (cancelRequested) {
         throw setupError({
           exitCode: ExitCode.SigIntCleanupConfirmed,
@@ -544,7 +582,7 @@ export class SetupEngine {
         next_action: setup.nextAction,
         evidence_ref: setup.evidenceRef
       });
-      state = withInFlightOperation(state, null);
+      state = withInFlightOperation(state, state.in_flight_operation === null ? null : state.in_flight_operation);
       await saveState(this.deps.fsAdapter, config, state);
       throw setup;
     } finally {
@@ -565,11 +603,7 @@ export class SetupEngine {
       const preflight = this.registry.byId.get("S01");
       if (preflight !== undefined) {
         const observation = await preflight.observe({
-          installationId: config.installation_id,
-          contractVersion: "1.0.0",
-          profile: config.profile,
-          desiredHash: hashConfig(config),
-          planHash: "none"
+          ...this.stageContext(config, hashConfig(config), "none")
         });
         const stage = state.stages.find((item) => item.id === "S01");
         if (stage?.status === "verified" && observation.status !== "verified") {
@@ -631,22 +665,10 @@ export class SetupEngine {
       if (stage === undefined) {
         continue;
       }
-      const receipts = await stage.verify({
-        installationId: config.installation_id,
-        contractVersion: "1.0.0",
-        profile: config.profile,
-        desiredHash: hashConfig(config),
-        planHash: "verify"
-      });
+      const receipts = await stage.verify(this.stageContext(config, hashConfig(config), "verify"));
       if (receipts.length > 0) {
-        const observation = await stage.observe({
-          installationId: config.installation_id,
-          contractVersion: "1.0.0",
-          profile: config.profile,
-          desiredHash: hashConfig(config),
-          planHash: "verify"
-        });
-        state = updateObservedStage(state, observation, "verified");
+        const observation = await stage.observe(this.stageContext(config, hashConfig(config), "verify"));
+        state = updateObservedStage(state, observation, observation.status);
       }
     }
     await saveState(this.deps.fsAdapter, config, state);
@@ -689,8 +711,20 @@ export class SetupEngine {
       config,
       this.deps.installerVersion
     );
-    state = approveGate(state, options.gateId, options.planHash, this.deps.clock);
-    await saveState(this.deps.fsAdapter, config, state);
+    const lock = await acquireLock(this.deps.fsAdapter, this.deps.processAdapter, config);
+    try {
+      state = await loadState(
+        this.deps.fsAdapter,
+        this.deps.processAdapter,
+        this.deps.clock,
+        config,
+        this.deps.installerVersion
+      );
+      state = approveGate(state, options.gateId, options.planHash, this.deps.clock);
+      await saveState(this.deps.fsAdapter, config, state);
+    } finally {
+      await lock.release();
+    }
     const envelope = envelopeBase("gate approve", config, state, options.planHash);
     envelope.overall_status = "ok";
     return { envelope, exitCode: ExitCode.Success };
@@ -963,5 +997,50 @@ export class SetupEngine {
       compose_path: result.composePath
     };
     return { envelope, exitCode: ExitCode.Success };
+  }
+
+  private async runInferenceProbe(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
+    const config = await loadConfig(this.deps.fsAdapter, options.configPath);
+    const state = await loadState(
+      this.deps.fsAdapter,
+      this.deps.processAdapter,
+      this.deps.clock,
+      config,
+      this.deps.installerVersion
+    );
+    const envelope = envelopeBase("inference probe", config, state, null);
+    envelope.overall_status = "blocked";
+    envelope.manual_actions.push("S12 probe command requires reviewed implementation and explicit owner gate.");
+    return { envelope, exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence };
+  }
+
+  private async runUpdatePlan(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
+    const config = await loadConfig(this.deps.fsAdapter, options.configPath);
+    const state = await loadState(
+      this.deps.fsAdapter,
+      this.deps.processAdapter,
+      this.deps.clock,
+      config,
+      this.deps.installerVersion
+    );
+    const envelope = envelopeBase("update plan", config, state, null);
+    envelope.overall_status = "blocked";
+    envelope.manual_actions.push("Use generic plan/apply flow for S14 until dedicated update plan verb is wired.");
+    return { envelope, exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence };
+  }
+
+  private async runUpdateApply(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
+    const config = await loadConfig(this.deps.fsAdapter, options.configPath);
+    const state = await loadState(
+      this.deps.fsAdapter,
+      this.deps.processAdapter,
+      this.deps.clock,
+      config,
+      this.deps.installerVersion
+    );
+    const envelope = envelopeBase("update apply", config, state, null);
+    envelope.overall_status = "blocked";
+    envelope.manual_actions.push("Use generic apply with approved S14 plan until dedicated update apply verb is wired.");
+    return { envelope, exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence };
   }
 }

@@ -113,13 +113,14 @@ function makeCheckout(config: SetupConfig): ExistingCheckoutObservation {
   };
 }
 
-function makeCtx(): StageContext {
+function makeCtx(config: SetupConfig): StageContext {
   return {
     installationId: "ebf4bcbe-bf10-44f3-a1ee-f2947974c64a",
     contractVersion: "1.0.0",
     profile: "supervised",
     desiredHash: "d".repeat(64),
-    planHash: "e".repeat(64)
+    planHash: "e".repeat(64),
+    config
   };
 }
 
@@ -195,7 +196,7 @@ test("S05 applies trusted synthetic M0 artifact and runs offline probes", async 
   const adapter = new FakeApplicationAdapter(makeCheckout(config), makeRelease(config));
   const stage = createApplicationStage(adapter);
   const plan = stage.plan(config, placeholderObserved());
-  const receipts = await stage.apply(makeCtx(), plan);
+  const receipts = await stage.apply(makeCtx(config), plan);
 
   assert.equal(plan.requiredGates.includes("s05-dockerfile-build-reviewed"), true);
   assert.equal(receipts.length, 1);
@@ -218,7 +219,7 @@ test("S05 returns explicit blocker when valid M0 release is missing", async () =
   const plan = stage.plan(config, placeholderObserved());
 
   await assert.rejects(
-    async () => stage.apply(makeCtx(), plan),
+    async () => stage.apply(makeCtx(config), plan),
     (error) => (
       error instanceof Error
       && "code" in error
@@ -237,7 +238,7 @@ test("S05 rejects traversal or symlink entries before extraction", async () => {
   const plan = stage.plan(config, placeholderObserved());
 
   await assert.rejects(
-    async () => stage.apply(makeCtx(), plan),
+    async () => stage.apply(makeCtx(config), plan),
     (error) => (
       error instanceof Error
       && "code" in error
@@ -257,7 +258,7 @@ test("S05 rejects archive path traversal entries before extraction", async () =>
   const plan = stage.plan(config, placeholderObserved());
 
   await assert.rejects(
-    async () => stage.apply(makeCtx(), plan),
+    async () => stage.apply(makeCtx(config), plan),
     (error) => (
       error instanceof Error
       && "code" in error
@@ -283,7 +284,7 @@ test("S05 rejects dirty existing checkout and does not reset", async () => {
   const plan = stage.plan(config, placeholderObserved());
 
   await assert.rejects(
-    async () => stage.apply(makeCtx(), plan),
+    async () => stage.apply(makeCtx(config), plan),
     (error) => (
       error instanceof Error
       && "code" in error
@@ -310,7 +311,7 @@ test("S05 verifies hash mismatches as security violation", async () => {
   const plan = stage.plan(config, placeholderObserved());
 
   await assert.rejects(
-    async () => stage.apply(makeCtx(), plan),
+    async () => stage.apply(makeCtx(config), plan),
     (error) => (
       error instanceof Error
       && "code" in error

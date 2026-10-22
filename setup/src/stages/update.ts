@@ -47,7 +47,6 @@ export function createUpdateStage(
   fsAdapter: FilesystemAdapter,
   processAdapter: ProcessAdapter
 ): StageModule {
-  let lastConfig: SetupConfig | null = null;
   const deps: UpdateDeps = {
     fsAdapter,
     processAdapter,
@@ -60,19 +59,8 @@ export function createUpdateStage(
     supportedProfiles: ["supervised", "service"],
     optional: false,
     requiredCapabilities: ["app-pause", "app-stop", "app-status", "app-migrate", "app-recover"],
-    async observe(): Promise<StageObservation> {
-      if (lastConfig === null) {
-        return {
-          stageId: "S14",
-          status: "planned",
-          checks: {
-            s14_config_loaded: false
-          },
-          versions: {},
-          observedAt: new Date().toISOString()
-        };
-      }
-      const observed = await observeUpdateState(deps, lastConfig);
+    async observe(ctx: StageContext): Promise<StageObservation> {
+      const observed = await observeUpdateState(deps, ctx.config);
       return {
         stageId: "S14",
         status: statusFromObservation(observed),
@@ -83,7 +71,6 @@ export function createUpdateStage(
     },
     plan(desired: unknown, observed: StageObservation): StagePlan {
       const config = desired as SetupConfig;
-      lastConfig = config;
       const operations = observed.status === "verified"
         ? []
         : [
@@ -119,17 +106,8 @@ export function createUpdateStage(
       };
     },
     async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
-      if (lastConfig === null) {
-        throw setupError({
-          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-          code: "s14_config_not_initialized",
-          publicMessage: "S14 apply requires plan generation in the same process.",
-          nextAction: "Run plan/apply sequence for S14.",
-          stage: "S14"
-        });
-      }
       const operationId = approvedPlan.operations[0]?.id ?? `s14-apply-${ctx.installationId}`;
-      const result = await applyUpdate(deps, lastConfig, operationId);
+      const result = await applyUpdate(deps, ctx.config, operationId);
       return [
         {
           operationId,
@@ -156,17 +134,8 @@ export function createUpdateStage(
         }
       ];
     },
-    async verify(): Promise<StageReceipt[]> {
-      if (lastConfig === null) {
-        throw setupError({
-          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-          code: "s14_verify_without_config",
-          publicMessage: "S14 verify requires previously loaded config context.",
-          nextAction: "Run plan/apply or status --refresh before verify.",
-          stage: "S14"
-        });
-      }
-      const observed = await verifyUpdate(deps, lastConfig);
+    async verify(ctx: StageContext): Promise<StageReceipt[]> {
+      const observed = await verifyUpdate(deps, ctx.config);
       return [
         {
           operationId: "s14-verify",
@@ -188,4 +157,3 @@ export function createUpdateStage(
 export const UPDATE_GATES = {
   APPLY_GATE_ID
 } as const;
-

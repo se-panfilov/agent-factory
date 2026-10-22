@@ -117,7 +117,8 @@ export async function createPlanFile(
       contractVersion: "1.0.0",
       profile: config.profile,
       desiredHash: hashConfig(config),
-      planHash: "pending"
+      planHash: "pending",
+      config
     });
     const stagePlan: StagePlan = stage.plan(config, observation);
     stagePlans.push({

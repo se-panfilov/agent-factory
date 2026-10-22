@@ -4,28 +4,34 @@ import { setupError } from "./errors";
 
 const GATE_TTL_MS = 30 * 60 * 1000;
 
-export function requiredGatesForPlan(state: SetupState, planHash: string): PersistedGateState[] {
-  const now = Date.now();
+function effectiveStatus(gate: PersistedGateState, clock: Clock): PersistedGateState["status"] {
+  if (new Date(gate.expires_at).getTime() <= clock.now().getTime()) {
+    return gate.status === "approved" ? "expired" : gate.status;
+  }
+  return gate.status;
+}
+
+export function requiredGatesForPlan(state: SetupState, planHash: string, clock: Clock): PersistedGateState[] {
   return state.pending_gates
-    .map((gate) => {
-      if (new Date(gate.expires_at).getTime() <= now && gate.status === "approved") {
-        return { ...gate, status: "expired" as const };
-      }
-      return gate;
-    })
+    .map((gate) => ({ ...gate, status: effectiveStatus(gate, clock) }))
     .filter((gate) => gate.plan_hash === planHash && gate.status === "pending");
 }
 
 export function ensureNonInteractiveGates(
   state: SetupState,
   planHash: string,
-  nonInteractive: boolean
+  nonInteractive: boolean,
+  clock: Clock
 ): void {
   if (!nonInteractive) {
     return;
   }
-  const required = state.pending_gates.filter(
-    (gate) => gate.plan_hash === planHash && gate.status !== "approved"
+  const required = state.pending_gates.filter((gate) => {
+    if (gate.plan_hash !== planHash) {
+      return false;
+    }
+    return effectiveStatus(gate, clock) !== "approved";
+  }
   );
   if (required.length > 0) {
     throw setupError({
@@ -49,17 +55,33 @@ export function upsertPlanGates(
   const next = [...state.pending_gates];
   for (const gateId of gateIds) {
     const existingIndex = next.findIndex((gate) => gate.id === gateId && gate.plan_hash === planHash);
-    const gateRecord: PersistedGateState = {
-      id: gateId,
-      operation_id: operationId,
-      plan_hash: planHash,
-      expires_at: expiresAt,
-      status: "pending"
-    };
     if (existingIndex >= 0) {
-      next[existingIndex] = gateRecord;
+      const existing = next[existingIndex];
+      if (existing === undefined) {
+        continue;
+      }
+      const expired = new Date(existing.expires_at).getTime() <= clock.now().getTime();
+      if (
+        existing.operation_id === operationId
+        && existing.status === "approved"
+        && !expired
+      ) {
+        next[existingIndex] = existing;
+        continue;
+      }
+      next[existingIndex] = {
+        ...existing,
+        operation_id: operationId,
+        status: expired && existing.status === "approved" ? "expired" : "pending"
+      };
     } else {
-      next.push(gateRecord);
+      next.push({
+        id: gateId,
+        operation_id: operationId,
+        plan_hash: planHash,
+        expires_at: expiresAt,
+        status: "pending"
+      });
     }
   }
   return { ...state, pending_gates: next };
@@ -94,7 +116,7 @@ export function approveGate(
   return { ...state, pending_gates: updated };
 }
 
-export function ensureGateApproved(state: SetupState, planHash: string, gateId: string): void {
+export function ensureGateApproved(state: SetupState, planHash: string, gateId: string, clock: Clock): void {
   const gate = state.pending_gates.find((item) => item.id === gateId && item.plan_hash === planHash);
   if (gate === undefined || gate.status !== "approved") {
     throw setupError({
@@ -104,7 +126,7 @@ export function ensureGateApproved(state: SetupState, planHash: string, gateId: 
       nextAction: "Approve the gate and retry apply/resume."
     });
   }
-  if (new Date(gate.expires_at).getTime() <= Date.now()) {
+  if (new Date(gate.expires_at).getTime() <= clock.now().getTime()) {
     throw setupError({
       exitCode: ExitCode.ManualActionRequired,
       code: "gate_expired",

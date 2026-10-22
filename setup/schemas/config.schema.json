@@ -175,6 +175,23 @@
         "inference": { "type": "boolean" },
         "platforms": { "type": "boolean" }
       }
+    },
+    "operations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["backup_path", "retention_days"],
+      "properties": {
+        "backup_path": { "$ref": "#/$defs/absolutePath" },
+        "retention_days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3650
+        },
+        "health_secret_ref": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
     }
   },
   "$defs": {

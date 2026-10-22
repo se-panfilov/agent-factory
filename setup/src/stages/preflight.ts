@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import { statfs } from "node:fs/promises";
 import { type FilesystemAdapter } from "../adapters/filesystem";
 import {
   type StageContext,
@@ -19,6 +20,7 @@ export interface PreflightProbe {
     cgroupVersion: string;
     freeDiskBytes: number;
     totalDiskBytes: number;
+    freeInodes: number;
     cpuCount: number;
     totalMemBytes: number;
   }>;
@@ -27,14 +29,17 @@ export interface PreflightProbe {
 async function probeDisk(fsAdapter: FilesystemAdapter, targetPath: string): Promise<{
   freeDiskBytes: number;
   totalDiskBytes: number;
+  freeInodes: number;
 }> {
   const real = await fsAdapter.realpath(targetPath).catch(() => targetPath);
-  const stat = await fsAdapter.stat(real);
-  const blockSize = Number(stat.blksize);
-  const blocks = Number(stat.blocks);
+  const stats = await statfs(real);
+  const blockSize = Number(stats.bsize);
+  const blocks = Number(stats.blocks);
+  const freeBlocks = Number(stats.bavail);
   return {
-    freeDiskBytes: blockSize * Math.max(blocks, 1),
-    totalDiskBytes: blockSize * Math.max(blocks, 1)
+    freeDiskBytes: blockSize * Math.max(freeBlocks, 0),
+    totalDiskBytes: blockSize * Math.max(blocks, 1),
+    freeInodes: Number(stats.ffree)
   };
 }
 
@@ -44,20 +49,38 @@ export function createNodePreflightProbe(fsAdapter: FilesystemAdapter): Prefligh
       let osRelease = "unknown";
       try {
         const content = await fsAdapter.readText("/etc/os-release");
-        osRelease = content.includes("24.04") ? "ubuntu-24.04" : "unsupported";
+        const lines = content
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0);
+        const map = new Map<string, string>();
+        for (const line of lines) {
+          const eq = line.indexOf("=");
+          if (eq <= 0) {
+            continue;
+          }
+          const key = line.slice(0, eq);
+          const value = line.slice(eq + 1).replace(/^"/, "").replace(/"$/, "");
+          map.set(key, value);
+        }
+        const id = map.get("ID");
+        const version = map.get("VERSION_ID");
+        osRelease = id === "ubuntu" && version === "24.04" ? "ubuntu-24.04" : "unsupported";
       } catch {
         osRelease = "unsupported";
       }
       const disk = await probeDisk(fsAdapter, process.cwd());
+      const arch = process.arch === "x64" ? "amd64" : process.arch === "arm64" ? "arm64" : "unsupported";
       return {
         osRelease,
-        arch: process.arch === "arm64" ? "arm64" : "amd64",
+        arch,
         uid: typeof process.getuid === "function" ? process.getuid() : -1,
         username: os.userInfo().username,
         hasSystemd: await fsAdapter.exists("/run/systemd/system"),
         cgroupVersion: (await fsAdapter.exists("/sys/fs/cgroup/cgroup.controllers")) ? "v2" : "v1",
         freeDiskBytes: disk.freeDiskBytes,
         totalDiskBytes: disk.totalDiskBytes,
+        freeInodes: disk.freeInodes,
         cpuCount: os.cpus().length,
         totalMemBytes: os.totalmem()
       };
@@ -65,15 +88,28 @@ export function createNodePreflightProbe(fsAdapter: FilesystemAdapter): Prefligh
   };
 }
 
-function preflightChecks(report: Awaited<ReturnType<PreflightProbe["readOnlyHostReport"]>>): Record<string, boolean | number | string> {
+function preflightChecks(
+  report: Awaited<ReturnType<PreflightProbe["readOnlyHostReport"]>>,
+  expectedUser: string
+): Record<string, boolean | number | string> {
+  const nodeMajor = Number.parseInt(process.versions.node.split(".")[0] ?? "", 10);
+  const supportedHost = report.osRelease === "ubuntu-24.04" && (report.arch === "amd64" || report.arch === "arm64");
+  const expectedUserOk = report.username === expectedUser;
+  const nonRoot = report.uid !== 0;
+  const resourcesOk = report.cpuCount > 0 && report.totalMemBytes > 0 && report.freeDiskBytes > 0 && report.freeInodes > 0;
+  const nodeVersionOk = Number.isFinite(nodeMajor) && nodeMajor === 24;
   return {
-    host_supported: report.osRelease === "ubuntu-24.04" && (report.arch === "amd64" || report.arch === "arm64"),
+    host_supported: supportedHost,
+    expected_user_match: expectedUserOk,
+    node_major_supported: nodeVersionOk,
     user_is_root: report.uid === 0,
     systemd_present: report.hasSystemd,
     cgroup_version: report.cgroupVersion,
     cpu_count: report.cpuCount,
     mem_gib: Math.round((report.totalMemBytes / (1024 ** 3)) * 100) / 100,
-    disk_free_gib: Math.round((report.freeDiskBytes / (1024 ** 3)) * 100) / 100
+    disk_free_gib: Math.round((report.freeDiskBytes / (1024 ** 3)) * 100) / 100,
+    disk_free_inodes: report.freeInodes,
+    preflight_supported: supportedHost && expectedUserOk && nonRoot && report.hasSystemd && resourcesOk && nodeVersionOk
   };
 }
 
@@ -86,16 +122,18 @@ export function createPreflightStage(probe: PreflightProbe): StageModule {
     supportedProfiles: ["supervised", "service"],
     optional: false,
     requiredCapabilities: ["runner-readonly"],
-    async observe(_ctx: StageContext): Promise<StageObservation> {
+    async observe(ctx: StageContext): Promise<StageObservation> {
       const report = await probe.readOnlyHostReport();
-      const status = report.osRelease === "ubuntu-24.04" ? "planned" : "blocked";
+      const checks = preflightChecks(report, ctx.config.host.expected_user);
+      const status = checks.preflight_supported === true ? "verified" : "blocked";
       const observation: StageObservation = {
         stageId: "S01",
         status,
-        checks: preflightChecks(report),
+        checks,
         versions: {
           os_release: report.osRelease,
-          arch: report.arch
+          arch: report.arch,
+          node_major: process.versions.node.split(".")[0] ?? "unknown"
         },
         observedAt: new Date().toISOString()
       };
@@ -133,7 +171,7 @@ export function createPreflightStage(probe: PreflightProbe): StageModule {
             retryable: true
           }
         ],
-        requiredGates: observed.status === "blocked" ? ["host-support-override"] : []
+        requiredGates: []
       };
     },
     async apply(ctx: StageContext): Promise<StageReceipt[]> {

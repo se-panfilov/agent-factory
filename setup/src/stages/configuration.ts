@@ -1198,27 +1198,14 @@ export function createConfigurationStage(
   fsAdapter: FilesystemAdapter,
   processAdapter: ProcessAdapter
 ): StageModule {
-  let lastConfig: SetupConfig | null = null;
-
   return {
     id: "S06",
     dependencies: ["S05"],
     supportedProfiles: ["supervised", "service"],
     optional: false,
     requiredCapabilities: ["runner-readonly"],
-    async observe(_ctx: StageContext): Promise<StageObservation> {
-      if (lastConfig === null) {
-        return {
-          stageId: "S06",
-          status: "planned",
-          checks: {
-            s06_config_loaded: false
-          },
-          versions: {},
-          observedAt: new Date().toISOString()
-        };
-      }
-      const snapshot = await observeSnapshot(fsAdapter, processAdapter, lastConfig);
+    async observe(ctx: StageContext): Promise<StageObservation> {
+      const snapshot = await observeSnapshot(fsAdapter, processAdapter, ctx.config);
       return {
         stageId: "S06",
         status: inferStatus(snapshot),
@@ -1229,7 +1216,6 @@ export function createConfigurationStage(
     },
     plan(desired: unknown, observed: StageObservation): StagePlan {
       const config = desired as SetupConfig;
-      lastConfig = config;
 
       const codexVersion = observed.versions.s06_expected_codex_version ?? "pending";
       const codexIntegrity = "pending";
@@ -1274,16 +1260,8 @@ export function createConfigurationStage(
       };
     },
     async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
-      if (lastConfig === null) {
-        throw setupError({
-          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-          code: "s06_config_not_initialized",
-          publicMessage: "S06 apply requires plan generation in the same process.",
-          nextAction: "Run plan/apply sequence for S06.",
-          stage: "S06"
-        });
-      }
-      const snapshot = await observeSnapshot(fsAdapter, processAdapter, lastConfig);
+      const config = ctx.config;
+      const snapshot = await observeSnapshot(fsAdapter, processAdapter, config);
       assertSnapshotReadyForApply(snapshot);
       const preconditions = parsePlanPreconditions(approvedPlan);
 
@@ -1313,10 +1291,10 @@ export function createConfigurationStage(
         });
       }
 
-      await ensurePrivateDir(fsAdapter, lastConfig.paths.application_auth_dir);
-      await ensurePrivateDir(fsAdapter, lastConfig.paths.application_state_dir);
-      await ensurePolicyFile(fsAdapter, lastConfig);
-      await ensureToyFixture(fsAdapter, processAdapter, lastConfig);
+      await ensurePrivateDir(fsAdapter, config.paths.application_auth_dir);
+      await ensurePrivateDir(fsAdapter, config.paths.application_state_dir);
+      await ensurePolicyFile(fsAdapter, config);
+      await ensureToyFixture(fsAdapter, processAdapter, config);
 
       const effectiveBaseImageDigest = snapshot.versionLock.baseImageDigest ?? preconditions.baseImageDigest;
       const effectiveCodexVersion = snapshot.codexProbe.versionRaw
@@ -1342,8 +1320,8 @@ export function createConfigurationStage(
         effectiveCodexVersion,
         codexIntegrity
       );
-      const contextDir = await ensureBuildContext(fsAdapter, lastConfig, contextFiles);
-      const currentImage = await inspectImageState(fsAdapter, processAdapter, lastConfig, {
+      const contextDir = await ensureBuildContext(fsAdapter, config, contextFiles);
+      const currentImage = await inspectImageState(fsAdapter, processAdapter, config, {
         digest: effectiveAgentImageDigest,
         baseDigest: effectiveBaseImageDigest,
         codexVersion: effectiveCodexVersion,
@@ -1356,7 +1334,7 @@ export function createConfigurationStage(
         record = await buildPinnedAgentImage(
           fsAdapter,
           processAdapter,
-          lastConfig,
+          config,
           {
             codexVersion: effectiveCodexVersion,
             codexIntegrity,
@@ -1390,24 +1368,15 @@ export function createConfigurationStage(
             build_context_hash: snapshot.buildContextHash
           },
           artifacts: [
-            policyPath(lastConfig),
-            toyFixturePath(lastConfig),
-            imageStatePath(lastConfig)
+            policyPath(config),
+            toyFixturePath(config),
+            imageStatePath(config)
           ]
         }
       ];
     },
-    async verify(_ctx: StageContext): Promise<StageReceipt[]> {
-      if (lastConfig === null) {
-        throw setupError({
-          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-          code: "s06_verify_without_config",
-          publicMessage: "S06 verify requires previously loaded config context.",
-          nextAction: "Run plan/apply or status --refresh before verify.",
-          stage: "S06"
-        });
-      }
-      const snapshot = await observeSnapshot(fsAdapter, processAdapter, lastConfig);
+    async verify(ctx: StageContext): Promise<StageReceipt[]> {
+      const snapshot = await observeSnapshot(fsAdapter, processAdapter, ctx.config);
       assertSnapshotReadyForApply(snapshot);
       if (inferStatus(snapshot) !== "verified") {
         throw setupError({
@@ -1426,11 +1395,7 @@ export function createConfigurationStage(
           observedAt: new Date().toISOString(),
           checks: checksFromSnapshot(snapshot),
           versions: versionsFromSnapshot(snapshot),
-          artifacts: [
-            policyPath(lastConfig),
-            toyFixturePath(lastConfig),
-            imageStatePath(lastConfig)
-          ]
+          artifacts: [policyPath(ctx.config), toyFixturePath(ctx.config), imageStatePath(ctx.config)]
         }
       ];
     },

@@ -59,7 +59,7 @@ interface ServiceCapabilityStatus {
 }
 
 function backupRoot(config: SetupConfig): string {
-  return path.join(config.paths.setup_state_dir, "backups", "s11");
+  return config.operations?.backup_path ?? path.join(config.paths.setup_state_dir, "backups", "s11");
 }
 
 function tempBackupDir(root: string, backupId: string): string {
@@ -76,6 +76,14 @@ function manifestPathFor(backupDir: string): string {
 
 function nowIso(now: () => Date): string {
   return now().toISOString();
+}
+
+function retentionDays(config: SetupConfig): number {
+  const candidate = config.operations?.retention_days;
+  if (typeof candidate !== "number" || !Number.isFinite(candidate) || candidate <= 0) {
+    return BACKUP_RETENTION_DAYS;
+  }
+  return Math.floor(candidate);
 }
 
 function backupIdFromDate(now: () => Date): string {
@@ -375,7 +383,12 @@ function latestGood(manifests: BackupManifest[]): BackupManifest | null {
   return owned.at(-1) ?? null;
 }
 
-async function pruneOwnedRetention(root: string, installationId: string, now: Date): Promise<{ retainedLatestGood: string | null; pruned: string[] }> {
+async function pruneOwnedRetention(
+  root: string,
+  installationId: string,
+  now: Date,
+  retentionDaysValue: number
+): Promise<{ retainedLatestGood: string | null; pruned: string[] }> {
   if (!(await exists(root))) {
     return { retainedLatestGood: null, pruned: [] };
   }
@@ -399,7 +412,7 @@ async function pruneOwnedRetention(root: string, installationId: string, now: Da
   }
 
   const latest = latestGood(manifests);
-  const cutoff = new Date(now.getTime() - BACKUP_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  const cutoff = new Date(now.getTime() - retentionDaysValue * 24 * 60 * 60 * 1000);
   const pruned: string[] = [];
   for (const manifest of manifests) {
     if (latest !== null && manifest.backup_id === latest.backup_id) {
@@ -527,7 +540,7 @@ export async function createBackup(deps: BackupDeps, config: SetupConfig): Promi
     await verifyBackup(deps, config, backupId, temporaryDir);
 
     await fs.rename(temporaryDir, finalDir);
-    const retention = await pruneOwnedRetention(root, config.installation_id, deps.now());
+    const retention = await pruneOwnedRetention(root, config.installation_id, deps.now(), retentionDays(config));
     return {
       backupId,
       backupPath: finalDir,

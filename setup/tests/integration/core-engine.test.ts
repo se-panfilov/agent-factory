@@ -234,7 +234,8 @@ function buildRegistry(effectPath: string): StageModule[] {
         contractVersion: "1.0.0",
         profile: "supervised",
         desiredHash: "fixture",
-        planHash: "fixture"
+        planHash: "fixture",
+        config: {} as SetupConfig
       });
     }
   };
@@ -278,12 +279,64 @@ test("plan/apply/resume flow writes intent+receipt and remains idempotent", asyn
   assert.equal(resume.exitCode, ExitCode.Success, JSON.stringify(resume.envelope));
 });
 
+test("plan and apply work across separate engine processes", async () => {
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "p02-core-separate-process-"));
+  const configPath = path.join(root, "config", "setup.json");
+  const effectPath = path.join(root, "effects", "s01.txt");
+  const config = makeConfig(root);
+  await writeConfig(configPath, config);
+
+  const planner = new SetupEngine(
+    {
+      fsAdapter: new NodeFilesystemAdapter(),
+      processAdapter: new FakeProcessAdapter(3221, "f324dcd7-4035-4430-ab39-ce31f9e396bf", 778),
+      httpAdapter: new FakeHttpAdapter(),
+      installerVersion: "0.0.1",
+      clock: { now: () => new Date("2026-10-21T20:00:00Z") }
+    },
+    createRegistry(buildRegistry(effectPath))
+  );
+  const plan = await planner.run("plan", { configPath, stageId: "S01" });
+  assert.equal(plan.exitCode, ExitCode.Success, JSON.stringify(plan.envelope));
+
+  const applier = new SetupEngine(
+    {
+      fsAdapter: new NodeFilesystemAdapter(),
+      processAdapter: new FakeProcessAdapter(3222, "f324dcd7-4035-4430-ab39-ce31f9e396bf", 779),
+      httpAdapter: new FakeHttpAdapter(),
+      installerVersion: "0.0.1",
+      clock: { now: () => new Date("2026-10-21T20:01:00Z") }
+    },
+    createRegistry(buildRegistry(effectPath))
+  );
+  const apply = await applier.run("apply", {
+    configPath,
+    planPath: path.join(config.paths.setup_state_dir, "plan.json"),
+    nonInteractive: true
+  });
+  assert.equal(apply.exitCode, ExitCode.Success, JSON.stringify(apply.envelope));
+  assert.equal(fs.existsSync(effectPath), true);
+});
+
 test("apply returns exit 7 on duplicate invocation lock", async () => {
   const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "p02-core-lock-"));
   const configPath = path.join(root, "config", "setup.json");
   const effectPath = path.join(root, "effects", "s01.txt");
   const config = makeConfig(root);
   await writeConfig(configPath, config);
+
+  const planner = new SetupEngine(
+    {
+      fsAdapter: new NodeFilesystemAdapter(),
+      processAdapter: new FakeProcessAdapter(6111, "f324dcd7-4035-4430-ab39-ce31f9e396bf", 889),
+      httpAdapter: new FakeHttpAdapter(),
+      installerVersion: "0.0.1",
+      clock: { now: () => new Date("2026-10-21T20:00:00Z") }
+    },
+    createRegistry(buildRegistry(effectPath))
+  );
+  const plan = await planner.run("plan", { configPath, stageId: "S01" });
+  assert.equal(plan.exitCode, ExitCode.Success, JSON.stringify(plan.envelope));
 
   const lockDir = path.join(config.paths.setup_state_dir, "lock");
   await fs.promises.mkdir(lockDir, { recursive: true });
@@ -314,8 +367,6 @@ test("apply returns exit 7 on duplicate invocation lock", async () => {
     },
     createRegistry(buildRegistry(effectPath))
   );
-  const plan = await engine.run("plan", { configPath, stageId: "S01" });
-  assert.equal(plan.exitCode, ExitCode.Success, JSON.stringify(plan.envelope));
   const result = await engine.run("apply", {
     configPath,
     planPath: path.join(config.paths.setup_state_dir, "plan.json"),

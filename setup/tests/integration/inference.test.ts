@@ -225,7 +225,8 @@ test("S12 apply/verify writes private inference artifacts and keeps routing bloc
     contractVersion: "1.0.0",
     profile: config.profile,
     desiredHash: "h",
-    planHash: "p"
+    planHash: "p",
+    config
   });
   const planned = stage.plan(config, observed);
   const receipts = await stage.apply({
@@ -233,7 +234,8 @@ test("S12 apply/verify writes private inference artifacts and keeps routing bloc
     contractVersion: "1.0.0",
     profile: config.profile,
     desiredHash: "h",
-    planHash: "p"
+    planHash: "p",
+    config
   }, applyPlan());
   assert.equal(receipts.length, 1);
   assert.equal(fakeAdapter.staged, 1);
@@ -247,7 +249,8 @@ test("S12 apply/verify writes private inference artifacts and keeps routing bloc
     contractVersion: "1.0.0",
     profile: config.profile,
     desiredHash: "h",
-    planHash: "p"
+    planHash: "p",
+    config
   });
   assert.equal(verifyReceipts.length, 1);
 });
@@ -272,7 +275,8 @@ test("S12 apply fails with exit 10 on insufficient RAM for default profile", asy
     contractVersion: "1.0.0",
     profile: config.profile,
     desiredHash: "h",
-    planHash: "p"
+    planHash: "p",
+    config
   });
   stage.plan(config, observed);
 
@@ -282,7 +286,8 @@ test("S12 apply fails with exit 10 on insufficient RAM for default profile", asy
       contractVersion: "1.0.0",
       profile: config.profile,
       desiredHash: "h",
-      planHash: "p"
+      planHash: "p",
+      config
     }, applyPlan()),
     (error) => error instanceof Error && "exitCode" in error && (error as { exitCode?: number }).exitCode === ExitCode.OptionalRequestedStageFailed
   );
@@ -383,7 +388,8 @@ test("S12 verify fails when health model digest drifts", async () => {
       contractVersion: "1.0.0",
       profile: config.profile,
       desiredHash: "h",
-      planHash: "p"
+      planHash: "p",
+      config
     }),
     (error) => error instanceof Error && "code" in error && (error as { code?: string }).code === "s12_model_identity_drifted"
   );

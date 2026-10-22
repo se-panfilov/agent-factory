@@ -626,30 +626,21 @@ export function createProjectStage(
   fsAdapter: FilesystemAdapter,
   adapter: ProjectStageAdapter
 ): StageModule {
-  let lastConfig: SetupConfig | null = null;
   return {
     id: "S09",
     dependencies: ["S08"],
     supportedProfiles: ["supervised", "service"],
     optional: true,
     requiredCapabilities: ["runner-readonly"],
-    async observe(): Promise<StageObservation> {
-      if (lastConfig === null) {
-        return {
-          stageId: "S09",
-          status: "planned",
-          checks: { s09_config_loaded: false },
-          versions: {},
-          observedAt: new Date().toISOString()
-        };
-      }
-      const repository = targetRepository(lastConfig);
-      assertConfig(lastConfig, repository);
-      const checkout = await readCheckoutObservation(adapter, lastConfig, repository);
-      const inventoryExists = await fsAdapter.exists(inventoryPath(lastConfig));
-      const proposalExists = await fsAdapter.exists(proposalMetadataPath(lastConfig));
-      const baseline = await readBaselineEvidence(fsAdapter, lastConfig, repository);
-      await writeBaselineEvidence(fsAdapter, lastConfig, baseline);
+    async observe(ctx: StageContext): Promise<StageObservation> {
+      const config = ctx.config;
+      const repository = targetRepository(config);
+      assertConfig(config, repository);
+      const checkout = await readCheckoutObservation(adapter, config, repository);
+      const inventoryExists = await fsAdapter.exists(inventoryPath(config));
+      const proposalExists = await fsAdapter.exists(proposalMetadataPath(config));
+      const baseline = await readBaselineEvidence(fsAdapter, config, repository);
+      await writeBaselineEvidence(fsAdapter, config, baseline);
 
       return {
         stageId: "S09",
@@ -667,7 +658,7 @@ export function createProjectStage(
         },
         versions: {
           s09_target_repository: repository,
-          s09_target_sha_expected: lastConfig.release.source_commit,
+          s09_target_sha_expected: config.release.source_commit,
           s09_checkout_sha_actual: checkout.headSha ?? "absent",
           s09_checkout_origin_url: checkout.originUrl ?? "absent"
         },
@@ -676,7 +667,6 @@ export function createProjectStage(
     },
     plan(desired: unknown, observed: StageObservation): StagePlan {
       const config = desired as SetupConfig;
-      lastConfig = config;
       const repository = targetRepository(config);
       assertConfig(config, repository);
       const ops: StagePlan["operations"] = observed.status === "verified"
@@ -713,39 +703,31 @@ export function createProjectStage(
       };
     },
     async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
-      if (lastConfig === null) {
-        throw setupError({
-          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-          code: "s09_config_not_initialized",
-          publicMessage: "S09 apply requires plan generation in the same process.",
-          nextAction: "Run plan/apply sequence for S09.",
-          stage: "S09"
-        });
-      }
-      const repository = targetRepository(lastConfig);
-      assertConfig(lastConfig, repository);
-      const cDir = checkoutDir(lastConfig, repository);
-      const chkDir = checkerDir(lastConfig, repository);
+      const config = ctx.config;
+      const repository = targetRepository(config);
+      assertConfig(config, repository);
+      const cDir = checkoutDir(config, repository);
+      const chkDir = checkerDir(config, repository);
       await fsAdapter.mkdir(path.dirname(cDir), { recursive: true, mode: 0o700 });
       await fsAdapter.mkdir(chkDir, { recursive: true, mode: 0o700 });
       await adapter.fetchDetachedCheckout({
         repository,
-        targetSha: lastConfig.release.source_commit,
+        targetSha: config.release.source_commit,
         checkoutDir: cDir
       });
 
       const checkout = await adapter.observeCheckout(cDir);
-      verifyCheckoutBinding(checkout, lastConfig.release.source_commit);
-      const inventory = await readInventory(fsAdapter, lastConfig, repository, cDir);
-      await writeAtomic(fsAdapter, inventoryPath(lastConfig), `${JSON.stringify(inventory, null, 2)}\n`, 0o600);
-      const proposals = await writeProposalFiles(fsAdapter, lastConfig, repository);
+      verifyCheckoutBinding(checkout, config.release.source_commit);
+      const inventory = await readInventory(fsAdapter, config, repository, cDir);
+      await writeAtomic(fsAdapter, inventoryPath(config), `${JSON.stringify(inventory, null, 2)}\n`, 0o600);
+      const proposals = await writeProposalFiles(fsAdapter, config, repository);
       await writeAtomic(
         fsAdapter,
-        proposalMetadataPath(lastConfig),
+        proposalMetadataPath(config),
         `${JSON.stringify({
           schema_version: 1,
           repository,
-          target_sha: lastConfig.release.source_commit,
+          target_sha: config.release.source_commit,
           baseline_path: proposals.baselinePath,
           dependabot_path: proposals.dependabotPath,
           generated_at: new Date().toISOString()
@@ -753,21 +735,21 @@ export function createProjectStage(
         0o600
       );
 
-      const baseline = await readBaselineEvidence(fsAdapter, lastConfig, repository);
-      await writeBaselineEvidence(fsAdapter, lastConfig, baseline);
+      const baseline = await readBaselineEvidence(fsAdapter, config, repository);
+      await writeBaselineEvidence(fsAdapter, config, baseline);
       const checker = await adapter.runChecker({
         checkerDir: chkDir,
-        inventoryPath: inventoryPath(lastConfig)
+        inventoryPath: inventoryPath(config)
       });
 
       await writeAtomic(
         fsAdapter,
-        receiptPath(lastConfig),
+        receiptPath(config),
         `${JSON.stringify({
           schema_version: 1,
           stage: "S09",
           repository,
-          target_sha: lastConfig.release.source_commit,
+          target_sha: config.release.source_commit,
           checkout_dir: cDir,
           checker_dir: chkDir,
           checker_supported: checker.supported,
@@ -793,34 +775,26 @@ export function createProjectStage(
           },
           versions: {
             repository,
-            target_sha: lastConfig.release.source_commit
+            target_sha: config.release.source_commit
           },
           artifacts: [
-            inventoryPath(lastConfig),
-            proposalMetadataPath(lastConfig),
-            baselineEvidencePath(lastConfig),
-            receiptPath(lastConfig),
-            ownerNotePath(lastConfig),
-            collectorEvidencePath(lastConfig)
+            inventoryPath(config),
+            proposalMetadataPath(config),
+            baselineEvidencePath(config),
+            receiptPath(config),
+            ownerNotePath(config),
+            collectorEvidencePath(config)
           ]
         }
       ];
     },
-    async verify(_ctx: StageContext): Promise<StageReceipt[]> {
-      if (lastConfig === null) {
-        throw setupError({
-          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-          code: "s09_verify_without_config",
-          publicMessage: "S09 verify requires previously loaded config context.",
-          nextAction: "Run plan/apply or status --refresh before verify.",
-          stage: "S09"
-        });
-      }
-      const repository = targetRepository(lastConfig);
-      assertConfig(lastConfig, repository);
-      const checkout = await adapter.observeCheckout(checkoutDir(lastConfig, repository));
-      verifyCheckoutBinding(checkout, lastConfig.release.source_commit);
-      if (!(await fsAdapter.exists(inventoryPath(lastConfig))) || !(await fsAdapter.exists(proposalMetadataPath(lastConfig)))) {
+    async verify(ctx: StageContext): Promise<StageReceipt[]> {
+      const config = ctx.config;
+      const repository = targetRepository(config);
+      assertConfig(config, repository);
+      const checkout = await adapter.observeCheckout(checkoutDir(config, repository));
+      verifyCheckoutBinding(checkout, config.release.source_commit);
+      if (!(await fsAdapter.exists(inventoryPath(config))) || !(await fsAdapter.exists(proposalMetadataPath(config)))) {
         throw setupError({
           exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
           code: "s09_artifacts_missing",
@@ -829,8 +803,8 @@ export function createProjectStage(
           stage: "S09"
         });
       }
-      const baseline = await readBaselineEvidence(fsAdapter, lastConfig, repository);
-      await writeBaselineEvidence(fsAdapter, lastConfig, baseline);
+      const baseline = await readBaselineEvidence(fsAdapter, config, repository);
+      await writeBaselineEvidence(fsAdapter, config, baseline);
       return [
         {
           operationId: "s09-verify",
@@ -844,13 +818,13 @@ export function createProjectStage(
           },
           versions: {
             repository,
-            target_sha: lastConfig.release.source_commit
+            target_sha: config.release.source_commit
           },
           artifacts: [
-            inventoryPath(lastConfig),
-            proposalMetadataPath(lastConfig),
-            baselineEvidencePath(lastConfig),
-            receiptPath(lastConfig)
+            inventoryPath(config),
+            proposalMetadataPath(config),
+            baselineEvidencePath(config),
+            receiptPath(config)
           ]
         }
       ];

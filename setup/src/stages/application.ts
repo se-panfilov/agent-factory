@@ -315,7 +315,6 @@ function releaseRootFromManifestPath(stagingRoot: string, manifestPath: string |
 }
 
 export function createApplicationStage(adapter: ApplicationReleaseAdapter): StageModule {
-  let lastConfig: SetupConfig | null = null;
   let lastObservation: StageObservation | null = null;
 
   const snapshot = async (config: SetupConfig): Promise<RuntimeSnapshot> => {
@@ -336,19 +335,8 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
     supportedProfiles: ["supervised", "service"],
     optional: false,
     requiredCapabilities: [],
-    async observe(_ctx: StageContext): Promise<StageObservation> {
-      if (lastConfig === null) {
-        return {
-          stageId: "S05",
-          status: "planned",
-          checks: {
-            s05_config_loaded: false
-          },
-          versions: {},
-          observedAt: new Date().toISOString()
-        };
-      }
-      const observedSnapshot = await snapshot(lastConfig);
+    async observe(ctx: StageContext): Promise<StageObservation> {
+      const observedSnapshot = await snapshot(ctx.config);
       const observation: StageObservation = {
         stageId: "S05",
         status: inferStatus(observedSnapshot),
@@ -361,7 +349,6 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
     },
     plan(desired: unknown, observed: StageObservation): StagePlan {
       const config = desired as SetupConfig;
-      lastConfig = config;
 
       const operations: StagePlan["operations"] = observed.status === "verified"
         ? []
@@ -398,16 +385,7 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
       };
     },
     async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
-      const config = lastConfig;
-      if (config === null) {
-        throw setupError({
-          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-          code: "s05_config_not_initialized",
-          publicMessage: "S05 apply requires plan generation in the same process.",
-          nextAction: "Run plan/apply sequence for S05.",
-          stage: "S05"
-        });
-      }
+      const config = ctx.config;
       const parsed = parsePlanPreconditions(approvedPlan);
       if (parsed.archiveSha256 !== config.release.sha256 || parsed.sourceCommit !== config.release.source_commit) {
         throw setupError({
@@ -519,19 +497,10 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
       };
       return [receipt];
     },
-    async verify(_ctx: StageContext): Promise<StageReceipt[]> {
-      if (lastConfig === null) {
-        throw setupError({
-          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-          code: "s05_verify_without_config",
-          publicMessage: "S05 verify requires previously loaded config context.",
-          nextAction: "Run plan/apply or status --refresh for S05 before verify.",
-          stage: "S05"
-        });
-      }
-      const observedSnapshot = await snapshot(lastConfig);
+    async verify(ctx: StageContext): Promise<StageReceipt[]> {
+      const observedSnapshot = await snapshot(ctx.config);
       validateBlockedSnapshot(observedSnapshot);
-      if (observedSnapshot.checkout.deployedSourceCommit !== lastConfig.release.source_commit) {
+      if (observedSnapshot.checkout.deployedSourceCommit !== ctx.config.release.source_commit) {
         throw setupError({
           exitCode: ExitCode.DriftOrRecoveryRequired,
           code: "s05_deployed_commit_mismatch",
@@ -548,7 +517,7 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
           observedAt: new Date().toISOString(),
           checks: checksFromSnapshot(observedSnapshot),
           versions: versionsFromSnapshot(observedSnapshot),
-          artifacts: [lastConfig.paths.application_dir]
+          artifacts: [ctx.config.paths.application_dir]
         }
       ];
     },

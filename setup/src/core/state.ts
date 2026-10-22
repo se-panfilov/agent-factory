@@ -9,6 +9,8 @@ import { validateContractSchema } from "./validators";
 
 const STATE_FILE = "state.json";
 const EVENTS_FILE = "events.jsonl";
+const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/;
 
 interface EventRecord {
   sequence: number;
@@ -61,6 +63,26 @@ export async function initState(
   const paths = buildStatePaths(config);
   const bootId = await processAdapter.bootId();
   const machineIdHash = await processAdapter.machineIdHash();
+  if (!UUID_V4_PATTERN.test(bootId)) {
+    throw setupError({
+      exitCode: ExitCode.UnsupportedHostOrMissingPrivileges,
+      code: "host_boot_id_unavailable",
+      publicMessage: "Boot identity is unavailable or invalid on this host.",
+      nextAction: "Ensure /proc boot_id is readable and rerun preflight.",
+      stage: "S01",
+      evidenceRef: bootId
+    });
+  }
+  if (!SHA256_HEX_PATTERN.test(machineIdHash)) {
+    throw setupError({
+      exitCode: ExitCode.UnsupportedHostOrMissingPrivileges,
+      code: "host_machine_id_unavailable",
+      publicMessage: "Machine identity hash is unavailable or invalid on this host.",
+      nextAction: "Ensure /etc/machine-id is readable and rerun preflight.",
+      stage: "S01",
+      evidenceRef: machineIdHash
+    });
+  }
   return {
     schema_version: 1,
     contract_version: "1.0.0",
@@ -104,10 +126,15 @@ export async function saveState(fsAdapter: FilesystemAdapter, config: SetupConfi
   const paths = buildStatePaths(config);
   const serialized = `${JSON.stringify(state, null, 2)}\n`;
   const previousPath = `${paths.stateFile}.previous`;
+  let priorContent: string | null = null;
   if (await fsAdapter.exists(paths.stateFile)) {
-    await fsAdapter.rename(paths.stateFile, previousPath);
+    priorContent = await fsAdapter.readText(paths.stateFile);
   }
   await writeAtomicJson(fsAdapter, paths.stateFile, serialized);
+  if (priorContent !== null) {
+    const normalizedPrior = priorContent.endsWith("\n") ? priorContent : `${priorContent}\n`;
+    await writeAtomicJson(fsAdapter, previousPath, normalizedPrior);
+  }
 }
 
 function parseEventLine(line: string): EventRecord {
@@ -187,6 +214,13 @@ export async function loadState(
   installerVersion: string
 ): Promise<SetupState> {
   const paths = buildStatePaths(config);
+  const previousPath = `${paths.stateFile}.previous`;
+  if (!(await fsAdapter.exists(paths.stateFile))) {
+    if (await fsAdapter.exists(previousPath)) {
+      const previousRaw = await fsAdapter.readText(previousPath);
+      await writeAtomicJson(fsAdapter, paths.stateFile, previousRaw.endsWith("\n") ? previousRaw : `${previousRaw}\n`);
+    }
+  }
   if (!(await fsAdapter.exists(paths.stateFile))) {
     const fresh = await initState(fsAdapter, processAdapter, clock, config, installerVersion);
     await saveState(fsAdapter, config, fresh);
@@ -197,15 +231,21 @@ export async function loadState(
   try {
     parsedState = JSON.parse(await fsAdapter.readText(paths.stateFile));
   } catch {
-    const quarantinePath = `${paths.stateFile}.corrupt-${Date.now()}`;
-    await fsAdapter.rename(paths.stateFile, quarantinePath);
-    throw setupError({
-      exitCode: ExitCode.DriftOrRecoveryRequired,
-      code: "state_corrupt",
-      publicMessage: "State file is corrupt and was quarantined.",
-      nextAction: "Run 'factory-setup recover --config PATH' and inspect quarantined state.",
-      evidenceRef: quarantinePath
-    });
+    if (await fsAdapter.exists(previousPath)) {
+      const previousRaw = await fsAdapter.readText(previousPath);
+      parsedState = JSON.parse(previousRaw);
+      await writeAtomicJson(fsAdapter, paths.stateFile, previousRaw.endsWith("\n") ? previousRaw : `${previousRaw}\n`);
+    } else {
+      const quarantinePath = `${paths.stateFile}.corrupt-${Date.now()}`;
+      await fsAdapter.rename(paths.stateFile, quarantinePath);
+      throw setupError({
+        exitCode: ExitCode.DriftOrRecoveryRequired,
+        code: "state_corrupt",
+        publicMessage: "State file is corrupt and was quarantined.",
+        nextAction: "Run 'factory-setup recover --config PATH' and inspect quarantined state.",
+        evidenceRef: quarantinePath
+      });
+    }
   }
 
   const validation = validateContractSchema("state", parsedState);

@@ -124,7 +124,7 @@ export async function initConfig(
       source_commit: "0000000000000000000000000000000000000000"
     },
     version_lock_path: path.join(home, "releases", "versions.lock.json"),
-    selected_stages: ["S01"],
+    selected_stages: ["S01", "S02", "S03", "S04", "S05", "S06", "S07"],
     resource_profile: "daily3",
     network: {
       mode: "cloud-only",
@@ -139,6 +139,10 @@ export async function initConfig(
     optional_features: {
       inference: false,
       platforms: false
+    },
+    operations: {
+      backup_path: path.join(home, ".local", "state", "agent-factory-setup", "backups", "s11"),
+      retention_days: 14
     }
   };
 

@@ -722,26 +722,14 @@ function readinessManualActions(request: PlatformRequestRecord): string[] {
 }
 
 export function createPlatformsStage(fsAdapter: FilesystemAdapter): StageModule {
-  let lastConfig: SetupConfig | null = null;
   return {
     id: "S13",
     dependencies: ["S09"],
     supportedProfiles: ["supervised", "service"],
     optional: true,
     requiredCapabilities: ["platform-browser-smoke", "platform-collector"],
-    async observe(): Promise<StageObservation> {
-      if (lastConfig === null) {
-        return {
-          stageId: "S13",
-          status: "planned",
-          checks: {
-            s13_config_loaded: false
-          },
-          versions: {},
-          observedAt: new Date().toISOString()
-        };
-      }
-      if (!lastConfig.optional_features.platforms) {
+    async observe(ctx: StageContext): Promise<StageObservation> {
+      if (!ctx.config.optional_features.platforms) {
         return {
           stageId: "S13",
           status: "skipped",
@@ -752,7 +740,7 @@ export function createPlatformsStage(fsAdapter: FilesystemAdapter): StageModule 
           observedAt: new Date().toISOString()
         };
       }
-      const snapshot = await observationSnapshot(fsAdapter, lastConfig);
+      const snapshot = await observationSnapshot(fsAdapter, ctx.config);
       return {
         stageId: "S13",
         status: snapshotStatus(snapshot),
@@ -770,7 +758,6 @@ export function createPlatformsStage(fsAdapter: FilesystemAdapter): StageModule 
     },
     plan(desired: unknown, observed: StageObservation): StagePlan {
       const config = desired as SetupConfig;
-      lastConfig = config;
       if (!config.optional_features.platforms) {
         return {
           stageId: "S13",
@@ -813,21 +800,13 @@ export function createPlatformsStage(fsAdapter: FilesystemAdapter): StageModule 
       };
     },
     async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
-      if (lastConfig === null) {
-        throw setupError({
-          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-          code: "s13_config_not_initialized",
-          publicMessage: "S13 apply requires plan generation in the same process.",
-          nextAction: "Run plan/apply sequence for S13.",
-          stage: "S13"
-        });
-      }
-      if (!lastConfig.optional_features.platforms) {
+      const config = ctx.config;
+      if (!config.optional_features.platforms) {
         return [];
       }
 
       const template = await readTemplate(fsAdapter);
-      const request = await readRequest(fsAdapter, lastConfig);
+      const request = await readRequest(fsAdapter, config);
       if (request === null) {
         throw setupError({
           exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
@@ -835,7 +814,7 @@ export function createPlatformsStage(fsAdapter: FilesystemAdapter): StageModule 
           publicMessage: "S13 platform request is missing.",
           nextAction: "Create reviewed s13-platform-request.json and rerun S13.",
           stage: "S13",
-          evidenceRef: requestPath(lastConfig)
+          evidenceRef: requestPath(config)
         });
       }
       if (!request.actions_allowed || !request.billing_reviewed) {
@@ -845,25 +824,25 @@ export function createPlatformsStage(fsAdapter: FilesystemAdapter): StageModule 
           publicMessage: "S13 requires owner review of Actions allowance and billing before proposal apply.",
           nextAction: "Set actions_allowed=true and billing_reviewed=true in request after owner review.",
           stage: "S13",
-          evidenceRef: requestPath(lastConfig)
+          evidenceRef: requestPath(config)
         });
       }
-      if (request.candidate_sha !== lastConfig.release.source_commit) {
+      if (request.candidate_sha !== config.release.source_commit) {
         throw setupError({
           exitCode: ExitCode.DriftOrRecoveryRequired,
           code: "s13_candidate_sha_drift",
           publicMessage: "S13 request candidate SHA differs from current config release.source_commit.",
           nextAction: "Update request candidate_sha to current target SHA and regenerate plan.",
           stage: "S13",
-          evidenceRef: `${request.candidate_sha}/${lastConfig.release.source_commit}`
+          evidenceRef: `${request.candidate_sha}/${config.release.source_commit}`
         });
       }
 
-      const browserSmokeAdapter = await readAdapter(fsAdapter, lastConfig);
-      requireBrowserSmokeAdapter(request, browserSmokeAdapter, lastConfig);
+      const browserSmokeAdapter = await readAdapter(fsAdapter, config);
+      requireBrowserSmokeAdapter(request, browserSmokeAdapter, config);
 
-      await fsAdapter.mkdir(proposalsDir(lastConfig), { recursive: true, mode: 0o700 });
-      await writeAtomic(fsAdapter, workflowProposalPath(lastConfig), template.content, 0o600);
+      await fsAdapter.mkdir(proposalsDir(config), { recursive: true, mode: 0o700 });
+      await writeAtomic(fsAdapter, workflowProposalPath(config), template.content, 0o600);
       const readiness: PlatformReadinessRecord = {
         schema_version: 1,
         candidate_sha: request.candidate_sha,
@@ -881,7 +860,7 @@ export function createPlatformsStage(fsAdapter: FilesystemAdapter): StageModule 
         observed_at: new Date().toISOString()
       };
 
-      const collector = await readCollectorEvidence(fsAdapter, lastConfig);
+      const collector = await readCollectorEvidence(fsAdapter, config);
       if (collector !== null) {
         const collectorStatus = validateCollectorAgainstRequest(request, collector);
         readiness.dispatch_reconciliation = collector.dispatch.timed_out && !collector.dispatch.reconciled
@@ -893,10 +872,10 @@ export function createPlatformsStage(fsAdapter: FilesystemAdapter): StageModule 
         readiness.integration_verified = collectorStatus.verified;
       }
 
-      await writeAtomic(fsAdapter, readinessPath(lastConfig), `${JSON.stringify(readiness, null, 2)}\n`, 0o600);
+      await writeAtomic(fsAdapter, readinessPath(config), `${JSON.stringify(readiness, null, 2)}\n`, 0o600);
       await writeAtomic(
         fsAdapter,
-        receiptPath(lastConfig),
+        receiptPath(config),
         `${JSON.stringify({
           schema_version: 1,
           stage: "S13",
@@ -904,8 +883,8 @@ export function createPlatformsStage(fsAdapter: FilesystemAdapter): StageModule 
           profile: request.profile,
           platforms: request.platforms,
           workflow_template_sha256: template.sha256,
-          workflow_proposal_path: workflowProposalPath(lastConfig),
-          readiness_path: readinessPath(lastConfig),
+          workflow_proposal_path: workflowProposalPath(config),
+          readiness_path: readinessPath(config),
           collector_present: collector !== null,
           dispatch_required: readiness.dispatch_required,
           generated_at: new Date().toISOString()
@@ -933,27 +912,19 @@ export function createPlatformsStage(fsAdapter: FilesystemAdapter): StageModule 
             s13_trusted_workflow_sha: request.trusted_workflow_sha
           },
           artifacts: [
-            workflowProposalPath(lastConfig),
-            readinessPath(lastConfig),
-            receiptPath(lastConfig)
+            workflowProposalPath(config),
+            readinessPath(config),
+            receiptPath(config)
           ]
         }
       ];
     },
-    async verify(): Promise<StageReceipt[]> {
-      if (lastConfig === null) {
-        throw setupError({
-          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-          code: "s13_verify_without_config",
-          publicMessage: "S13 verify requires previously loaded config context.",
-          nextAction: "Run plan/apply or status --refresh before verify.",
-          stage: "S13"
-        });
-      }
-      if (!lastConfig.optional_features.platforms) {
+    async verify(ctx: StageContext): Promise<StageReceipt[]> {
+      const config = ctx.config;
+      if (!config.optional_features.platforms) {
         return [];
       }
-      const request = await readRequest(fsAdapter, lastConfig);
+      const request = await readRequest(fsAdapter, config);
       if (request === null) {
         throw setupError({
           exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
@@ -961,11 +932,11 @@ export function createPlatformsStage(fsAdapter: FilesystemAdapter): StageModule 
           publicMessage: "S13 verify cannot continue without platform request.",
           nextAction: "Provide reviewed s13-platform-request.json and rerun S13 verify.",
           stage: "S13",
-          evidenceRef: requestPath(lastConfig)
+          evidenceRef: requestPath(config)
         });
       }
       const template = await readTemplate(fsAdapter);
-      const readiness = await readReadiness(fsAdapter, lastConfig);
+      const readiness = await readReadiness(fsAdapter, config);
       if (readiness === null) {
         throw setupError({
           exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
@@ -973,7 +944,7 @@ export function createPlatformsStage(fsAdapter: FilesystemAdapter): StageModule 
           publicMessage: "S13 readiness artifact is missing.",
           nextAction: "Run S13 apply to generate readiness proposal artifacts.",
           stage: "S13",
-          evidenceRef: readinessPath(lastConfig)
+          evidenceRef: readinessPath(config)
         });
       }
       if (readiness.workflow_template_sha256 !== template.sha256) {
@@ -985,10 +956,10 @@ export function createPlatformsStage(fsAdapter: FilesystemAdapter): StageModule 
           stage: "S13"
         });
       }
-      const browserSmokeAdapter = await readAdapter(fsAdapter, lastConfig);
-      requireBrowserSmokeAdapter(request, browserSmokeAdapter, lastConfig);
+      const browserSmokeAdapter = await readAdapter(fsAdapter, config);
+      requireBrowserSmokeAdapter(request, browserSmokeAdapter, config);
 
-      const collector = await readCollectorEvidence(fsAdapter, lastConfig);
+      const collector = await readCollectorEvidence(fsAdapter, config);
       let checksStatus: "pass" | "fail" | "unknown" = "unknown";
       let integrationVerified = false;
       let reconciliation: "not-run" | "reconciled" | "ambiguous" = "not-run";
@@ -1009,7 +980,7 @@ export function createPlatformsStage(fsAdapter: FilesystemAdapter): StageModule 
         dispatch_reconciliation: reconciliation,
         observed_at: new Date().toISOString()
       };
-      await writeAtomic(fsAdapter, readinessPath(lastConfig), `${JSON.stringify(nextReadiness, null, 2)}\n`, 0o600);
+      await writeAtomic(fsAdapter, readinessPath(config), `${JSON.stringify(nextReadiness, null, 2)}\n`, 0o600);
 
       return [
         {
@@ -1029,9 +1000,9 @@ export function createPlatformsStage(fsAdapter: FilesystemAdapter): StageModule 
             s13_template_sha256: template.sha256
           },
           artifacts: [
-            workflowProposalPath(lastConfig),
-            readinessPath(lastConfig),
-            receiptPath(lastConfig)
+            workflowProposalPath(config),
+            readinessPath(config),
+            receiptPath(config)
           ]
         }
       ];

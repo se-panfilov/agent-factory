@@ -341,7 +341,8 @@ function ctx(config: SetupConfig): StageContext {
     contractVersion: "1.0.0",
     profile: "supervised",
     desiredHash: "a".repeat(64),
-    planHash: "b".repeat(64)
+    planHash: "b".repeat(64),
+    config
   };
 }
 

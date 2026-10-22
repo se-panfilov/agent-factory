@@ -243,25 +243,15 @@ export function createVerificationStage(
   fsAdapter: FilesystemAdapter,
   processAdapter: ProcessAdapter
 ): StageModule {
-  let lastConfig: SetupConfig | null = null;
   return {
     id: "S07",
     dependencies: ["S06"],
     supportedProfiles: ["supervised", "service"],
     optional: false,
     requiredCapabilities: ["runner-readonly"],
-    async observe(): Promise<StageObservation> {
-      if (lastConfig === null) {
-        return {
-          stageId: "S07",
-          status: "planned",
-          checks: { s07_config_loaded: false },
-          versions: {},
-          observedAt: new Date().toISOString()
-        };
-      }
-      const sourceSha = await toySourceSha(processAdapter, lastConfig);
-      const report = await readOfflineReport(fsAdapter, lastConfig);
+    async observe(ctx: StageContext): Promise<StageObservation> {
+      const sourceSha = await toySourceSha(processAdapter, ctx.config);
+      const report = await readOfflineReport(fsAdapter, ctx.config);
       return {
         stageId: "S07",
         status: inferStatus(report, sourceSha),
@@ -279,7 +269,6 @@ export function createVerificationStage(
     },
     plan(desired: unknown, observed: StageObservation): StagePlan {
       const config = desired as SetupConfig;
-      lastConfig = config;
       const operations: StagePlan["operations"] = observed.status === "verified"
         ? []
         : [
@@ -311,25 +300,17 @@ export function createVerificationStage(
       };
     },
     async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
-      if (lastConfig === null) {
-        throw setupError({
-          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-          code: "s07_config_not_initialized",
-          publicMessage: "S07 apply requires plan generation in the same process.",
-          nextAction: "Run plan/apply sequence for S07.",
-          stage: "S07"
-        });
-      }
-      const imageRef = await readPinnedImageRef(fsAdapter, lastConfig);
+      const config = ctx.config;
+      const imageRef = await readPinnedImageRef(fsAdapter, config);
       const smoke = await runSmokeCommand(
         fsAdapter,
         processAdapter,
-        lastConfig,
+        config,
         null,
         { provider: "fake", fixture: "toy" }
       );
-      await validateNoSecretDockerBoundary(processAdapter, lastConfig, imageRef);
-      const sourceSha = await toySourceSha(processAdapter, lastConfig);
+      await validateNoSecretDockerBoundary(processAdapter, config, imageRef);
+      const sourceSha = await toySourceSha(processAdapter, config);
       const record: OfflineReportRecord = {
         schema_version: 1,
         provider: "fake",
@@ -340,7 +321,7 @@ export function createVerificationStage(
         run_id: `${smoke.provider}-${smoke.consumedCount}`,
         no_secret_boundary_verified: true
       };
-      await writeAtomic(fsAdapter, offlineReportPath(lastConfig), `${JSON.stringify(record, null, 2)}\n`, 0o600);
+      await writeAtomic(fsAdapter, offlineReportPath(config), `${JSON.stringify(record, null, 2)}\n`, 0o600);
       return [
         {
           operationId: approvedPlan.operations[0]?.id ?? `s07-apply-${ctx.installationId}`,
@@ -354,22 +335,13 @@ export function createVerificationStage(
           versions: {
             fixture_source_sha: sourceSha
           },
-          artifacts: [offlineReportPath(lastConfig)]
+          artifacts: [offlineReportPath(config)]
         }
       ];
     },
-    async verify(_ctx: StageContext): Promise<StageReceipt[]> {
-      if (lastConfig === null) {
-        throw setupError({
-          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-          code: "s07_verify_without_config",
-          publicMessage: "S07 verify requires previously loaded config context.",
-          nextAction: "Run plan/apply or status --refresh before verify.",
-          stage: "S07"
-        });
-      }
-      const report = await readOfflineReport(fsAdapter, lastConfig);
-      const sourceSha = await toySourceSha(processAdapter, lastConfig);
+    async verify(ctx: StageContext): Promise<StageReceipt[]> {
+      const report = await readOfflineReport(fsAdapter, ctx.config);
+      const sourceSha = await toySourceSha(processAdapter, ctx.config);
       if (report === null || report.status !== "runner_ready_offline" || !report.no_secret_boundary_verified) {
         throw setupError({
           exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
@@ -401,7 +373,7 @@ export function createVerificationStage(
           versions: {
             fixture_source_sha: sourceSha
           },
-          artifacts: [offlineReportPath(lastConfig)]
+          artifacts: [offlineReportPath(ctx.config)]
         }
       ];
     },
