@@ -141,10 +141,11 @@ whoami
 multipass stop factory-lab
 multipass snapshot factory-lab --name clean-ssh
 multipass start factory-lab
-multipass snapshots factory-lab
+multipass list --snapshots
+multipass info factory-lab.clean-ssh
 ```
 
-**Ожидается:** существует snapshot `factory-lab.clean-ssh`; внутри VM есть SSH-доступ, но нет Docker, Tailscale и установленной фабрики. Snapshot работает только для остановленного instance и при поддержке выбранного Multipass backend.
+**Ожидается:** `multipass list --snapshots` показывает snapshot `clean-ssh` у instance `factory-lab`, а `multipass info factory-lab.clean-ssh` выводит его свойства. В некоторых версиях Multipass существует отдельная команда `multipass snapshots`, но не во всех; не используй `multipass snapshots factory-lab` для проверки. Если флаг `list --snapshots` недоступен в установленной версии, попробуй `multipass info factory-lab --snapshots` и `multipass help list`, затем проверь доступность snapshot командой `multipass info factory-lab.clean-ssh`. Внутри VM есть SSH-доступ, но нет Docker, Tailscale и установленной фабрики. Snapshot работает только для остановленного instance и при поддержке выбранного Multipass backend.
 
 Если snapshot недоступен — не отмечай его PASS. Создай заново тестовую VM для каждого разрушительного сценария либо используй disposable VPS с проверенным snapshot/reinstall.
 
@@ -200,7 +201,7 @@ ls setup
 
 ### Ветвь А. Детерминированные тесты кода без изменения Ubuntu
 
-В `../setup` найди реальные scripts (`package.json`, `setup/README.md`, `setup/docs/implementation/P01.md` … `P05.md`). **Не угадывай entrypoint и не запускай весь `npm test`, не проверив, что он действительно изолирован от системных мутаций.** Согласно спецификации P01–P05, обычные unit/integration tests должны пользоваться fake adapters, а live VM tests запускаются отдельно.
+В `setup/` найди реальные scripts (`package.json`, `setup/README.md`, `setup/docs/implementation/P01.md` … `P05.md`). **Не угадывай entrypoint и не запускай весь `npm test`, не проверив, что он действительно изолирован от системных мутаций.** Согласно спецификации P01–P05, обычные unit/integration tests должны пользоваться fake adapters, а live VM tests запускаются отдельно.
 
 На чистой VM для development testing, *при необходимости* временно установи Node 24 из проверенного nvm release, **но не записывай это как проверку S00 bootstrap**:
 
@@ -215,7 +216,7 @@ node --version
 npm --version
 ```
 
-Далее, если `../setup/package.json` действительно существует и его `scripts` проверены:
+Далее, если `setup/package.json` действительно существует и его `scripts` проверены:
 
 ```bash
 cd "$HOME/factory-src/setup"
@@ -228,11 +229,11 @@ node -p 'JSON.stringify(require("./package.json").scripts, null, 2)'
 
 ### Ветвь Б. Host-mutating VM qualification
 
-**Не начинай её просто через `npm test` или неподписанный shell из репозитория.** Используй только отдельные команды `../setup/docs/bootstrap.md`, `setup/docs/access-recovery.md`, `setup/docs/docker.md` и VM test entrypoints, которые Copilot фактически реализовал в P01–P05 и которые ты просмотрел как код.
+**Не начинай её просто через `npm test` или неподписанный shell из репозитория.** Используй только отдельные команды `setup/docs/bootstrap.md`, `setup/docs/access-recovery.md`, `setup/docs/docker.md` и VM test entrypoints, которые Copilot фактически реализовал в P01–P05 и которые ты просмотрел как код.
 
 Перед каждым изменением:
 
-1. Проверь `multipass info factory-lab` и snapshot `clean-ssh`.
+1. Проверь `multipass info factory-lab` и `multipass info factory-lab.clean-ssh` (snapshot `clean-ssh`).
 2. Подтверди, что команда выполняется в `factory-lab`, а не на Mac.
 3. Выпиши действие, требуемые права, ожидаемый результат и способ rollback.
 4. Проверь вывод `plan`/diff/gate. Если production release ещё отсутствует, **не обходи проверку подписи фиктивным ключом** и не маркируй production installation PASS.
