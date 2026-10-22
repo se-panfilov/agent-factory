@@ -12,6 +12,8 @@ import { createDockerStage } from "../stages/docker";
 import { createNodeApplicationReleaseAdapter } from "../adapters/git";
 import { createApplicationStage } from "../stages/application";
 import { createConfigurationStage } from "../stages/configuration";
+import { createVerificationStage } from "../stages/verification";
+import { createAuthStage, readAuthStatus, runAuthLogin as executeAuthLogin, runSmokeCommand } from "../stages/auth";
 import { hashConfig, initConfig, loadConfig, systemClock, type Clock } from "./config";
 import { ExitCode, type InstallerPlan, type JsonEnvelope, type SetupConfig, type SetupState, type StageId, type StageModule } from "./types";
 import { setupError, toSetupError } from "./errors";
@@ -38,6 +40,8 @@ export interface CommandOptions {
   nonInteractive?: boolean;
   refresh?: boolean;
   lockOnly?: boolean;
+  provider?: "live" | "fake";
+  fixture?: "toy";
 }
 
 function envelopeBase(
@@ -152,7 +156,9 @@ function defaultRegistry(fsAdapter: FilesystemAdapter, processAdapter: ProcessAd
     createAccessStage(createNodeAccessAdapter(processAdapter, fsAdapter, aptAdapter)),
     createDockerStage(dockerAdapter),
     createApplicationStage(applicationAdapter),
-    createConfigurationStage(fsAdapter, processAdapter)
+    createConfigurationStage(fsAdapter, processAdapter),
+    createVerificationStage(fsAdapter, processAdapter),
+    createAuthStage(fsAdapter, processAdapter)
   ]);
 }
 
@@ -196,12 +202,18 @@ export class SetupEngine {
           return await this.runCancel(options);
         case "recover":
           return await this.runRecover(options);
+        case "auth-login":
+          return await this.runAuthLogin(options);
+        case "auth-status":
+          return await this.runAuthStatus(options);
+        case "smoke":
+          return await this.runSmoke(options);
         default:
           throw setupError({
             exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
             code: "unsupported_command",
             publicMessage: `Command '${command}' is not implemented in P02 scope.`,
-            nextAction: "Use commands from init/preflight/plan/apply/status/resume/verify/gate/cancel/recover."
+            nextAction: "Use commands from init/preflight/plan/apply/status/resume/verify/gate/auth/smoke/cancel/recover."
           });
       }
     } catch (error) {
@@ -227,6 +239,26 @@ export class SetupEngine {
       };
       return { envelope, exitCode: setup.exitCode };
     }
+  }
+
+  private async refreshStageObservation(
+    state: SetupState,
+    config: SetupConfig,
+    stageId: StageId,
+    planHash: string
+  ): Promise<SetupState> {
+    const stage = this.registry.byId.get(stageId);
+    if (stage === undefined) {
+      return state;
+    }
+    const observation = await stage.observe({
+      installationId: config.installation_id,
+      contractVersion: "1.0.0",
+      profile: config.profile,
+      desiredHash: hashConfig(config),
+      planHash
+    });
+    return updateObservedStage(state, observation, observation.status);
   }
 
   private async runInit(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
@@ -657,6 +689,85 @@ export class SetupEngine {
     const envelope = envelopeBase("recover", config, state, null);
     envelope.overall_status = "ok";
     envelope.manual_actions.push("No full recovery operation is implemented in P02; lock-only recovery is available.");
+    return { envelope, exitCode: ExitCode.Success };
+  }
+
+  private async runAuthLogin(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
+    const config = await loadConfig(this.deps.fsAdapter, options.configPath);
+    let state = await loadState(
+      this.deps.fsAdapter,
+      this.deps.processAdapter,
+      this.deps.clock,
+      config,
+      this.deps.installerVersion
+    );
+    await executeAuthLogin(this.deps.fsAdapter, this.deps.processAdapter, config);
+    state = await this.refreshStageObservation(state, config, "S08", "auth-login");
+    await saveState(this.deps.fsAdapter, config, state);
+    const envelope = envelopeBase("auth login", config, state, null);
+    envelope.overall_status = "ok";
+    envelope.data = {
+      auth_present: true
+    };
+    return { envelope, exitCode: ExitCode.Success };
+  }
+
+  private async runAuthStatus(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
+    const config = await loadConfig(this.deps.fsAdapter, options.configPath);
+    let state = await loadState(
+      this.deps.fsAdapter,
+      this.deps.processAdapter,
+      this.deps.clock,
+      config,
+      this.deps.installerVersion
+    );
+    const status = await readAuthStatus(this.deps.fsAdapter, config);
+    state = await this.refreshStageObservation(state, config, "S08", "auth-status");
+    await saveState(this.deps.fsAdapter, config, state);
+    const envelope = envelopeBase("auth status", config, state, null);
+    envelope.overall_status = "ok";
+    envelope.data = {
+      authenticated: status.authenticated,
+      quota_healthy: status.quotaHealthy
+    };
+    return { envelope, exitCode: ExitCode.Success };
+  }
+
+  private async runSmoke(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
+    if (options.provider === undefined || options.fixture === undefined) {
+      throw setupError({
+        exitCode: ExitCode.CliOrSchemaError,
+        code: "smoke_args_missing",
+        publicMessage: "smoke requires --provider fake|live and --fixture toy.",
+        nextAction: "Run smoke with --provider and --fixture flags."
+      });
+    }
+    const config = await loadConfig(this.deps.fsAdapter, options.configPath);
+    let state = await loadState(
+      this.deps.fsAdapter,
+      this.deps.processAdapter,
+      this.deps.clock,
+      config,
+      this.deps.installerVersion
+    );
+    const result = await runSmokeCommand(
+      this.deps.fsAdapter,
+      this.deps.processAdapter,
+      config,
+      state,
+      { provider: options.provider, fixture: options.fixture }
+    );
+    state = await this.refreshStageObservation(state, config, result.provider === "live" ? "S08" : "S07", "smoke");
+    await saveState(this.deps.fsAdapter, config, state);
+    const envelope = envelopeBase("smoke", config, state, null);
+    envelope.overall_status = "ok";
+    envelope.data = {
+      provider: result.provider,
+      fixture: result.fixture,
+      status: result.status,
+      source_sha: result.sourceSha,
+      consumed_count: result.consumedCount
+    };
     return { envelope, exitCode: ExitCode.Success };
   }
 }

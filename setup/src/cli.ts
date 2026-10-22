@@ -18,6 +18,9 @@ function parseArgs(argv: string[]): ParsedCommand {
   if (argv[0] === "gate") {
     return parseArgs([`gate-${argv[1] ?? ""}`, ...argv.slice(2)]);
   }
+  if (argv[0] === "auth") {
+    return parseArgs([`auth-${argv[1] ?? ""}`, ...argv.slice(2)]);
+  }
 
   const [command, ...rest] = argv;
   if (command === undefined) {
@@ -57,6 +60,9 @@ function printHelp(): void {
       "  factory-setup verify --config PATH [--stage ID] [--json]",
       "  factory-setup gate list --config PATH",
       "  factory-setup gate approve --config PATH --id ID --plan-hash HASH",
+      "  factory-setup auth login --config PATH",
+      "  factory-setup auth status --config PATH",
+      "  factory-setup smoke --config PATH --provider fake|live --fixture toy",
       "  factory-setup cancel --config PATH [--emergency]",
       "  factory-setup recover --config PATH [--lock-only]"
     ].join("\n") + "\n"
@@ -136,6 +142,12 @@ async function main(): Promise<void> {
   }
   if (parsed.options["lock-only"] === true) {
     runOptions.lockOnly = true;
+  }
+  if (typeof parsed.options.provider === "string" && (parsed.options.provider === "live" || parsed.options.provider === "fake")) {
+    runOptions.provider = parsed.options.provider;
+  }
+  if (typeof parsed.options.fixture === "string" && parsed.options.fixture === "toy") {
+    runOptions.fixture = parsed.options.fixture;
   }
 
   const engine = new SetupEngine();
