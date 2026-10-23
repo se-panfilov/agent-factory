@@ -402,6 +402,7 @@ test("smoke live requires explicit gate approvals and apply/resume do not auto-l
   assert.equal(smoke.exitCode, ExitCode.ManualActionRequired, JSON.stringify(smoke.envelope));
 
   const resume = await engine.run("resume", { configPath, nonInteractive: true });
-  assert.equal(resume.exitCode, ExitCode.ManualActionRequired, JSON.stringify(resume.envelope));
+  assert.equal(resume.exitCode, ExitCode.BlockedByMissingCapabilityOrEvidence, JSON.stringify(resume.envelope));
+  assert.equal(resume.envelope.error?.code, "entrypoint_policy_blocked");
   assert.equal(processAdapter.dockerRunCount, 0);
 });

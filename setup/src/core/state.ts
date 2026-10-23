@@ -9,6 +9,7 @@ import { validateContractSchema } from "./validators";
 
 const STATE_FILE = "state.json";
 const EVENTS_FILE = "events.jsonl";
+const RECOVERY_MARKER_FILE = "recovery-required.json";
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/;
 
@@ -22,10 +23,19 @@ interface EventRecord {
   message: string;
 }
 
+async function writeRecoveryMarker(
+  fsAdapter: FilesystemAdapter,
+  markerPath: string,
+  payload: Record<string, unknown>
+): Promise<void> {
+  await writeAtomicJson(fsAdapter, markerPath, `${JSON.stringify(payload, null, 2)}\n`);
+}
+
 export interface StatePaths {
   stateDir: string;
   stateFile: string;
   eventsFile: string;
+  recoveryMarkerFile: string;
 }
 
 export function buildStatePaths(config: SetupConfig): StatePaths {
@@ -33,8 +43,15 @@ export function buildStatePaths(config: SetupConfig): StatePaths {
   return {
     stateDir,
     stateFile: path.join(stateDir, STATE_FILE),
-    eventsFile: path.join(stateDir, EVENTS_FILE)
+    eventsFile: path.join(stateDir, EVENTS_FILE),
+    recoveryMarkerFile: path.join(stateDir, RECOVERY_MARKER_FILE)
   };
+}
+
+export interface LoadStateOptions {
+  initializeIfMissing?: boolean;
+  persistConfigDrift?: boolean;
+  readOnly?: boolean;
 }
 
 function checksumForEvent(record: Omit<EventRecord, "checksum">): string {
@@ -211,19 +228,54 @@ export async function loadState(
   processAdapter: ProcessAdapter,
   clock: Clock,
   config: SetupConfig,
-  installerVersion: string
+  installerVersion: string,
+  options?: LoadStateOptions
 ): Promise<SetupState> {
+  const loadOptions: Required<LoadStateOptions> = {
+    initializeIfMissing: options?.initializeIfMissing ?? true,
+    persistConfigDrift: options?.persistConfigDrift ?? true,
+    readOnly: options?.readOnly ?? false
+  };
   const paths = buildStatePaths(config);
   const previousPath = `${paths.stateFile}.previous`;
-  if (!(await fsAdapter.exists(paths.stateFile))) {
-    if (await fsAdapter.exists(previousPath)) {
-      const previousRaw = await fsAdapter.readText(previousPath);
-      await writeAtomicJson(fsAdapter, paths.stateFile, previousRaw.endsWith("\n") ? previousRaw : `${previousRaw}\n`);
-    }
+  if (await fsAdapter.exists(paths.recoveryMarkerFile)) {
+    throw setupError({
+      exitCode: ExitCode.DriftOrRecoveryRequired,
+      code: "recovery_required",
+      publicMessage: "State recovery is required; automatic reinitialization is blocked.",
+      nextAction: "Run 'factory-setup recover --config PATH' and resolve recovery evidence.",
+      evidenceRef: paths.recoveryMarkerFile
+    });
   }
   if (!(await fsAdapter.exists(paths.stateFile))) {
+    if (await fsAdapter.exists(previousPath)) {
+      await writeRecoveryMarker(fsAdapter, paths.recoveryMarkerFile, {
+        schema_version: 1,
+        reason: "state_primary_missing_previous_present",
+        previous_state: previousPath,
+        observed_at: new Date().toISOString()
+      });
+      throw setupError({
+        exitCode: ExitCode.DriftOrRecoveryRequired,
+        code: "state_primary_missing",
+        publicMessage: "Primary state is missing while previous generation exists; recovery is required.",
+        nextAction: "Run 'factory-setup recover --config PATH' before continuing.",
+        evidenceRef: previousPath
+      });
+    }
+    if (!loadOptions.initializeIfMissing) {
+      throw setupError({
+        exitCode: ExitCode.DriftOrRecoveryRequired,
+        code: "state_missing",
+        publicMessage: "Recorded installer state is missing.",
+        nextAction: "Run 'factory-setup recover --config PATH' before mutating commands.",
+        evidenceRef: paths.stateFile
+      });
+    }
     const fresh = await initState(fsAdapter, processAdapter, clock, config, installerVersion);
-    await saveState(fsAdapter, config, fresh);
+    if (!loadOptions.readOnly) {
+      await saveState(fsAdapter, config, fresh);
+    }
     return fresh;
   }
 
@@ -231,21 +283,21 @@ export async function loadState(
   try {
     parsedState = JSON.parse(await fsAdapter.readText(paths.stateFile));
   } catch {
-    if (await fsAdapter.exists(previousPath)) {
-      const previousRaw = await fsAdapter.readText(previousPath);
-      parsedState = JSON.parse(previousRaw);
-      await writeAtomicJson(fsAdapter, paths.stateFile, previousRaw.endsWith("\n") ? previousRaw : `${previousRaw}\n`);
-    } else {
-      const quarantinePath = `${paths.stateFile}.corrupt-${Date.now()}`;
-      await fsAdapter.rename(paths.stateFile, quarantinePath);
-      throw setupError({
-        exitCode: ExitCode.DriftOrRecoveryRequired,
-        code: "state_corrupt",
-        publicMessage: "State file is corrupt and was quarantined.",
-        nextAction: "Run 'factory-setup recover --config PATH' and inspect quarantined state.",
-        evidenceRef: quarantinePath
-      });
-    }
+    const quarantinePath = `${paths.stateFile}.corrupt-${Date.now()}`;
+    await fsAdapter.rename(paths.stateFile, quarantinePath);
+    await writeRecoveryMarker(fsAdapter, paths.recoveryMarkerFile, {
+      schema_version: 1,
+      reason: "state_corrupt",
+      quarantined_state: quarantinePath,
+      observed_at: new Date().toISOString()
+    });
+    throw setupError({
+      exitCode: ExitCode.DriftOrRecoveryRequired,
+      code: "state_corrupt",
+      publicMessage: "State file is corrupt and was quarantined.",
+      nextAction: "Run 'factory-setup recover --config PATH' and inspect quarantined state.",
+      evidenceRef: quarantinePath
+    });
   }
 
   const validation = validateContractSchema("state", parsedState);
@@ -273,7 +325,9 @@ export async function loadState(
     state.stages = state.stages.map((stage) =>
       stage.id === "S01" && stage.status === "verified" ? { ...stage, status: "drifted" } : stage
     );
-    await saveState(fsAdapter, config, state);
+    if (loadOptions.persistConfigDrift && !loadOptions.readOnly) {
+      await saveState(fsAdapter, config, state);
+    }
   }
   return state;
 }

@@ -166,6 +166,23 @@ export async function loadPlan(fsAdapter: FilesystemAdapter, planPath: string): 
 }
 
 export function validatePlanConsistency(config: SetupConfig, plan: InstallerPlan): void {
+  if (plan.installation_id !== config.installation_id) {
+    throw setupError({
+      exitCode: ExitCode.DriftOrRecoveryRequired,
+      code: "plan_installation_mismatch",
+      publicMessage: "Plan installation_id does not match current configuration.",
+      nextAction: "Regenerate the plan from this installation."
+    });
+  }
+  if (plan.contract_version !== "1.0.0") {
+    throw setupError({
+      exitCode: ExitCode.CliOrSchemaError,
+      code: "plan_contract_version_unsupported",
+      publicMessage: `Plan contract version '${plan.contract_version}' is unsupported.`,
+      nextAction: "Regenerate plan with installer contract 1.0.0."
+    });
+  }
+
   const desiredHash = hashConfig(config);
   if (plan.desired_hash !== desiredHash) {
     throw setupError({

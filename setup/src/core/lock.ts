@@ -69,6 +69,7 @@ export async function acquireLock(
   config: SetupConfig
 ): Promise<LockHandle> {
   const paths = buildLockPaths(config);
+  await fsAdapter.mkdir(path.dirname(paths.lockDir), { recursive: true, mode: 0o700 });
   try {
     await fsAdapter.mkdir(paths.lockDir, { recursive: false, mode: 0o700 });
   } catch {
@@ -189,8 +190,17 @@ export async function recoverLockOnly(
   }
 
   const owner = await readExistingOwner(fsAdapter, paths.ownerFile);
+  if (owner === null) {
+    throw setupError({
+      exitCode: ExitCode.LockOwnedByAnotherInstaller,
+      code: "lock_owner_incomplete",
+      publicMessage: "Lock owner metadata is incomplete; refusing automatic quarantine.",
+      nextAction: "Wait for active writer to finish or inspect lock owner file manually.",
+      evidenceRef: paths.ownerFile
+    });
+  }
   const currentBootId = await processAdapter.bootId();
-  if (owner !== null && !(await isStaleOwner(processAdapter, currentBootId, owner))) {
+  if (!(await isStaleOwner(processAdapter, currentBootId, owner))) {
     throw setupError({
       exitCode: ExitCode.LockOwnedByAnotherInstaller,
       code: "lock_owner_active",

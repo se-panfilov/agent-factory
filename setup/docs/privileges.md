@@ -1,34 +1,46 @@
-# Privilege boundary (current implementation snapshot)
+# Privilege boundary and mutation map (Q1A snapshot)
 
-This document describes the **current** installer privilege model and recovery expectations for privileged effects.
+This file documents **implemented behavior** after Q1A remediation, not target architecture.
 
-## Principles
+## Serialization model
 
-- Installer CLI must run as ordinary owner (no blanket root execution of Node code).
-- Privileged effects must be explicit, narrow, and reviewable per operation.
-- Gate approval and operation execution are separate: gate approval is not a postcondition proof.
+`setup/src/core/lock.ts` provides one installation lock for ordinary writers. In current code, the following commands run under this lock before state mutation:
 
-## Operation map
+- `init`, `preflight`, `plan`, `apply`, `resume` (via `plan` + `apply`), `verify`, `status --refresh`
+- `gate approve`
+- `backup create`, `backup verify`
+- `auth login`, `auth status`
+- `smoke`, `inference disable`
 
-| Operation | Command shape (argv) | Effective UID | Trusted inputs | Target paths/resources | Gate | Recovery |
-|---|---|---|---|---|---|---|
-| S02 package install simulation/install | apt adapter command list (pinned packages only) | root (via system package manager path) | reviewed lock/pins + observed candidate versions | apt/dpkg database | `s02-sudo-apt-install` | rerun preflight/S02 after dpkg reconciliation |
-| S03 access hardening | staged adapter commands (sshd/firewall/tailscale) | root for system changes | validated config + reviewed stage plan | sshd/firewall/tailscale config and runtime | S03 gates | rollback path via stage recover/manual runbook |
-| S04 docker host setup | docker + daemon config operations | root for package/daemon writes | validated config + lock pins | docker packages, daemon config, docker group | S04 gates | reconcile probe + staged cleanup/manual fix |
-| S10 service unit/install | systemd adapter commands + rendered unit | root for `/etc/systemd` and service roots | reviewed manifest + validated config | unit file, release path, service data paths | S10 gates | explicit rollbackService path + DB restore when needed |
-| S11 backup/restore | filesystem + sqlite checks; optional service data access | owner or root-capability dependent by target | backup manifest + validated backup id | backup root + selected payload targets | restore requires explicit plan path | failed restore remains blocked/recovery-required |
-| S14 update switch | app commands from reviewed manifest + symlink switch | owner/root per deployment profile | validated config + update manifest + backup evidence | current release pointer + app state | `s14-update-apply-approved` | rollback to previous release/backup before unpause |
+Read-only paths (`status` without `--refresh`, `gate list`) do not write state.  
+`cancel`/`recover --lock-only` use a separate protocol by design and are not ordinary writer bypasses.
 
-## Locking and cancellation
+## Operation → privilege/admission matrix
 
-- A single installation lock (`state/lock/owner.json`) guards control-state mutations.
-- Lock owner identity includes `boot_id`, `pid`, `process_start_ticks`, `nonce`, and `installation_id`.
-- Cancel requests are bound to lock owner identity and are ignored by non-matching runs.
-- Lock release validates ownership and refuses deleting a foreign lock.
+| Operation | CLI argv shape | UID policy | Trusted inputs / paths | Gate / admission | Postcondition evidence | Recovery path | State |
+|---|---|---|---|---|---|---|---|
+| Initialize installer state | `factory-setup init --profile ... --config PATH` | No root requirement in command itself; writes only setup state/config paths | Config schema + local setup paths | Contract/schema validation | State file exists and envelope returned | Re-run init with same config; lock prevents concurrent writer races | **Implemented** |
+| Record preflight observation (S01) | `factory-setup preflight --config PATH` | No explicit owner check; state mutation only | S01 observe output + setup state dir | Stage registration + lock | Persisted `S01` observed status/checks | `verify`/`status --refresh` after fixing host preconditions | **Implemented** |
+| Build plan + persist required approvals | `factory-setup plan --config PATH [--stage ID]` | No explicit owner check; no host mutation | Config hash, selected closure, stage plans, state dir | Plan consistency + in-flight barrier + lock; stage-only and operation gates persisted | `plan.json` + persisted required approvals (id, operation_id, ttl, status) | Re-plan after drift/expiry | **Implemented** |
+| Approve manual gate | `factory-setup gate approve --config PATH --id ID --plan-hash HASH` | No owner check; state mutation only | Existing persisted gate records | Lock + plan hash + gate id + TTL check (`now >= expires_at` => expired) | Gate status becomes `approved`; expired gates return non-zero and remain expired | New plan + new gate approval | **Implemented** |
+| Execute generic stage plan | `factory-setup apply --config PATH --plan PATH` | For mutating stage operations: ordinary owner only (`uid != 0`, username == `expected_user`) | Reviewed plan bytes, state/journal, stage adapters | Admission checks (installation/contract/profile/capabilities/dependency order/gate consistency), lock, per-op gate binding, cancel checks before/between effects | Intent+receipt journal, `stage.verify()`, `stage.observe()`, aggregated C03 envelope/exit | `recover`/`resume` with durable in-flight marker | **Implemented (core), not production-qualified** |
+| Resume | `factory-setup resume --config PATH [--stage ID]` | Same as `apply` | Recomputed plan from current config + persisted state | Same as `plan` + `apply`; generic apply policy still enforced | Same as `apply` | Same as `apply` | **Implemented (core)** |
+| Refresh recorded status | `factory-setup status --config PATH --refresh` | No owner check; state mutation only | Selected stage closure observations | Lock + state load; no silent init in read-only mode | Persisted observed status/drift + age metadata in envelope | `plan`/`apply`/`recover` depending on drift | **Implemented** |
+| Read recorded status only | `factory-setup status --config PATH` | Read-only | Persisted state snapshot | No hidden writes | Envelope marks `recorded_state_only=true` | Run `status --refresh` / `verify` for fresh observation | **Implemented** |
+| Verify selected installation closure | `factory-setup verify --config PATH [--stage ID]` | No owner check for verify itself | Stage verify+observe over selected closure | Lock + closure resolution (selected stages by default) | Aggregated stage outcomes and C03 exit code mapping | `plan`/`recover`/`resume` depending on typed failure | **Implemented** |
+| Backup create (S11) | `factory-setup backup create --config PATH` | Ordinary owner required | Backup config + state/app paths | Lock + S11 operation policy | Backup id/path + retention/prune data in envelope | Backup verify or recover | **Implemented (core)** |
+| Backup verify (S11) | `factory-setup backup verify --config PATH [--backup-id ID]` | No explicit owner check | Backup bytes + manifest | Lock + verification checks | Verified backup metadata in envelope | Restore remains blocked (see below) | **Implemented (core)** |
+| Auth login/status (S08) | `factory-setup auth login|status --config PATH` | `auth login`: ordinary owner required; `auth status`: no owner gate | Auth dir and state paths | Lock + command-specific checks | Persisted S08 observation | Re-login when missing/expired auth | **Implemented (core)** |
+| Smoke run | `factory-setup smoke --config PATH --provider fake|live --fixture toy` | Ordinary owner required | Selected provider/fixture + stage adapters | Lock + provider constraints + stage policy | Envelope data for provider/fixture/status | Cancel/recover depending on failure mode | **Implemented (core), live qualification OPEN** |
+| Disable inference scheduling | `factory-setup inference disable --config PATH` | Ordinary owner required | Inference compose/runtime paths | Lock + S12 checks | Envelope confirms blocked scheduling and stop status | `resume`/`verify` | **Implemented (core)** |
+| Cancel run | `factory-setup cancel --config PATH` | No owner check for request file; emergency path uses adapter policy | Cancel request file / emergency resource stop logic | Request is bound to run identity; consumed by running apply between effects | Request path (normal) or emergency stop details | Resume/recover after inspection | **Implemented (core)** |
+| Recover lock only | `factory-setup recover --config PATH --lock-only` | No root escalation | Lock owner metadata + current process identity | Rejects unsafe lock deletion without valid stale proof | Quarantine/diagnostics data in envelope | Manual follow-up + resume/re-plan | **Implemented (lock-only)** |
+| Restore | `factory-setup restore --config PATH --backup-id ID --plan PATH` | No mutation allowed in Q1A | N/A (blocked before payload handling) | Hard blocked by entrypoint policy | Returns blocked envelope/exit before side effects | Q4 restore transaction/payload hardening required | **Blocked (containment)** |
+| Update plan/apply | `factory-setup update plan|apply ...` | No mutation allowed in Q1A | N/A (blocked) | Dedicated update flow intentionally blocked | Returns blocked envelope/exit | Q5 update admission + transaction work required | **Blocked (containment)** |
+| Inference probe | `factory-setup inference probe --config PATH --checks ...` | No mutation allowed in Q1A | N/A (blocked) | Explicit capability blocker | Returns blocked envelope/exit | Reviewed implementation required | **Blocked (containment)** |
 
-## Explicit non-goals in current snapshot
+## Important boundaries still not claimed as done
 
-- No claim of same-UID adversarial process isolation.
-- No claim that gate approval alone proves external side effects.
-- No claim that VM/live qualification has been completed.
-
+- No claim of completed narrow privileged executor (`sudo` boundary and process-tree supervision are Q1B/Q2).
+- No claim that S03 rollback, S04 host isolation, or live/provider paths are production-qualified.
+- No claim that restore/update/inference probe implementations are complete; these are intentionally blocked entrypoints in Q1A.

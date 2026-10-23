@@ -279,7 +279,7 @@ test("plan/apply/resume flow writes intent+receipt and remains idempotent", asyn
   assert.equal(resume.exitCode, ExitCode.Success, JSON.stringify(resume.envelope));
 });
 
-test("plan and apply work across separate engine processes", async () => {
+test("plan and apply work across separate engine instances", async () => {
   const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "p02-core-separate-process-"));
   const configPath = path.join(root, "config", "setup.json");
   const effectPath = path.join(root, "effects", "s01.txt");

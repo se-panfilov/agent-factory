@@ -18,7 +18,7 @@
 
 ## Объём и метод
 
-Проверены CLI, core engine/state/plan/gates/lock, bootstrap и release scripts, системные адаптеры, этапы S00–S14, backup/restore/emergency/update, M0 runner и его пакет, schemas, templates, CI, тестовые стратегии и актуальные документы репозитория. Сопоставлялись `AGENTS.md`, обе копии CONTRACT 1.0.0, `USER MANUAL.md`, документация setup, implementation reports и relevant automation/application contracts.
+Проверены CLI, core engine/state/plan/gates/lock, bootstrap и release scripts, системные адаптеры, этапы S00–S14, backup/restore/emergency/update, M0 runner и его пакет, schemas, templates, CI, тестовые стратегии и актуальные документы репозитория. Сопоставлялись `../../AGENTS.md`, обе копии CONTRACT 1.0.0, `USER MANUAL.md`, документация setup, implementation reports и relevant automation/application contracts.
 
 Изменения приложения не вносились. Зависимости установлены локально по lockfiles с `--ignore-scripts`; тесты запускались в изолированной рабочей копии. Специальные воспроизведения использовали временные каталоги и fake process adapters. Не запускались sudo, apt mutations, Docker daemon, SSH/firewall changes, OAuth, model calls, GitHub writes или VM provisioning.
 
@@ -207,7 +207,7 @@ Docker/Tailscale ожидают уже настроенные apt sources/candid
 
 Исходники на проверенном commit: [setup/release/build-release.mjs:146](https://github.com/se-panfilov/agent-factory/blob/7d845248e7fcd089a36afc8b395b38c7226e09e7/setup/release/build-release.mjs#L146); [setup/release/build-release.mjs:211](https://github.com/se-panfilov/agent-factory/blob/7d845248e7fcd089a36afc8b395b38c7226e09e7/setup/release/build-release.mjs#L211).
 
-**Код:** `release/build-release.mjs:main,copyRecursive`; `release/verify-release.mjs`; `.github/workflows/setup-checks.yml`.
+**Код:** `release/build-release.mjs:main,copyRecursive`; `release/verify-release.mjs`; `../../.github/workflows/setup-checks.yml`.
 
 1. Документированный `npm --prefix setup run release:build` запускает script с cwd=setup, но script ищет `<cwd>/setup/dist`, то есть setup/setup. Воспроизведён отказ `missing setup/dist/src/cli.js` при существующей сборке.
 2. В архив не копируются runtime node_modules и нет bundling. Изолированная распаковка: CLI падает `Cannot find module 'ajv/dist/2020'`.
@@ -241,7 +241,7 @@ Docker/Tailscale ожидают уже настроенные apt sources/candid
 
 Исходники на проверенном commit: [setup/schemas/application-manifest.schema.json:57](https://github.com/se-panfilov/agent-factory/blob/7d845248e7fcd089a36afc8b395b38c7226e09e7/setup/schemas/application-manifest.schema.json#L57); [setup/src/stages/configuration.ts:139](https://github.com/se-panfilov/agent-factory/blob/7d845248e7fcd089a36afc8b395b38c7226e09e7/setup/src/stages/configuration.ts#L139); [app/m0-02-runner/runner.ts:393](https://github.com/se-panfilov/agent-factory/blob/7d845248e7fcd089a36afc8b395b38c7226e09e7/app/m0-02-runner/runner.ts#L393).
 
-**Код:** `schemas/application-manifest.schema.json`; `app/m0-03-release/deployment-manifest.json`; `stages/auth.ts:resolveRunnerVerifyCommand`; `stages/configuration.ts:canonicalPolicyObject`; `adapters/git.ts:probeCommands`; `app/m0-02-runner/runner.ts,verify.mjs`.
+**Код:** `schemas/application-manifest.schema.json`; `../../app/m0-03-release/deployment-manifest.json`; `stages/auth.ts:resolveRunnerVerifyCommand`; `stages/configuration.ts:canonicalPolicyObject`; `adapters/git.ts:probeCommands`; `app/m0-02-runner/runner.ts,verify.mjs`.
 
 Installer schema требует runner_verify и запрещает runner_run/runner_status/verify_fake. M0 имеет именно последние ключи согласно исходному CONTRACT C13. S06 policy не содержит `image`, `timeout_seconds`, `daily_runs`, которые обязательны реальному runner. Fake verifier M0 не принимает installer output contract/--output и не создаёт ожидаемый smoke JSON. M0 archive не содержит ajv runtime package. Аргументы runner с `--experimental-strip-types` оставляют runner.ts относительным; process adapter не задаёт cwd. Probe `runner_stop --help` опасен: у M0 обработчик stop не разбирает help и реально пишет PAUSED/удаляет контейнеры при достижении этого пути.
 
@@ -279,13 +279,13 @@ Process options не имеют cwd/stdin/TTY/cancellation contract. Systemd п�
 
 Исходники на проверенном commit: [setup/src/stages/configuration.ts:169](https://github.com/se-panfilov/agent-factory/blob/7d845248e7fcd089a36afc8b395b38c7226e09e7/setup/src/stages/configuration.ts#L169); [setup/src/stages/configuration.ts:1097](https://github.com/se-panfilov/agent-factory/blob/7d845248e7fcd089a36afc8b395b38c7226e09e7/setup/src/stages/configuration.ts#L1097); [setup/src/stages/configuration.ts:1028](https://github.com/se-panfilov/agent-factory/blob/7d845248e7fcd089a36afc8b395b38c7226e09e7/setup/src/stages/configuration.ts#L1028).
 
-**Код:** `stages/configuration.ts:buildContextFiles,buildPinnedAgentImage,ensureToyFixture`; `templates/config/agent.Dockerfile`; `versions.lock.json`; `app/m0-02-runner/runner.ts`.
+**Код:** `stages/configuration.ts:buildContextFiles,buildPinnedAgentImage,ensureToyFixture`; `templates/config/agent.Dockerfile`; `versions.lock.json`; `../../app/m0-02-runner/runner.ts`.
 
 Base image передаётся как bare `sha256:...`, а не полный `repository@sha256:...`; contract не обеспечивает локальное наличие образа. Base и agent digests в lock совпадают, хотя образ меняется установкой Codex. После локальной сборки требуется RepoDigest, который не обязан существовать у local build. ENTRYPOINT=codex конфликтует с runner command `timeout ... codex ...`: получится вызов codex с аргументом timeout, а не timeout как процесс. Ожидаемый tarball SRI передан неработающим npm `--integrity` flag; bytes не сверяются с этим expected digest (дополнительное воспроизведение ниже). При повторном S06 `git commit --allow-empty` создаёт новый fixture SHA даже без изменения файлов.
 
 Дополнительные исходники: [setup/templates/config/agent.Dockerfile:5](https://github.com/se-panfilov/agent-factory/blob/7d845248e7fcd089a36afc8b395b38c7226e09e7/setup/templates/config/agent.Dockerfile#L5).
 
-**Дополнение после независимой сверки:** **Новый локальный факт [R]:** npm 11.9.0 с заведомо неверным `--integrity=sha512-AAA…` успешно установил собственный безвредный local tarball offline (`--ignore-scripts`). Он выдал `Unknown cli config "--integrity"`, exit 0; записанный lock integrity отличался от ожидаемого. Контроль: тот же неверный digest в `package-lock.json` + `npm ci` с пустым cache дал exit 1 / `EINTEGRITY`. Следовательно, используемый Dockerfile flag не является проверкой ожидаемого SRI. Это проверка CLI-механизма на локальном fixture, не запуск настоящего Codex image build.
+**Дополнение после независимой сверки:** **Новый локальный факт [R]:** npm 11.9.0 с заведомо неверным `--integrity=sha512-AAA…` успешно установил собственный безвредный local tarball offline (`--ignore-scripts`). Он выдал `Unknown cli config "--integrity"`, exit 0; записанный lock integrity отличался от ожидаемого. Контроль: тот же неверный digest в `../../package-lock.json` + `npm ci` с пустым cache дал exit 1 / `EINTEGRITY`. Следовательно, используемый Dockerfile flag не является проверкой ожидаемого SRI. Это проверка CLI-механизма на локальном fixture, не запуск настоящего Codex image build.
 
 Использовать проверяемый lock с полной dependency graph либо прямую проверку tarball bytes; негативный SRI-тест обязан падать до установки. Default template также не обеспечивает наличие Node/npm и non-root image user. Проверять реальный toolchain/native executable, effective runtime UID и совместимость auth ownership; не назначать произвольный UID 10001 без согласования с bind-mount UID/GID.
 
@@ -385,7 +385,7 @@ Backup копирует app/state, игнорируя отдельный configu
 
 Исходники на проверенном commit: [app/m0-02-runner/runner.ts:420](https://github.com/se-panfilov/agent-factory/blob/7d845248e7fcd089a36afc8b395b38c7226e09e7/app/m0-02-runner/runner.ts#L420); [setup/src/core/validators.ts:76](https://github.com/se-panfilov/agent-factory/blob/7d845248e7fcd089a36afc8b395b38c7226e09e7/setup/src/core/validators.ts#L76).
 
-**Код:** `app/m0-02-runner/runner.ts:runCommand`; `setup/src/core/validators.ts`; `stages/configuration.ts:path safety`.
+**Код:** `app/m0-02-runner/runner.ts:runCommand`; `../../setup/src/core/validators.ts`; `stages/configuration.ts:path safety`.
 
 Runner принимает произвольный repo path, без global disjointness с factory/setup/auth/home и без admission public-owned/toy scope. Clean git status не доказывает отсутствие ignored секретов: host directory примонтирован целиком вместе с .git/config и ignored файлами. `git`/`docker` запускаются через PATH с унаследованным env, локальный git config может включать executable helpers. Credentials доступны Worker при unrestricted bridge network — это известный допустимый только supervised риск, но код не обеспечивает отдельное scope admission и может случайно применяться к неподходящему checkout.
 
@@ -459,7 +459,7 @@ Runner использует общий `agent-factory=level1` и run-id; install
 
 Исходники на проверенном commit: [setup/src/cli.ts:11](https://github.com/se-panfilov/agent-factory/blob/7d845248e7fcd089a36afc8b395b38c7226e09e7/setup/src/cli.ts#L11); [setup/src/core/config.ts:127](https://github.com/se-panfilov/agent-factory/blob/7d845248e7fcd089a36afc8b395b38c7226e09e7/setup/src/core/config.ts#L127).
 
-**Код:** `cli.ts:parseArgs,asStageId`; `core/config.ts:initConfig`; обе копии CONTRACT C02/C13; `setup/docs/quickstart.md`; `AGENTS.md`.
+**Код:** `cli.ts:parseArgs,asStageId`; `core/config.ts:initConfig`; обе копии CONTRACT C02/C13; `../../setup/docs/quickstart.md`; `AGENTS.md`.
 
 Unknown options/positionals тихо игнорируются; `--stage S99` превращается в default selection, неправильный profile — в supervised. Нет update и inference probe routing. Init selected_stages=[S01], dummy zero release hashes, несоответствующие C13 поля/defaults; documented expected runner_ready_offline не достигается. AGENTS/README частично продолжают утверждать, что кода installer нет, implementation reports объявляют завершённое поведение, которого нет в production adapters.
 
@@ -475,7 +475,7 @@ Unknown options/positionals тихо игнорируются; `--stage S99` п�
 
 Исходники на проверенном commit: [setup/tests/integration/core-engine.test.ts:118](https://github.com/se-panfilov/agent-factory/blob/7d845248e7fcd089a36afc8b395b38c7226e09e7/setup/tests/integration/core-engine.test.ts#L118); [setup/tests/vm/run-qualification.sh:23](https://github.com/se-panfilov/agent-factory/blob/7d845248e7fcd089a36afc8b395b38c7226e09e7/setup/tests/vm/run-qualification.sh#L23).
 
-**Код:** `tests/integration/core-engine.test.ts`; `tests/integration/application.test.ts`; `tests/integration/release-packaging.test.ts`; `tests/vm/run-qualification.sh`; `.github/workflows/setup-checks.yml`; root package.json.
+**Код:** `tests/integration/core-engine.test.ts`; `tests/integration/application.test.ts`; `tests/integration/release-packaging.test.ts`; `tests/vm/run-qualification.sh`; `../../.github/workflows/setup-checks.yml`; root package.json.
 
 Engine tests используют synthetic stages и один engine; stage tests заранее вызывают plan в том же процессе. Release test не запускает распакованный CLI, не сравнивает два build и вызывает script напрямую из repo root, скрывая npm cwd bug. Root npm test не включает M0 verify.mjs. CI paths только setup, application tests отсутствуют. VM harness проверяет SSH/uname и печатает runbook: это не реализация failure matrix. NOT RUN в qualification документе честно отражает отсутствие VM proof; это нужно сохранить.
 
