@@ -1,0 +1,25 @@
+Baseline (detached worktree at `4d536cc4917e3f6f468fe41a62e2cfb31718361c`):
+
+```bash
+PATH="$HOME/.nvm/versions/node/v24.12.0/bin:$PATH" npm --prefix setup ci --ignore-scripts --no-audit --no-fund
+PATH="$HOME/.nvm/versions/node/v24.12.0/bin:$PATH" npm --prefix setup run build --silent
+PATH="$HOME/.nvm/versions/node/v24.12.0/bin:$PATH" node audit/evidence/q1a-r1-1-4d536cc/probe-r11-matrix.cjs baseline
+```
+
+Outputs:
+- `baseline-setup-build.log`
+- `results-baseline-4d536cc.json`
+
+Fixed (`c123cd3b8793dcf96ab24836feb4acfe2f3f3bf9`):
+
+```bash
+PATH="$HOME/.nvm/versions/node/v24.12.0/bin:$PATH" node -v
+PATH="$HOME/.nvm/versions/node/v24.12.0/bin:$PATH" npm --prefix setup ci --ignore-scripts --no-audit --no-fund
+PATH="$HOME/.nvm/versions/node/v24.12.0/bin:$PATH" npm --prefix setup run typecheck --silent
+PATH="$HOME/.nvm/versions/node/v24.12.0/bin:$PATH" npm --prefix setup run test --silent
+PATH="$HOME/.nvm/versions/node/v24.12.0/bin:$PATH" node audit/evidence/q1a-r1-1-4d536cc/probe-r11-matrix.cjs fixed
+```
+
+Outputs:
+- `node24-ci-typecheck-test.log`
+- `results-fixed-c123cd3.json`

@@ -7,9 +7,10 @@
 
 ## 1) Verified code/test tree identity
 
-- `git rev-parse HEAD`: `4d536cc4917e3f6f468fe41a62e2cfb31718361c`
-- Working tree status during this pass: **dirty** (uncommitted remediation edits intentionally preserved).
-- Tree included pre-existing modified audit files and new remediation changes; no history rewrite, no reset, no merge.
+- Tested remediation commit: `c123cd3b8793dcf96ab24836feb4acfe2f3f3bf9`
+- `git rev-parse HEAD` at final packaging: `c123cd3b8793dcf96ab24836feb4acfe2f3f3bf9`
+- Working tree status at final packaging: **dirty** (uncommitted evidence artifacts and report updates for this handoff)
+- No history rewrite, no reset, no merge.
 
 Relevant changed files in this pass:
 
@@ -20,6 +21,8 @@ Relevant changed files in this pass:
 - `setup/tests/integration/core-engine.test.ts`
 - `setup/tests/integration/core-q1a.test.ts`
 - `setup/tests/integration/core-q1a-r1-state-recovery.test.ts`
+- `audit/evidence/q1a-r1-1-4d536cc/*`
+- `agent-factory-q1a-r1-evidence-4d536cc.zip`
 - `setup/docs/privileges.md`
 - `setup/docs/troubleshooting.md`
 - `setup/docs/qualification.md`
@@ -130,3 +133,8 @@ PATH="$HOME/.nvm/versions/node/v24.12.0/bin:$PATH" npm --prefix setup run test -
 - No process-tree supervisor or per-effect cancel in-flight orchestration beyond current guardrails.
 - Public `restore`/`update` remain intentionally blocked (containment preserved).
 - VM/VPS, real sudo/systemd/SSH/firewall/OAuth/model/provider checks are **NOT RUN**.
+
+## 9) Reproduction bundle
+
+- Attached archive: `agent-factory-q1a-r1-evidence-4d536cc.zip`
+- Source evidence directory (included in zip): `audit/evidence/q1a-r1-1-4d536cc/`

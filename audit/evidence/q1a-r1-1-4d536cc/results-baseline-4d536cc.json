@@ -1,0 +1,46 @@
+{
+  "mode": "baseline",
+  "N00": {
+    "plan": 0,
+    "apply": 8,
+    "status": 8,
+    "resume": 8,
+    "applyCode": "journal_recovery_required"
+  },
+  "N01": {
+    "plan": 0,
+    "apply": 0,
+    "status": 8,
+    "resume": 8,
+    "statusCode": "journal_recovery_required",
+    "resumeCode": "journal_recovery_required"
+  },
+  "N02": {
+    "plan": 0,
+    "apply": 0,
+    "status": 8,
+    "resume": 8,
+    "statusCode": "journal_recovery_required",
+    "resumeCode": "journal_recovery_required"
+  },
+  "N03": {
+    "recover": 0,
+    "recoverCode": null
+  },
+  "N06": {
+    "plan": 8,
+    "planCode": "state_corrupt",
+    "recover": 0,
+    "recoverCode": null
+  },
+  "N07": {
+    "plan": 8,
+    "planCode": "state_quarantine_failed",
+    "planFaultHit": 1,
+    "recover1": 8,
+    "recover1Code": "recovery_marker_clear_failed",
+    "recoverFaultHit": 1,
+    "recover2": 8,
+    "recover2Code": "recovery_candidate_invalid"
+  }
+}
