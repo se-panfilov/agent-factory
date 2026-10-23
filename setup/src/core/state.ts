@@ -11,11 +11,29 @@ const STATE_FILE = "state.json";
 const EVENTS_FILE = "events.jsonl";
 const RECOVERY_MARKER_FILE = "recovery-required.json";
 const MAX_JOURNAL_BYTES = 1024 * 1024;
+const JOURNAL_SCHEMA_VERSION = 2;
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/;
+const STAGE_ID_SET = new Set<StageId>(STAGE_IDS);
 export const FALLBACK_MACHINE_ID_HASH = createHash("sha256").update("unknown-machine-id").digest("hex");
 
-interface EventRecord {
+type JournalEventCode = "intent" | "effect" | "verify" | "checkpoint";
+
+interface JournalEventRecord {
+  schema_version: 2;
+  sequence: number;
+  checksum: string;
+  at: string;
+  installation_id: string;
+  attempt_id: string;
+  operation_id: string;
+  stage: StageId;
+  code: JournalEventCode;
+  message: string;
+  state_hash?: string;
+}
+
+interface LegacyEventRecord {
   sequence: number;
   checksum: string;
   at: string;
@@ -23,6 +41,18 @@ interface EventRecord {
   stage: StageId;
   code: string;
   message: string;
+}
+
+type ParsedJournalEvent =
+  | { format: "v2"; record: JournalEventRecord }
+  | { format: "legacy"; record: LegacyEventRecord };
+
+interface ParsedJournal {
+  records: ParsedJournalEvent[];
+  parseError: boolean;
+  unknownOrder: boolean;
+  unresolvedOperationIds: string[];
+  legacyFormat: boolean;
 }
 
 async function writeRecoveryMarker(
@@ -37,6 +67,12 @@ export interface RecoveryMarkerRecord {
   schema_version: 1;
   reason: string;
   observed_at: string;
+  recovery_commit?: {
+    phase: "prepared" | "primary_restored";
+    source: "previous";
+    candidate_state_hash: string;
+    updated_at: string;
+  };
   [key: string]: unknown;
 }
 
@@ -46,6 +82,7 @@ export interface JournalInspection {
   parseError: boolean;
   unknownOrder: boolean;
   oversized: boolean;
+  legacyFormat: boolean;
   evidenceRef: string;
 }
 
@@ -80,12 +117,30 @@ export interface LoadStateOptions {
   readOnly?: boolean;
 }
 
-function checksumForEvent(record: Omit<EventRecord, "checksum">): string {
+function checksumForLegacyEvent(record: Omit<LegacyEventRecord, "checksum">): string {
   return createHash("sha256")
     .update(
       `${record.sequence}|${record.at}|${record.operation_id}|${record.stage}|${record.code}|${record.message}`
     )
     .digest("hex");
+}
+
+function checksumForJournalEvent(record: Omit<JournalEventRecord, "checksum">): string {
+  return createHash("sha256")
+    .update(stableStringify(record))
+    .digest("hex");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isJournalEventCode(value: unknown): value is JournalEventCode {
+  return value === "intent" || value === "effect" || value === "verify" || value === "checkpoint";
+}
+
+function toSequence(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
 }
 
 function defaultStageStatus(stageId: StageId): StageStatus {
@@ -245,6 +300,7 @@ function emptyJournalInspection(evidenceRef: string): JournalInspection {
     parseError: false,
     unknownOrder: false,
     oversized: false,
+    legacyFormat: false,
     evidenceRef
   };
 }
@@ -337,20 +393,256 @@ export async function saveState(fsAdapter: FilesystemAdapter, config: SetupConfi
   }
 }
 
-function parseEventLine(line: string): EventRecord {
-  const parsed = JSON.parse(line) as EventRecord;
-  const expected = checksumForEvent({
-    sequence: parsed.sequence,
-    at: parsed.at,
-    operation_id: parsed.operation_id,
-    stage: parsed.stage,
-    code: parsed.code,
-    message: parsed.message
-  });
-  if (parsed.checksum !== expected) {
-    throw new Error("invalid event checksum");
+export async function restorePrimaryState(
+  fsAdapter: FilesystemAdapter,
+  config: SetupConfig,
+  state: SetupState
+): Promise<void> {
+  const paths = buildStatePaths(config);
+  const serialized = `${JSON.stringify(state, null, 2)}\n`;
+  await writeAtomicJson(fsAdapter, paths.stateFile, serialized);
+}
+
+function parseEventLine(line: string): ParsedJournalEvent {
+  const parsed = JSON.parse(line) as unknown;
+  if (!isRecord(parsed)) {
+    throw new Error("event is not an object");
   }
-  return parsed;
+
+  if (parsed.schema_version === JOURNAL_SCHEMA_VERSION) {
+    const sequence = toSequence(parsed.sequence);
+    const at = parsed.at;
+    const installationId = parsed.installation_id;
+    const attemptId = parsed.attempt_id;
+    const operationId = parsed.operation_id;
+    const stage = parsed.stage;
+    const code = parsed.code;
+    const message = parsed.message;
+    const checksum = parsed.checksum;
+    const stateHash = parsed.state_hash;
+
+    if (
+      sequence === null
+      || typeof at !== "string"
+      || typeof installationId !== "string"
+      || installationId.length === 0
+      || typeof attemptId !== "string"
+      || attemptId.length === 0
+      || typeof operationId !== "string"
+      || operationId.length === 0
+      || typeof stage !== "string"
+      || !STAGE_ID_SET.has(stage as StageId)
+      || !isJournalEventCode(code)
+      || typeof message !== "string"
+      || typeof checksum !== "string"
+      || !SHA256_HEX_PATTERN.test(checksum)
+    ) {
+      throw new Error("invalid journal v2 record shape");
+    }
+
+    let checkpointStateHash: string | undefined;
+    if (code === "checkpoint") {
+      if (typeof stateHash !== "string" || !SHA256_HEX_PATTERN.test(stateHash)) {
+        throw new Error("invalid checkpoint state hash");
+      }
+      checkpointStateHash = stateHash;
+    } else if (stateHash !== undefined) {
+      throw new Error("state hash is only valid for checkpoint records");
+    }
+
+    const recordWithoutChecksum: Omit<JournalEventRecord, "checksum"> = {
+      schema_version: JOURNAL_SCHEMA_VERSION,
+      sequence,
+      at,
+      installation_id: installationId,
+      attempt_id: attemptId,
+      operation_id: operationId,
+      stage: stage as StageId,
+      code,
+      message,
+      ...(checkpointStateHash === undefined ? {} : { state_hash: checkpointStateHash })
+    };
+    const expected = checksumForJournalEvent(recordWithoutChecksum);
+    if (checksum !== expected) {
+      throw new Error("invalid journal v2 checksum");
+    }
+    return {
+      format: "v2",
+      record: {
+        ...recordWithoutChecksum,
+        checksum
+      }
+    };
+  }
+
+  const sequence = toSequence(parsed.sequence);
+  const at = parsed.at;
+  const operationId = parsed.operation_id;
+  const stage = parsed.stage;
+  const code = parsed.code;
+  const message = parsed.message;
+  const checksum = parsed.checksum;
+  if (
+    sequence === null
+    || typeof at !== "string"
+    || typeof operationId !== "string"
+    || operationId.length === 0
+    || typeof stage !== "string"
+    || !STAGE_ID_SET.has(stage as StageId)
+    || typeof code !== "string"
+    || code.length === 0
+    || typeof message !== "string"
+    || typeof checksum !== "string"
+    || !SHA256_HEX_PATTERN.test(checksum)
+  ) {
+    throw new Error("invalid legacy journal record shape");
+  }
+
+  const legacyRecord: LegacyEventRecord = {
+    sequence,
+    at,
+    operation_id: operationId,
+    stage: stage as StageId,
+    code,
+    message,
+    checksum
+  };
+  const expected = checksumForLegacyEvent({
+    sequence: legacyRecord.sequence,
+    at: legacyRecord.at,
+    operation_id: legacyRecord.operation_id,
+    stage: legacyRecord.stage,
+    code: legacyRecord.code,
+    message: legacyRecord.message
+  });
+  if (legacyRecord.checksum !== expected) {
+    throw new Error("invalid legacy journal checksum");
+  }
+  return {
+    format: "legacy",
+    record: legacyRecord
+  };
+}
+
+function parseJournalRecords(lines: string[], installationId: string): ParsedJournal {
+  const records: ParsedJournalEvent[] = [];
+  let parseError = false;
+  let unknownOrder = false;
+  let legacyFormat = false;
+  let expectedSequence = 1;
+
+  const attempts = new Map<string, {
+    stage: StageId;
+    operationId: string;
+    phase: "intent" | "effect" | "verify" | "checkpoint";
+  }>();
+
+  for (const line of lines) {
+    let parsed: ParsedJournalEvent;
+    try {
+      parsed = parseEventLine(line);
+    } catch {
+      parseError = true;
+      break;
+    }
+    records.push(parsed);
+    const sequence = parsed.record.sequence;
+    if (sequence !== expectedSequence) {
+      unknownOrder = true;
+    }
+    expectedSequence = sequence + 1;
+
+    if (parsed.format === "legacy") {
+      legacyFormat = true;
+      continue;
+    }
+
+    const record = parsed.record;
+    if (record.installation_id !== installationId) {
+      unknownOrder = true;
+      continue;
+    }
+    const key = `${record.installation_id}:${record.attempt_id}`;
+    const existing = attempts.get(key);
+    if (existing === undefined) {
+      if (record.code !== "intent") {
+        unknownOrder = true;
+        continue;
+      }
+      attempts.set(key, {
+        stage: record.stage,
+        operationId: record.operation_id,
+        phase: "intent"
+      });
+      continue;
+    }
+    if (existing.stage !== record.stage || existing.operationId !== record.operation_id) {
+      unknownOrder = true;
+      continue;
+    }
+    if (
+      (existing.phase === "intent" && record.code !== "effect")
+      || (existing.phase === "effect" && record.code !== "verify")
+      || (existing.phase === "verify" && record.code !== "checkpoint")
+      || existing.phase === "checkpoint"
+    ) {
+      unknownOrder = true;
+      continue;
+    }
+
+    existing.phase = record.code;
+    attempts.set(key, existing);
+  }
+
+  const unresolvedOperationIds = Array.from(
+    new Set(
+      Array.from(attempts.values())
+        .filter((attempt) => attempt.phase !== "checkpoint")
+        .map((attempt) => attempt.operationId)
+    )
+  ).sort();
+
+  if (legacyFormat) {
+    unknownOrder = true;
+  }
+
+  return {
+    records,
+    parseError,
+    unknownOrder,
+    unresolvedOperationIds,
+    legacyFormat
+  };
+}
+
+async function readJournalTextBounded(
+  fsAdapter: FilesystemAdapter,
+  eventsFile: string
+): Promise<{ hasRecords: boolean; oversized: boolean; raw: string }> {
+  let bounded: Awaited<ReturnType<FilesystemAdapter["readTextBounded"]>>;
+  try {
+    bounded = await fsAdapter.readTextBounded(eventsFile, MAX_JOURNAL_BYTES);
+  } catch (error) {
+    const code = errorCode(error);
+    if (code === "ENOENT") {
+      return { hasRecords: false, oversized: false, raw: "" };
+    }
+    throw setupError({
+      exitCode: ExitCode.DriftOrRecoveryRequired,
+      code: "state_path_access_failed",
+      publicMessage: "Unable to inspect event journal while evaluating installer state.",
+      nextAction: "Fix filesystem permissions or I/O errors and rerun diagnostics.",
+      evidenceRef: `${eventsFile}:${code ?? "unknown"}`
+    });
+  }
+
+  if (bounded.truncated) {
+    return { hasRecords: true, oversized: true, raw: "" };
+  }
+  if (bounded.text.trim().length === 0) {
+    return { hasRecords: false, oversized: false, raw: "" };
+  }
+  return { hasRecords: true, oversized: false, raw: bounded.text };
 }
 
 export async function readRecoveryMarker(
@@ -374,7 +666,16 @@ export async function readRecoveryMarker(
       evidenceRef: markerPath
     });
   }
-  const objectParsed = parsed as Record<string, unknown>;
+  if (!isRecord(parsed)) {
+    throw setupError({
+      exitCode: ExitCode.DriftOrRecoveryRequired,
+      code: "recovery_marker_invalid",
+      publicMessage: "Recovery marker schema is invalid.",
+      nextAction: "Run recover and inspect recovery marker integrity.",
+      evidenceRef: markerPath
+    });
+  }
+  const objectParsed = parsed;
   if (
     objectParsed.schema_version !== 1
     || typeof objectParsed.reason !== "string"
@@ -388,7 +689,35 @@ export async function readRecoveryMarker(
       evidenceRef: markerPath
     });
   }
+  const recoveryCommit = objectParsed.recovery_commit;
+  if (recoveryCommit !== undefined) {
+    if (
+      !isRecord(recoveryCommit)
+      || (recoveryCommit.phase !== "prepared" && recoveryCommit.phase !== "primary_restored")
+      || recoveryCommit.source !== "previous"
+      || typeof recoveryCommit.candidate_state_hash !== "string"
+      || !SHA256_HEX_PATTERN.test(recoveryCommit.candidate_state_hash)
+      || typeof recoveryCommit.updated_at !== "string"
+    ) {
+      throw setupError({
+        exitCode: ExitCode.DriftOrRecoveryRequired,
+        code: "recovery_marker_invalid",
+        publicMessage: "Recovery marker commit metadata is invalid.",
+        nextAction: "Run recover and inspect recovery marker integrity.",
+        evidenceRef: markerPath
+      });
+    }
+  }
   return objectParsed as RecoveryMarkerRecord;
+}
+
+export async function writeRecoveryMarkerRecord(
+  fsAdapter: FilesystemAdapter,
+  config: SetupConfig,
+  marker: RecoveryMarkerRecord
+): Promise<void> {
+  const markerPath = buildStatePaths(config).recoveryMarkerFile;
+  await persistRecoveryMarker(fsAdapter, markerPath, marker);
 }
 
 export async function clearRecoveryMarker(fsAdapter: FilesystemAdapter, config: SetupConfig): Promise<void> {
@@ -416,80 +745,30 @@ export async function inspectJournalEvidence(
   config: SetupConfig
 ): Promise<JournalInspection> {
   const eventsFile = buildStatePaths(config).eventsFile;
-  let eventsStat: Awaited<ReturnType<FilesystemAdapter["stat"]>>;
-  try {
-    eventsStat = await fsAdapter.stat(eventsFile);
-  } catch (error) {
-    const code = errorCode(error);
-    if (code === "ENOENT") {
-      return emptyJournalInspection(eventsFile);
-    }
-    throw setupError({
-      exitCode: ExitCode.DriftOrRecoveryRequired,
-      code: "state_path_access_failed",
-      publicMessage: "Unable to inspect event journal while evaluating installer state.",
-      nextAction: "Fix filesystem permissions or I/O errors and rerun diagnostics.",
-      evidenceRef: `${eventsFile}:${code ?? "unknown"}`
-    });
+  const journalText = await readJournalTextBounded(fsAdapter, eventsFile);
+  if (!journalText.hasRecords) {
+    return emptyJournalInspection(eventsFile);
   }
-
-  const rawSize = typeof eventsStat.size === "bigint" ? Number(eventsStat.size) : eventsStat.size;
-  const size = Number.isFinite(rawSize) ? rawSize : Number.MAX_SAFE_INTEGER;
-  if (size > MAX_JOURNAL_BYTES) {
+  if (journalText.oversized) {
     return {
       hasRecords: true,
       unresolvedOperationIds: [],
       parseError: false,
       unknownOrder: false,
       oversized: true,
+      legacyFormat: false,
       evidenceRef: eventsFile
     };
   }
-
-  const raw = await readTextStrict(fsAdapter, eventsFile, "event journal");
-  if (raw.trim().length === 0) {
-    return emptyJournalInspection(eventsFile);
-  }
-
-  const lines = raw.split("\n").filter((line) => line.length > 0);
-  const intentSeen = new Set<string>();
-  const receiptSeen = new Set<string>();
-  let unknownOrder = false;
-  for (const line of lines) {
-    let parsed: EventRecord;
-    try {
-      parsed = parseEventLine(line);
-    } catch {
-      return {
-        hasRecords: true,
-        unresolvedOperationIds: [],
-        parseError: true,
-        unknownOrder: false,
-        oversized: false,
-        evidenceRef: eventsFile
-      };
-    }
-    if (parsed.code === "intent") {
-      intentSeen.add(parsed.operation_id);
-      continue;
-    }
-    if (parsed.code === "receipt") {
-      if (!intentSeen.has(parsed.operation_id)) {
-        unknownOrder = true;
-      }
-      receiptSeen.add(parsed.operation_id);
-      continue;
-    }
-    unknownOrder = true;
-  }
-
-  const unresolvedOperationIds = Array.from(intentSeen).filter((id) => !receiptSeen.has(id)).sort();
+  const lines = journalText.raw.split("\n").filter((line) => line.length > 0);
+  const parsed = parseJournalRecords(lines, config.installation_id);
   return {
     hasRecords: true,
-    unresolvedOperationIds,
-    parseError: false,
-    unknownOrder,
+    unresolvedOperationIds: parsed.unresolvedOperationIds,
+    parseError: parsed.parseError,
+    unknownOrder: parsed.unknownOrder,
     oversized: false,
+    legacyFormat: parsed.legacyFormat,
     evidenceRef: eventsFile
   };
 }
@@ -513,49 +792,91 @@ export async function inspectStateEvidence(
   };
 }
 
-export async function readEvents(fsAdapter: FilesystemAdapter, config: SetupConfig): Promise<EventRecord[]> {
+export async function readEvents(fsAdapter: FilesystemAdapter, config: SetupConfig): Promise<ParsedJournalEvent[]> {
   const paths = buildStatePaths(config);
-  const journal = await inspectJournalEvidence(fsAdapter, config);
-  if (!journal.hasRecords) {
+  const raw = await readJournalTextBounded(fsAdapter, paths.eventsFile);
+  if (!raw.hasRecords) {
     return [];
   }
-  if (journal.oversized || journal.parseError || journal.unknownOrder) {
+  if (raw.oversized) {
     throw setupError({
       exitCode: ExitCode.DriftOrRecoveryRequired,
       code: "journal_recovery_required",
       publicMessage: "Event journal contains unresolved or corrupt records.",
       nextAction: "Run recover and preserve journal evidence before retrying mutations.",
-      evidenceRef: journal.evidenceRef
+      evidenceRef: paths.eventsFile
     });
   }
-
-  const raw = await readTextStrict(fsAdapter, paths.eventsFile, "event journal");
-  const lines = raw.split("\n").filter((line) => line.length > 0);
-  return lines.map((line) => parseEventLine(line));
+  const lines = raw.raw.split("\n").filter((line) => line.length > 0);
+  const parsed = parseJournalRecords(lines, config.installation_id);
+  if (parsed.parseError || parsed.unknownOrder) {
+    throw setupError({
+      exitCode: ExitCode.DriftOrRecoveryRequired,
+      code: "journal_recovery_required",
+      publicMessage: "Event journal contains unresolved or corrupt records.",
+      nextAction: "Run recover and preserve journal evidence before retrying mutations.",
+      evidenceRef: paths.eventsFile
+    });
+  }
+  return parsed.records;
 }
 
 export async function appendEvent(
   fsAdapter: FilesystemAdapter,
   config: SetupConfig,
-  event: Omit<EventRecord, "sequence" | "checksum" | "at">
+  event: {
+    operation_id: string;
+    stage: StageId;
+    code: JournalEventCode;
+    message: string;
+    attempt_id?: string;
+    installation_id?: string;
+    state_hash?: string;
+    at?: string;
+  }
 ): Promise<void> {
-  const events = await readEvents(fsAdapter, config);
-  const recordWithoutChecksum = {
-    sequence: events.length + 1,
-    at: new Date().toISOString(),
+  const eventsPath = buildStatePaths(config).eventsFile;
+  const existing = await readEvents(fsAdapter, config);
+  const lastSequence = existing.length > 0 ? existing[existing.length - 1]?.record.sequence ?? 0 : 0;
+  if (event.code === "checkpoint" && (event.state_hash === undefined || !SHA256_HEX_PATTERN.test(event.state_hash))) {
+    throw setupError({
+      exitCode: ExitCode.CliOrSchemaError,
+      code: "journal_event_invalid",
+      publicMessage: "Checkpoint event requires valid state hash.",
+      nextAction: "Fix journal event payload and retry.",
+      evidenceRef: eventsPath
+    });
+  }
+  const recordWithoutChecksum: Omit<JournalEventRecord, "checksum"> = {
+    schema_version: JOURNAL_SCHEMA_VERSION,
+    sequence: lastSequence + 1,
+    at: event.at ?? new Date().toISOString(),
+    installation_id: event.installation_id ?? config.installation_id,
+    attempt_id: event.attempt_id ?? `${event.operation_id}:legacy`,
     operation_id: event.operation_id,
     stage: event.stage,
     code: event.code,
-    message: event.message
+    message: event.message,
+    ...(event.code === "checkpoint" ? { state_hash: event.state_hash } : {})
   };
-  const record: EventRecord = {
+  const record: JournalEventRecord = {
     ...recordWithoutChecksum,
-    checksum: checksumForEvent(recordWithoutChecksum)
+    checksum: checksumForJournalEvent(recordWithoutChecksum)
   };
-  const eventsPath = buildStatePaths(config).eventsFile;
-  await fsAdapter.appendText(eventsPath, `${JSON.stringify(record)}\n`);
-  await fsAdapter.fsyncFile(eventsPath);
-  await fsAdapter.fsyncDir(path.dirname(eventsPath));
+  try {
+    await fsAdapter.appendText(eventsPath, `${JSON.stringify(record)}\n`);
+    await fsAdapter.fsyncFile(eventsPath);
+    await fsAdapter.fsyncDir(path.dirname(eventsPath));
+  } catch (error) {
+    const code = errorCode(error);
+    throw setupError({
+      exitCode: ExitCode.DriftOrRecoveryRequired,
+      code: "journal_write_failed",
+      publicMessage: "Failed to persist event journal update.",
+      nextAction: "Preserve recovery evidence and rerun recover before mutating commands.",
+      evidenceRef: `${eventsPath}:${code ?? "unknown"}`
+    });
+  }
 }
 
 export async function loadState(
@@ -591,16 +912,22 @@ export async function loadState(
       || journalHasEvidence(evidence.journal);
 
     if (residualEvidencePresent) {
+      const reason = evidence.previousExists
+        && evidence.quarantineEntries.length === 0
+        && !journalHasEvidence(evidence.journal)
+        ? "state_primary_missing_previous_present"
+        : "state_missing_with_recovery_evidence";
       if (!loadOptions.readOnly) {
         await persistRecoveryMarker(fsAdapter, paths.recoveryMarkerFile, {
           schema_version: 1,
-          reason: "state_missing_with_recovery_evidence",
+          reason,
           previous_present: evidence.previousExists,
           quarantine_entries: evidence.quarantineEntries,
           journal_unresolved_operation_ids: evidence.journal.unresolvedOperationIds,
           journal_parse_error: evidence.journal.parseError,
           journal_oversized: evidence.journal.oversized,
           journal_unknown_order: evidence.journal.unknownOrder,
+          journal_legacy_format: evidence.journal.legacyFormat,
           observed_at: clock.now().toISOString()
         });
       }
@@ -681,6 +1008,7 @@ export async function loadState(
         parse_error: evidence.journal.parseError,
         unknown_order: evidence.journal.unknownOrder,
         oversized: evidence.journal.oversized,
+        legacy_format: evidence.journal.legacyFormat,
         observed_at: clock.now().toISOString()
       });
     }

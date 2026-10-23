@@ -273,7 +273,9 @@ test("plan/apply/resume flow writes intent+receipt and remains idempotent", asyn
   const eventsPath = path.join(config.paths.setup_state_dir, "events.jsonl");
   const events = await fs.promises.readFile(eventsPath, "utf8");
   assert.match(events, /"code":"intent"/);
-  assert.match(events, /"code":"receipt"/);
+  assert.match(events, /"code":"effect"/);
+  assert.match(events, /"code":"verify"/);
+  assert.match(events, /"code":"checkpoint"/);
 
   const resume = await engine.run("resume", { configPath, nonInteractive: true });
   assert.equal(resume.exitCode, ExitCode.Success, JSON.stringify(resume.envelope));

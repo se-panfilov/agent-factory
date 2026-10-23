@@ -39,7 +39,7 @@ Current repository status after P15: **ready for code review = yes**, **offline 
 | Stale/foreign install lock | lock owner validation | `7` | Wait or run `recover --lock-only` after liveness check |
 | Plan hash drift after config change | plan consistency check | `8` | Re-plan and re-approve gates |
 | Verified state but resource absent | verify/observe reconciliation | `8` (`drifted`) | Re-observe, recover, then apply |
-| Resource present but receipt absent | adoption/reconcile logic | `8` or recovered | Run recover path, confirm ownership, adopt only after verify |
+| Resource present but effect evidence/checkpoint chain is incomplete | journal/recovery reconciliation logic | `8` or recovered | Run recover path, preserve journal/marker evidence, adopt only after verified checkpoint |
 | Gate revoked/expired/denied | gate checks | `4` | Re-approve gate for current plan hash |
 | Cleanup failure on signal/cancel | cleanup trap / state write | `8` | Manual recovery, verify resources before resume |
 | Inaccessible Docker/systemd | stage adapters probe | `3` or `5` | Restore host capability, rerun from plan |

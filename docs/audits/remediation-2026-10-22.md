@@ -1,5 +1,7 @@
 # Remediation matrix — 2026-10-22 audit (AF-01..AF-31)
 
+> **Historical note:** This AF matrix is preserved as the 2026-10-22 snapshot. Newer Q1A/R1/R1.1 evidence is documented in `docs/audits/remediation-q1a-2026-10-23.md`, `docs/audits/remediation-q1a-r1-2026-10-23.md`, and `docs/audits/remediation-q1a-r1-1-2026-10-23.md`.
+
 **Current HEAD:** `7d845248e7fcd089a36afc8b395b38c7226e09e7`  
 **Audit base commit:** `7d845248e7fcd089a36afc8b395b38c7226e09e7`  
 **Scope of this remediation pass:** core Q1-focused code fixes + regression tests; no real privileged/live/VM execution.
@@ -60,4 +62,3 @@ VM/real sudo/apt/systemd/SSH/firewall/Docker daemon/OAuth/model calls: **NOT RUN
 - Real sudo/apt/systemd/firewall/SSH cutover: **NOT RUN**
 - Real Docker daemon enforcement on host: **NOT RUN**
 - Real OAuth and live model smoke: **NOT RUN**
-

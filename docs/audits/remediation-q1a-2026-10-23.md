@@ -1,5 +1,8 @@
 # Q1A remediation report — 2026-10-23
 
+> **Historical note (A/AF matrix update):**  
+> This report remains the historical Q1A snapshot. For newer R1.1 journal/recovery evidence and superseding AF-05/AF-06 boundary details, see `docs/audits/remediation-q1a-r1-1-2026-10-23.md`.
+
 **Repository:** `se-panfilov/agent-factory`  
 **Working branch:** `fix/core-q1a`  
 **Source baseline commit (requested):** `eb187a845820aed6ef7ebafcbd2f9ac9853179a3`  

@@ -1,5 +1,8 @@
 # Q1A-R1 remediation report — 2026-10-23
 
+> **Historical note (superseded for journal/recovery findings):**  
+> See `docs/audits/remediation-q1a-r1-1-2026-10-23.md` for the follow-up R1.1 results that supersede this document’s journal/checkpoint and recovery conclusions while preserving this report as historical evidence.
+
 **Repository:** `se-panfilov/agent-factory`  
 **Working branch:** `fix/q1a-r1-recovery`  
 **Requested baseline SHA:** `66aea67b6cc32d3c5a91f1a1ebc600663035d779`  

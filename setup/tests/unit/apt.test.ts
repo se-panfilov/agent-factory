@@ -49,6 +49,9 @@ class FakeFilesystemAdapter implements FilesystemAdapter {
   async readText(_filePath: string): Promise<string> {
     throw new Error("not implemented");
   }
+  async readTextBounded(_filePath: string, _maxBytes: number): Promise<{ text: string; bytesRead: number; truncated: boolean }> {
+    throw new Error("not implemented");
+  }
   async writeText(): Promise<void> {}
   async appendText(): Promise<void> {}
   async exists(filePath: string): Promise<boolean> {

@@ -26,6 +26,7 @@ This guide maps installer failures to exact causes and safe next actions under C
 ## State and recovery notes (Q1A-R1)
 
 - `status` without `--refresh` and `gate list` are diagnostic/read-only paths and do not quarantine, initialize, or repair state files.
+- Journal admission is strict: only valid attempt-scoped `intent -> effect -> verify -> checkpoint` chains are considered completed. Gap/reorder/duplicate/stage-mismatch/legacy-format evidence remains recovery-required.
 - `recover --lock-only` handles only stale lock ownership and **does not clear** recovery marker, journal uncertainty, or in-flight blockers.
 - Full `recover` has three truthful outcomes:
   - `recovery_not_required` (state is already consistent),

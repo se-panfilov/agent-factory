@@ -684,7 +684,15 @@ test("A13 cancel requested in stage A stops before stage B mutation", async () =
       await fs.promises.mkdir(path.dirname(effectA), { recursive: true, mode: 0o700 });
       await fs.promises.writeFile(effectA, "a\n", "utf8");
       await requestCancel(new NodeFilesystemAdapter(), ctx.config);
-      return [];
+      return [{
+        operationId: "s01-op",
+        stageId: "S01",
+        resourceId: "a",
+        observedAt: new Date().toISOString(),
+        checks: { written: true },
+        versions: {},
+        artifacts: [effectA]
+      }];
     },
     async verify() { return []; },
     async recover() { return []; }
@@ -727,7 +735,15 @@ test("A13 cancel requested in stage A stops before stage B mutation", async () =
     async apply() {
       await fs.promises.mkdir(path.dirname(effectB), { recursive: true, mode: 0o700 });
       await fs.promises.writeFile(effectB, "b\n", "utf8");
-      return [];
+      return [{
+        operationId: "s02-op",
+        stageId: "S02",
+        resourceId: "b",
+        observedAt: new Date().toISOString(),
+        checks: { written: true },
+        versions: {},
+        artifacts: [effectB]
+      }];
     },
     async verify() { return []; },
     async recover() { return []; }

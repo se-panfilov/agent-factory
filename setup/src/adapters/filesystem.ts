@@ -17,6 +17,11 @@ import path from "node:path";
 
 export interface FilesystemAdapter {
   readText(filePath: string): Promise<string>;
+  readTextBounded(filePath: string, maxBytes: number): Promise<{
+    text: string;
+    bytesRead: number;
+    truncated: boolean;
+  }>;
   writeText(filePath: string, content: string, mode?: number): Promise<void>;
   appendText(filePath: string, content: string): Promise<void>;
   exists(filePath: string): Promise<boolean>;
@@ -35,6 +40,43 @@ export interface FilesystemAdapter {
 export class NodeFilesystemAdapter implements FilesystemAdapter {
   async readText(filePath: string): Promise<string> {
     return readFile(filePath, "utf8");
+  }
+
+  async readTextBounded(filePath: string, maxBytes: number): Promise<{
+    text: string;
+    bytesRead: number;
+    truncated: boolean;
+  }> {
+    if (!Number.isInteger(maxBytes) || maxBytes <= 0) {
+      throw new Error(`maxBytes must be a positive integer (received: ${maxBytes})`);
+    }
+    const handle = await open(filePath, "r");
+    try {
+      const limit = maxBytes + 1;
+      const chunks: Buffer[] = [];
+      let bytesRead = 0;
+      while (bytesRead < limit) {
+        const remaining = limit - bytesRead;
+        const chunkSize = Math.min(64 * 1024, remaining);
+        const buffer = Buffer.allocUnsafe(chunkSize);
+        const read = await handle.read(buffer, 0, chunkSize, null);
+        if (read.bytesRead === 0) {
+          break;
+        }
+        chunks.push(buffer.subarray(0, read.bytesRead));
+        bytesRead += read.bytesRead;
+      }
+      const truncated = bytesRead > maxBytes;
+      const payloadLength = truncated ? maxBytes : bytesRead;
+      const data = Buffer.concat(chunks, payloadLength);
+      return {
+        text: data.toString("utf8"),
+        bytesRead,
+        truncated
+      };
+    } finally {
+      await handle.close();
+    }
   }
 
   async writeText(filePath: string, content: string, mode = 0o600): Promise<void> {
