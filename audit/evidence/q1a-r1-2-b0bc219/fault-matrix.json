@@ -1,0 +1,88 @@
+{
+  "J06_recovery_boundaries": [
+    {
+      "boundary": "marker-prepare-write",
+      "fault": "writeText(recovery-required.json.tmp-*) => EIO",
+      "expected_hit_count": 1,
+      "assertions": [
+        "recover exitCode == 8",
+        "fault counter incremented",
+        "resume recover reaches success without evidence deletion"
+      ]
+    },
+    {
+      "boundary": "marker-prepare-fsync",
+      "fault": "fsyncFile(recovery-required.json.tmp-*) => EIO",
+      "expected_hit_count": 1,
+      "assertions": [
+        "recover exitCode == 8",
+        "fault counter incremented",
+        "resume recover reaches success without evidence deletion"
+      ]
+    },
+    {
+      "boundary": "marker-prepare-rename",
+      "fault": "rename(recovery-required.json.tmp-* -> recovery-required.json) => EIO",
+      "expected_hit_count": 1,
+      "assertions": [
+        "recover exitCode == 8",
+        "fault counter incremented",
+        "resume recover reaches success without evidence deletion"
+      ]
+    },
+    {
+      "boundary": "primary-write",
+      "fault": "writeText(state.json.tmp-*) => EIO",
+      "expected_hit_count": 1,
+      "assertions": [
+        "recover exitCode == 8",
+        "fault counter incremented",
+        "previous snapshot remains trusted",
+        "resume recover reaches success"
+      ]
+    },
+    {
+      "boundary": "primary-fsync",
+      "fault": "fsyncFile(state.json.tmp-*) => EIO",
+      "expected_hit_count": 1,
+      "assertions": [
+        "recover exitCode == 8",
+        "fault counter incremented",
+        "previous snapshot remains trusted",
+        "resume recover reaches success"
+      ]
+    },
+    {
+      "boundary": "primary-rename",
+      "fault": "rename(state.json.tmp-* -> state.json) => EIO",
+      "expected_hit_count": 1,
+      "assertions": [
+        "recover exitCode == 8",
+        "fault counter incremented",
+        "previous snapshot remains trusted",
+        "resume recover reaches success"
+      ]
+    },
+    {
+      "boundary": "primary-fsync-dir",
+      "fault": "fsyncDir(state_dir) => EIO",
+      "expected_hit_count": 1,
+      "assertions": [
+        "recover exitCode == 8",
+        "fault counter incremented",
+        "resume recover succeeds (lock-only cleanup allowed when stale lock detected)"
+      ]
+    }
+  ],
+  "J09_fault_control": {
+    "fault_on": {
+      "fault": "rename(state.json.tmp-* -> state.json) => EIO",
+      "expected_hit_count": 1,
+      "expected_outcome": "recover exit != 0 and exit == 8"
+    },
+    "fault_off": {
+      "expected_hit_count": 0,
+      "expected_outcome": "recover exit == 0"
+    }
+  }
+}

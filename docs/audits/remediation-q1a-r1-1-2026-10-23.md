@@ -1,5 +1,9 @@
 # Q1A-R1.1 remediation report — 2026-10-23
 
+> **Correction / superseding note (R1.2, 2026-10-23):**  
+> This historical report keeps original R1.1 observations, but its packaging identity section is not sufficient as a standalone reproducible artifact fingerprint for the evidence bundle.  
+> For reproducible package identity, machine-readable K-matrix, and corrected closure scope, use `docs/audits/remediation-q1a-r1-2-2026-10-23.md` with `agent-factory-q1a-r1-2-evidence-b0bc219.zip` and separate `.sha256` file.
+
 **Repository:** `se-panfilov/agent-factory`  
 **Branch:** `fix/q1a-r1-journal-recovery`  
 **Baseline under review:** `4d536cc4917e3f6f468fe41a62e2cfb31718361c`  

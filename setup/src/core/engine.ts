@@ -25,7 +25,7 @@ import { createUpdateStage } from "../stages/update";
 import { createBackup, verifyBackup } from "../operations/backup";
 import { emergencyCancel } from "../operations/emergency";
 import { hashConfig, initConfig, loadConfig, systemClock, type Clock } from "./config";
-import { ExitCode, type InstallerPlan, type JsonEnvelope, type SetupConfig, type SetupState, type StageId, type StageModule, type StageStatus } from "./types";
+import { ExitCode, type InstallerPlan, type JsonEnvelope, type SetupConfig, type SetupState, type StageId, type StageModule, type StageReceipt, type StageStatus } from "./types";
 import { setupError, toSetupError } from "./errors";
 import { approveGate, ensureGateApproved, ensureNonInteractiveGates, expireGates, upsertPlanGates } from "./gates";
 import { acquireLock, consumeCancelRequest, recoverLockOnly, requestCancel, type LockOwner } from "./lock";
@@ -37,6 +37,8 @@ import {
   FALLBACK_MACHINE_ID_HASH,
   inspectStateEvidence,
   loadState,
+  readStateCommitManifest,
+  recordEffectCheckpoint,
   restorePrimaryState,
   saveState,
   stateHash,
@@ -711,19 +713,74 @@ export class SetupEngine {
     return stagePlan.operations.filter((operation) => operation.kind !== "verify");
   }
 
-  private journalOperationId(stagePlan: InstallerPlan["stages"][number]): string {
-    const effectOps = this.effectOperations(stagePlan);
-    if (effectOps.length === 0) {
-      return `stage:${stagePlan.stage_id}`;
+  private validateEffectReceipts(
+    stagePlan: InstallerPlan["stages"][number],
+    effectOperations: InstallerPlan["stages"][number]["operations"],
+    receipts: StageReceipt[]
+  ): Map<string, StageReceipt> {
+    const expectedByOperation = new Map(
+      effectOperations.map((operation) => [operation.id, operation] as const)
+    );
+    const matched = new Map<string, StageReceipt>();
+    for (const receipt of receipts) {
+      if (receipt.stageId !== stagePlan.stage_id) {
+        throw setupError({
+          exitCode: ExitCode.DriftOrRecoveryRequired,
+          code: "stage_effect_receipt_stage_mismatch",
+          publicMessage: `Stage ${stagePlan.stage_id} returned receipt for unexpected stage '${receipt.stageId}'.`,
+          nextAction: "Preserve state/journal evidence and run recover before retrying apply.",
+          stage: stagePlan.stage_id
+        });
+      }
+      const planned = expectedByOperation.get(receipt.operationId);
+      if (planned === undefined) {
+        throw setupError({
+          exitCode: ExitCode.DriftOrRecoveryRequired,
+          code: "stage_effect_receipt_unplanned",
+          publicMessage: `Stage ${stagePlan.stage_id} returned unplanned operation receipt '${receipt.operationId}'.`,
+          nextAction: "Preserve state/journal evidence and run recover before retrying apply.",
+          stage: stagePlan.stage_id
+        });
+      }
+      if (matched.has(receipt.operationId)) {
+        throw setupError({
+          exitCode: ExitCode.DriftOrRecoveryRequired,
+          code: "stage_effect_receipt_duplicate",
+          publicMessage: `Stage ${stagePlan.stage_id} returned duplicate receipt for operation '${receipt.operationId}'.`,
+          nextAction: "Preserve state/journal evidence and run recover before retrying apply.",
+          stage: stagePlan.stage_id,
+          operationId: receipt.operationId
+        });
+      }
+      if (planned.resource_id !== receipt.resourceId) {
+        throw setupError({
+          exitCode: ExitCode.DriftOrRecoveryRequired,
+          code: "stage_effect_receipt_resource_mismatch",
+          publicMessage: `Stage ${stagePlan.stage_id} receipt resource mismatch for operation '${receipt.operationId}'.`,
+          nextAction: "Preserve state/journal evidence and run recover before retrying apply.",
+          stage: stagePlan.stage_id,
+          operationId: receipt.operationId,
+          evidenceRef: `${planned.resource_id}!=${receipt.resourceId}`
+        });
+      }
+      matched.set(receipt.operationId, receipt);
     }
-    if (effectOps.length === 1) {
-      return effectOps[0]?.id ?? `stage:${stagePlan.stage_id}`;
+
+    const missing = effectOperations
+      .filter((operation) => !matched.has(operation.id))
+      .map((operation) => operation.id);
+    if (missing.length > 0) {
+      throw setupError({
+        exitCode: ExitCode.DriftOrRecoveryRequired,
+        code: "stage_effect_receipt_missing",
+        publicMessage: `Stage ${stagePlan.stage_id} did not provide effect receipts for all planned operations.`,
+        nextAction: "Preserve state/journal evidence and run recover before retrying apply.",
+        stage: stagePlan.stage_id,
+        evidenceRef: missing.join(",")
+      });
     }
-    const hash = createHash("sha256")
-      .update(effectOps.map((operation) => operation.id).sort((a, b) => a.localeCompare(b)).join("|"))
-      .digest("hex")
-      .slice(0, 12);
-    return `${stagePlan.stage_id.toLowerCase()}-composite-${hash}`;
+
+    return matched;
   }
 
   private async runInit(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
@@ -925,69 +982,89 @@ export class SetupEngine {
         await this.consumeCancelOrThrow(config, lock.owner);
 
         const effectOperations = this.effectOperations(stagePlan);
-        const journalOperationId = this.journalOperationId(stagePlan);
-        const attemptId = effectOperations.length > 0 ? randomUUID() : null;
-        if (attemptId !== null) {
+        const operationAttemptIds = new Map<string, string>();
+        if (effectOperations.length > 0) {
           this.assertOrdinaryOwner(config, stagePlan.stage_id);
           state = withInFlightOperation(state, {
-            id: `${journalOperationId}:${attemptId}`,
+            id: `${stagePlan.stage_id}:${randomUUID()}`,
             stage_id: stagePlan.stage_id,
             kind: effectOperations[0]?.kind ?? "mutate",
             started_at: this.deps.clock.now().toISOString()
           });
           await saveState(this.deps.fsAdapter, config, state);
-          await appendEvent(this.deps.fsAdapter, config, {
-            operation_id: journalOperationId,
-            stage: stagePlan.stage_id,
-            code: "intent",
-            message: `intent:${effectOperations.map((operation) => operation.id).join(",")}`,
-            attempt_id: attemptId
-          });
-        }
-        const receipts = await stage.apply(
-          stageCtx,
-          {
-            stageId: stagePlan.stage_id,
-            optional: stagePlan.optional,
-            requiredCapabilities: stagePlan.required_capabilities,
-            operations: stagePlan.operations.map((op) => ({
-              id: op.id,
-              stageId: op.stage_id,
-              kind: op.kind,
-              resourceId: op.resource_id,
-              risk: op.risk,
-              gateIds: op.gate_ids,
-              preconditions: op.preconditions,
-              sideEffects: op.side_effects,
-              timeoutSec: op.timeout_sec,
-              retryable: op.retryable
-            })),
-            requiredGates: stagePlan.required_gates
-          }
-        );
-        if (attemptId !== null) {
-          if (receipts.length === 0) {
-            throw setupError({
-              exitCode: ExitCode.DriftOrRecoveryRequired,
-              code: "stage_effect_evidence_missing",
-              publicMessage: `Stage ${stagePlan.stage_id} returned no effect evidence for planned operations.`,
-              nextAction: "Preserve state and journal evidence, then run recover before retrying apply.",
+          for (const operation of effectOperations) {
+            const attemptId = randomUUID();
+            operationAttemptIds.set(operation.id, attemptId);
+            await appendEvent(this.deps.fsAdapter, config, {
+              operation_id: operation.id,
               stage: stagePlan.stage_id,
-              operationId: journalOperationId
+              code: "intent",
+              message: `intent:${operation.id}`,
+              attempt_id: attemptId
             });
           }
-          await appendEvent(this.deps.fsAdapter, config, {
-            operation_id: journalOperationId,
-            stage: stagePlan.stage_id,
-            code: "effect",
-            message: `effect:${receipts.map((receipt) => receipt.operationId).join(",")}`,
-            attempt_id: attemptId
-          });
+        }
+
+        let receipts: StageReceipt[] = [];
+        if (effectOperations.length > 0) {
+          receipts = await stage.apply(
+            stageCtx,
+            {
+              stageId: stagePlan.stage_id,
+              optional: stagePlan.optional,
+              requiredCapabilities: stagePlan.required_capabilities,
+              operations: stagePlan.operations.map((op) => ({
+                id: op.id,
+                stageId: op.stage_id,
+                kind: op.kind,
+                resourceId: op.resource_id,
+                risk: op.risk,
+                gateIds: op.gate_ids,
+                preconditions: op.preconditions,
+                sideEffects: op.side_effects,
+                timeoutSec: op.timeout_sec,
+                retryable: op.retryable
+              })),
+              requiredGates: stagePlan.required_gates
+            }
+          );
+          const matchedReceipts = this.validateEffectReceipts(stagePlan, effectOperations, receipts);
+          for (const operation of effectOperations) {
+            const attemptId = operationAttemptIds.get(operation.id);
+            if (attemptId === undefined) {
+              throw setupError({
+                exitCode: ExitCode.DriftOrRecoveryRequired,
+                code: "stage_effect_attempt_missing",
+                publicMessage: `Attempt metadata is missing for stage operation '${operation.id}'.`,
+                nextAction: "Run recover and reconcile journal evidence before retrying apply.",
+                stage: stagePlan.stage_id,
+                operationId: operation.id
+              });
+            }
+            const receipt = matchedReceipts.get(operation.id);
+            if (receipt === undefined) {
+              throw setupError({
+                exitCode: ExitCode.DriftOrRecoveryRequired,
+                code: "stage_effect_receipt_missing",
+                publicMessage: `Stage ${stagePlan.stage_id} did not provide effect evidence for operation '${operation.id}'.`,
+                nextAction: "Preserve state and journal evidence, then run recover before retrying apply.",
+                stage: stagePlan.stage_id,
+                operationId: operation.id
+              });
+            }
+            await appendEvent(this.deps.fsAdapter, config, {
+              operation_id: operation.id,
+              stage: stagePlan.stage_id,
+              code: "effect",
+              message: `effect:${receipt.resourceId}`,
+              attempt_id: attemptId
+            });
+          }
         }
         await stage.verify(stageCtx);
         const observedAfter = await stage.observe(stageCtx);
         const optionalSkipAccepted = stagePlan.optional
-          && stagePlan.operations.length === 0
+          && effectOperations.length === 0
           && observedAfter.status === "skipped";
         if (observedAfter.status !== "verified" && !optionalSkipAccepted) {
           let exitCode = ExitCode.OperationOrVerificationFailed;
@@ -1009,27 +1086,73 @@ export class SetupEngine {
             stage: stagePlan.stage_id
           });
         }
-        if (attemptId !== null) {
-          await appendEvent(this.deps.fsAdapter, config, {
-            operation_id: journalOperationId,
-            stage: stagePlan.stage_id,
-            code: "verify",
-            message: `verify:${observedAfter.status}`,
-            attempt_id: attemptId
-          });
+        if (effectOperations.length > 0) {
+          for (const operation of effectOperations) {
+            const attemptId = operationAttemptIds.get(operation.id);
+            if (attemptId === undefined) {
+              throw setupError({
+                exitCode: ExitCode.DriftOrRecoveryRequired,
+                code: "stage_effect_attempt_missing",
+                publicMessage: `Attempt metadata is missing for stage operation '${operation.id}'.`,
+                nextAction: "Run recover and reconcile journal evidence before retrying apply.",
+                stage: stagePlan.stage_id,
+                operationId: operation.id
+              });
+            }
+            await appendEvent(this.deps.fsAdapter, config, {
+              operation_id: operation.id,
+              stage: stagePlan.stage_id,
+              code: "verify",
+              message: `verify:${observedAfter.status}`,
+              attempt_id: attemptId
+            });
+          }
         }
         state = withInFlightOperation(state, null);
         state = updateObservedStage(state, observedAfter, optionalSkipAccepted ? "skipped" : "verified");
         await saveState(this.deps.fsAdapter, config, state);
-        if (attemptId !== null) {
-          await appendEvent(this.deps.fsAdapter, config, {
-            operation_id: journalOperationId,
-            stage: stagePlan.stage_id,
-            code: "checkpoint",
-            message: `checkpoint:${observedAfter.status}`,
-            attempt_id: attemptId,
-            state_hash: stateHash(state)
-          });
+        if (effectOperations.length > 0) {
+          const committedStateHash = stateHash(state);
+          let lastCheckpoint: {
+            sequence: number;
+            attemptId: string;
+            operationId: string;
+          } | null = null;
+          for (const operation of effectOperations) {
+            const attemptId = operationAttemptIds.get(operation.id);
+            if (attemptId === undefined) {
+              throw setupError({
+                exitCode: ExitCode.DriftOrRecoveryRequired,
+                code: "stage_effect_attempt_missing",
+                publicMessage: `Attempt metadata is missing for stage operation '${operation.id}'.`,
+                nextAction: "Run recover and reconcile journal evidence before retrying apply.",
+                stage: stagePlan.stage_id,
+                operationId: operation.id
+              });
+            }
+            const checkpointRecord = await appendEvent(this.deps.fsAdapter, config, {
+              operation_id: operation.id,
+              stage: stagePlan.stage_id,
+              code: "checkpoint",
+              message: `checkpoint:${observedAfter.status}`,
+              attempt_id: attemptId,
+              state_hash: committedStateHash
+            });
+            lastCheckpoint = {
+              sequence: checkpointRecord.sequence,
+              attemptId,
+              operationId: operation.id
+            };
+          }
+          if (lastCheckpoint !== null) {
+            await recordEffectCheckpoint(this.deps.fsAdapter, config, {
+              attemptId: lastCheckpoint.attemptId,
+              operationId: lastCheckpoint.operationId,
+              stage: stagePlan.stage_id,
+              sequence: lastCheckpoint.sequence,
+              stateHash: committedStateHash
+            });
+          }
         }
         await this.consumeCancelOrThrow(config, lock.owner);
       }
@@ -1391,7 +1514,21 @@ export class SetupEngine {
       const markerReason = evidence.marker?.reason ?? "marker_missing";
       const markerCommit = evidence.marker?.recovery_commit;
       const nowIso = this.deps.clock.now().toISOString();
-      const journalBlocksRecovery = evidence.journal.hasRecords;
+      const journalUnsafeForRecovery = evidence.journal.oversized
+        || evidence.journal.parseError
+        || evidence.journal.unknownOrder
+        || evidence.journal.legacyFormat
+        || evidence.journal.unresolvedOperationIds.length > 0;
+      const commitManifest = await readStateCommitManifest(this.deps.fsAdapter, config);
+      if (commitManifest !== null && commitManifest.installation_id !== config.installation_id) {
+        throw setupError({
+          exitCode: ExitCode.DriftOrRecoveryRequired,
+          code: "recovery_unresolved",
+          publicMessage: "Commit metadata installation identity does not match current config.",
+          nextAction: unresolvedNextAction,
+          evidenceRef: paths.commitManifestFile
+        });
+      }
 
       if (markerCommit?.phase === "primary_restored") {
         if (!evidence.stateExists) {
@@ -1405,6 +1542,17 @@ export class SetupEngine {
         }
         const restoredPrimary = await this.loadRecoveryCandidate(paths.stateFile);
         await this.assertRecoveryCandidateTrusted(restoredPrimary, config, paths.stateFile);
+        if (restoredPrimary.in_flight_operation !== null) {
+          throw setupError({
+            exitCode: ExitCode.DriftOrRecoveryRequired,
+            code: "recovery_unresolved",
+            publicMessage: "Primary state still contains unfinished operation evidence after recovery commit.",
+            nextAction: unresolvedNextAction,
+            stage: restoredPrimary.in_flight_operation.stage_id,
+            operationId: restoredPrimary.in_flight_operation.id,
+            evidenceRef: paths.stateFile
+          });
+        }
         if (stateHash(restoredPrimary) !== markerCommit.candidate_state_hash) {
           throw setupError({
             exitCode: ExitCode.DriftOrRecoveryRequired,
@@ -1431,75 +1579,37 @@ export class SetupEngine {
         return { envelope, exitCode: ExitCode.Success };
       }
 
-      if (
-        markerCommit?.phase === "prepared"
-        && evidence.stateExists
-      ) {
-        try {
-          const preparedPrimary = await this.loadRecoveryCandidate(paths.stateFile);
-          await this.assertRecoveryCandidateTrusted(preparedPrimary, config, paths.stateFile);
-          if (stateHash(preparedPrimary) === markerCommit.candidate_state_hash) {
-            await writeRecoveryMarkerRecord(this.deps.fsAdapter, config, {
-              ...evidence.marker!,
-              recovery_commit: {
-                phase: "primary_restored",
-                source: "previous",
-                candidate_state_hash: markerCommit.candidate_state_hash,
-                updated_at: nowIso
-              }
-            });
-            await clearRecoveryMarker(this.deps.fsAdapter, config);
-            state = await this.loadStateWithOptions(config, {
-              initializeIfMissing: false,
-              persistConfigDrift: false,
-              readOnly: true
-            });
-            const envelope = envelopeBase("recover", config, state, null);
-            envelope.overall_status = "ok";
-            envelope.data = {
-              outcome: "recovered_previous_generation",
-              source: previousPath,
-              marker_reason: markerReason,
-              resumed_cleanup: true
-            };
-            return { envelope, exitCode: ExitCode.Success };
-          }
-        } catch {
-          // Continue with prepared-commit restore path using previous snapshot.
-        }
-      }
-
-      const recoverableWithoutMarker = evidence.marker === null
-        && evidence.previousExists
-        && !evidence.stateExists
-        && evidence.quarantineEntries.length === 0
-        && !journalBlocksRecovery;
-      const markerAllowsRestore = (evidence.marker !== null
-        && markerReason === "state_primary_missing_previous_present"
-        && evidence.previousExists
-        && evidence.quarantineEntries.length === 0
-        && !journalBlocksRecovery
-        && (!evidence.stateExists || markerCommit?.phase === "prepared"))
-        || (
-          evidence.marker !== null
-          && markerCommit?.phase === "prepared"
-          && evidence.previousExists
-          && evidence.quarantineEntries.length === 0
-          && !journalBlocksRecovery
-        );
-
-      if (!recoverableWithoutMarker && !markerAllowsRestore) {
+      if (!evidence.previousExists) {
         throw setupError({
           exitCode: ExitCode.DriftOrRecoveryRequired,
           code: "recovery_unresolved",
-          publicMessage: "Recovery outcome cannot be proven with current marker/journal evidence.",
+          publicMessage: "Recovery candidate snapshot is missing.",
           nextAction: unresolvedNextAction,
-          evidenceRef: evidence.previousExists ? previousPath : paths.stateDir
+          evidenceRef: previousPath
+        });
+      }
+      if (evidence.quarantineEntries.length > 0) {
+        throw setupError({
+          exitCode: ExitCode.DriftOrRecoveryRequired,
+          code: "recovery_unresolved",
+          publicMessage: "Recovery evidence contains quarantined primary snapshots requiring manual reconciliation.",
+          nextAction: unresolvedNextAction,
+          evidenceRef: path.join(paths.stateDir, evidence.quarantineEntries[0] ?? "")
+        });
+      }
+      if (journalUnsafeForRecovery) {
+        throw setupError({
+          exitCode: ExitCode.DriftOrRecoveryRequired,
+          code: "recovery_unresolved",
+          publicMessage: "Recovery evidence contains unsafe journal history that cannot be reconciled automatically.",
+          nextAction: unresolvedNextAction,
+          evidenceRef: evidence.journal.evidenceRef
         });
       }
 
       const candidate = await this.loadRecoveryCandidate(previousPath);
       await this.assertRecoveryCandidateTrusted(candidate, config, previousPath);
+      const candidateHash = stateHash(candidate);
       if (candidate.in_flight_operation !== null) {
         throw setupError({
           exitCode: ExitCode.DriftOrRecoveryRequired,
@@ -1512,10 +1622,102 @@ export class SetupEngine {
         });
       }
 
-      const candidateHash = stateHash(candidate);
+      if (markerCommit?.phase === "prepared") {
+        if (candidateHash !== markerCommit.candidate_state_hash) {
+          throw setupError({
+            exitCode: ExitCode.DriftOrRecoveryRequired,
+            code: "recovery_unresolved",
+            publicMessage: "Prepared recovery candidate changed since recovery decision was recorded.",
+            nextAction: unresolvedNextAction,
+            evidenceRef: previousPath
+          });
+        }
+        if (evidence.stateExists) {
+          const preparedPrimary = await this.loadRecoveryCandidate(paths.stateFile);
+          await this.assertRecoveryCandidateTrusted(preparedPrimary, config, paths.stateFile);
+          if (preparedPrimary.in_flight_operation !== null) {
+            throw setupError({
+              exitCode: ExitCode.DriftOrRecoveryRequired,
+              code: "recovery_unresolved",
+              publicMessage: "Current primary state contains unfinished operation evidence and cannot be overwritten by prepared recovery.",
+              nextAction: unresolvedNextAction,
+              stage: preparedPrimary.in_flight_operation.stage_id,
+              operationId: preparedPrimary.in_flight_operation.id,
+              evidenceRef: paths.stateFile
+            });
+          }
+          if (stateHash(preparedPrimary) !== markerCommit.candidate_state_hash) {
+            throw setupError({
+              exitCode: ExitCode.DriftOrRecoveryRequired,
+              code: "recovery_unresolved",
+              publicMessage: "Current primary state differs from prepared recovery decision.",
+              nextAction: unresolvedNextAction,
+              evidenceRef: paths.stateFile
+            });
+          }
+          await restorePrimaryState(this.deps.fsAdapter, config, preparedPrimary);
+          await writeRecoveryMarkerRecord(this.deps.fsAdapter, config, {
+            ...evidence.marker!,
+            recovery_commit: {
+              phase: "primary_restored",
+              source: "previous",
+              candidate_state_hash: markerCommit.candidate_state_hash,
+              updated_at: nowIso
+            }
+          });
+        } else {
+          await restorePrimaryState(this.deps.fsAdapter, config, candidate);
+          await writeRecoveryMarkerRecord(this.deps.fsAdapter, config, {
+            ...evidence.marker!,
+            recovery_commit: {
+              phase: "primary_restored",
+              source: "previous",
+              candidate_state_hash: markerCommit.candidate_state_hash,
+              updated_at: nowIso
+            }
+          });
+        }
+        await clearRecoveryMarker(this.deps.fsAdapter, config);
+        state = await this.loadStateWithOptions(config, {
+          initializeIfMissing: false,
+          persistConfigDrift: false,
+          readOnly: true
+        });
+        const envelope = envelopeBase("recover", config, state, null);
+        envelope.overall_status = "ok";
+        envelope.data = {
+          outcome: "recovered_previous_generation",
+          source: previousPath,
+          marker_reason: markerReason,
+          resumed_cleanup: true
+        };
+        return { envelope, exitCode: ExitCode.Success };
+      }
+
+      const canStartPreparedRecovery = (evidence.marker === null || markerReason === "state_primary_missing_previous_present")
+        && !evidence.stateExists
+        && commitManifest?.last_effect_checkpoint !== undefined
+        && commitManifest.last_effect_checkpoint.state_hash === candidateHash
+        && evidence.journal.latestCheckpoint !== null
+        && evidence.journal.latestCheckpoint.attemptId === commitManifest.last_effect_checkpoint.attempt_id
+        && evidence.journal.latestCheckpoint.operationId === commitManifest.last_effect_checkpoint.operation_id
+        && evidence.journal.latestCheckpoint.stage === commitManifest.last_effect_checkpoint.stage
+        && evidence.journal.latestCheckpoint.sequence === commitManifest.last_effect_checkpoint.sequence
+        && evidence.journal.latestCheckpoint.stateHash === commitManifest.last_effect_checkpoint.state_hash;
+
+      if (!canStartPreparedRecovery) {
+        throw setupError({
+          exitCode: ExitCode.DriftOrRecoveryRequired,
+          code: "recovery_unresolved",
+          publicMessage: "Recovery outcome cannot be proven with current marker/journal evidence.",
+          nextAction: unresolvedNextAction,
+          evidenceRef: evidence.previousExists ? previousPath : paths.stateDir
+        });
+      }
+
       await writeRecoveryMarkerRecord(this.deps.fsAdapter, config, {
         schema_version: 1,
-        reason: markerAllowsRestore ? markerReason : "state_primary_missing_previous_present",
+        reason: "state_primary_missing_previous_present",
         observed_at: evidence.marker?.observed_at ?? nowIso,
         recovery_commit: {
           phase: "prepared",
@@ -1528,7 +1730,7 @@ export class SetupEngine {
       await restorePrimaryState(this.deps.fsAdapter, config, candidate);
       await writeRecoveryMarkerRecord(this.deps.fsAdapter, config, {
         schema_version: 1,
-        reason: markerAllowsRestore ? markerReason : "state_primary_missing_previous_present",
+        reason: "state_primary_missing_previous_present",
         observed_at: evidence.marker?.observed_at ?? nowIso,
         recovery_commit: {
           phase: "primary_restored",

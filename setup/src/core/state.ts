@@ -10,8 +10,10 @@ import { validateContractSchema } from "./validators";
 const STATE_FILE = "state.json";
 const EVENTS_FILE = "events.jsonl";
 const RECOVERY_MARKER_FILE = "recovery-required.json";
+const COMMIT_MANIFEST_FILE = "state-commit.json";
 const MAX_JOURNAL_BYTES = 1024 * 1024;
 const JOURNAL_SCHEMA_VERSION = 2;
+const COMMIT_MANIFEST_SCHEMA_VERSION = 1;
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/;
 const STAGE_ID_SET = new Set<StageId>(STAGE_IDS);
@@ -53,6 +55,13 @@ interface ParsedJournal {
   unknownOrder: boolean;
   unresolvedOperationIds: string[];
   legacyFormat: boolean;
+  latestCheckpoint: {
+    attemptId: string;
+    operationId: string;
+    stage: StageId;
+    stateHash: string;
+    sequence: number;
+  } | null;
 }
 
 async function writeRecoveryMarker(
@@ -83,7 +92,32 @@ export interface JournalInspection {
   unknownOrder: boolean;
   oversized: boolean;
   legacyFormat: boolean;
+  latestCheckpoint: {
+    attemptId: string;
+    operationId: string;
+    stage: StageId;
+    stateHash: string;
+    sequence: number;
+  } | null;
   evidenceRef: string;
+}
+
+export interface StateCommitCheckpointRecord {
+  attempt_id: string;
+  operation_id: string;
+  stage: StageId;
+  state_hash: string;
+  sequence: number;
+  updated_at: string;
+}
+
+export interface StateCommitManifest {
+  schema_version: 1;
+  installation_id: string;
+  generation: number;
+  last_state_hash: string;
+  updated_at: string;
+  last_effect_checkpoint?: StateCommitCheckpointRecord;
 }
 
 export interface StateEvidenceSummary {
@@ -99,6 +133,7 @@ export interface StatePaths {
   stateFile: string;
   eventsFile: string;
   recoveryMarkerFile: string;
+  commitManifestFile: string;
 }
 
 export function buildStatePaths(config: SetupConfig): StatePaths {
@@ -107,7 +142,18 @@ export function buildStatePaths(config: SetupConfig): StatePaths {
     stateDir,
     stateFile: path.join(stateDir, STATE_FILE),
     eventsFile: path.join(stateDir, EVENTS_FILE),
-    recoveryMarkerFile: path.join(stateDir, RECOVERY_MARKER_FILE)
+    recoveryMarkerFile: path.join(stateDir, RECOVERY_MARKER_FILE),
+    commitManifestFile: path.join(stateDir, COMMIT_MANIFEST_FILE)
+  };
+}
+
+export interface SaveStateOptions {
+  checkpoint?: {
+    attemptId: string;
+    operationId: string;
+    stage: StageId;
+    sequence: number;
+    stateHash: string;
   };
 }
 
@@ -212,6 +258,126 @@ async function readTextStrict(
   }
 }
 
+function parseCommitManifest(parsed: unknown): StateCommitManifest {
+  if (!isRecord(parsed)) {
+    throw new Error("commit manifest is not an object");
+  }
+  const schemaVersion = parsed.schema_version;
+  const installationId = parsed.installation_id;
+  const generation = toSequence(parsed.generation);
+  const lastStateHash = parsed.last_state_hash;
+  const updatedAt = parsed.updated_at;
+  if (
+    schemaVersion !== COMMIT_MANIFEST_SCHEMA_VERSION
+    || typeof installationId !== "string"
+    || installationId.length === 0
+    || generation === null
+    || typeof lastStateHash !== "string"
+    || !SHA256_HEX_PATTERN.test(lastStateHash)
+    || typeof updatedAt !== "string"
+  ) {
+    throw new Error("invalid commit manifest shape");
+  }
+
+  const checkpointRaw = parsed.last_effect_checkpoint;
+  let checkpoint: StateCommitCheckpointRecord | undefined;
+  if (checkpointRaw !== undefined) {
+    if (!isRecord(checkpointRaw)) {
+      throw new Error("invalid commit checkpoint record shape");
+    }
+    const attemptId = checkpointRaw.attempt_id;
+    const operationId = checkpointRaw.operation_id;
+    const stage = checkpointRaw.stage;
+    const stateHash = checkpointRaw.state_hash;
+    const sequence = toSequence(checkpointRaw.sequence);
+    const checkpointUpdatedAt = checkpointRaw.updated_at;
+    if (
+      typeof attemptId !== "string"
+      || attemptId.length === 0
+      || typeof operationId !== "string"
+      || operationId.length === 0
+      || typeof stage !== "string"
+      || !STAGE_ID_SET.has(stage as StageId)
+      || typeof stateHash !== "string"
+      || !SHA256_HEX_PATTERN.test(stateHash)
+      || sequence === null
+      || typeof checkpointUpdatedAt !== "string"
+    ) {
+      throw new Error("invalid commit checkpoint record shape");
+    }
+    checkpoint = {
+      attempt_id: attemptId,
+      operation_id: operationId,
+      stage: stage as StageId,
+      state_hash: stateHash,
+      sequence,
+      updated_at: checkpointUpdatedAt
+    };
+  }
+
+  return {
+    schema_version: COMMIT_MANIFEST_SCHEMA_VERSION,
+    installation_id: installationId,
+    generation,
+    last_state_hash: lastStateHash,
+    updated_at: updatedAt,
+    ...(checkpoint === undefined ? {} : { last_effect_checkpoint: checkpoint })
+  };
+}
+
+export async function readStateCommitManifest(
+  fsAdapter: FilesystemAdapter,
+  config: SetupConfig
+): Promise<StateCommitManifest | null> {
+  const manifestPath = buildStatePaths(config).commitManifestFile;
+  if (!(await pathExistsStrict(fsAdapter, manifestPath, "state commit manifest"))) {
+    return null;
+  }
+  const raw = await readTextStrict(fsAdapter, manifestPath, "state commit manifest");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw setupError({
+      exitCode: ExitCode.DriftOrRecoveryRequired,
+      code: "state_commit_manifest_invalid",
+      publicMessage: "State commit manifest is unreadable or invalid JSON.",
+      nextAction: "Run recover and reconcile commit metadata before mutating commands.",
+      evidenceRef: manifestPath
+    });
+  }
+  try {
+    return parseCommitManifest(parsed);
+  } catch {
+    throw setupError({
+      exitCode: ExitCode.DriftOrRecoveryRequired,
+      code: "state_commit_manifest_invalid",
+      publicMessage: "State commit manifest schema is invalid.",
+      nextAction: "Run recover and reconcile commit metadata before mutating commands.",
+      evidenceRef: manifestPath
+    });
+  }
+}
+
+async function persistStateCommitManifest(
+  fsAdapter: FilesystemAdapter,
+  manifestPath: string,
+  manifest: StateCommitManifest
+): Promise<void> {
+  try {
+    await writeAtomicJson(fsAdapter, manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  } catch (error) {
+    const code = errorCode(error);
+    throw setupError({
+      exitCode: ExitCode.DriftOrRecoveryRequired,
+      code: "state_commit_manifest_write_failed",
+      publicMessage: "Failed to persist state commit metadata.",
+      nextAction: "Preserve recovery evidence and run recover before mutating commands.",
+      evidenceRef: `${manifestPath}:${code ?? "unknown"}`
+    });
+  }
+}
+
 function recoveryEvidenceReference(
   stateDir: string,
   previousPath: string,
@@ -301,6 +467,7 @@ function emptyJournalInspection(evidenceRef: string): JournalInspection {
     unknownOrder: false,
     oversized: false,
     legacyFormat: false,
+    latestCheckpoint: null,
     evidenceRef
   };
 }
@@ -374,10 +541,27 @@ async function writeAtomicJson(fsAdapter: FilesystemAdapter, targetPath: string,
   await fsAdapter.fsyncDir(dir);
 }
 
-export async function saveState(fsAdapter: FilesystemAdapter, config: SetupConfig, state: SetupState): Promise<void> {
+export async function saveState(
+  fsAdapter: FilesystemAdapter,
+  config: SetupConfig,
+  state: SetupState,
+  options?: SaveStateOptions
+): Promise<void> {
   const paths = buildStatePaths(config);
   const serialized = `${JSON.stringify(state, null, 2)}\n`;
   const previousPath = `${paths.stateFile}.previous`;
+  const existingManifest = await readStateCommitManifest(fsAdapter, config);
+  const committedStateHash = stateHash(state);
+  const checkpoint = options?.checkpoint;
+  if (checkpoint !== undefined && checkpoint.stateHash !== committedStateHash) {
+    throw setupError({
+      exitCode: ExitCode.CliOrSchemaError,
+      code: "state_checkpoint_hash_mismatch",
+      publicMessage: "Checkpoint metadata does not match persisted state hash.",
+      nextAction: "Regenerate plan and retry apply.",
+      evidenceRef: paths.stateFile
+    });
+  }
   let priorContent: string | null = null;
   try {
     priorContent = await fsAdapter.readText(paths.stateFile);
@@ -391,6 +575,81 @@ export async function saveState(fsAdapter: FilesystemAdapter, config: SetupConfi
     const normalizedPrior = priorContent.endsWith("\n") ? priorContent : `${priorContent}\n`;
     await writeAtomicJson(fsAdapter, previousPath, normalizedPrior);
   }
+  const manifest: StateCommitManifest = {
+    schema_version: COMMIT_MANIFEST_SCHEMA_VERSION,
+    installation_id: config.installation_id,
+    generation: (existingManifest?.generation ?? 0) + 1,
+    last_state_hash: committedStateHash,
+    updated_at: new Date().toISOString(),
+    ...(() => {
+      if (checkpoint !== undefined) {
+        return {
+          last_effect_checkpoint: {
+            attempt_id: checkpoint.attemptId,
+            operation_id: checkpoint.operationId,
+            stage: checkpoint.stage,
+            state_hash: checkpoint.stateHash,
+            sequence: checkpoint.sequence,
+            updated_at: new Date().toISOString()
+          }
+        };
+      }
+      if (existingManifest?.last_effect_checkpoint !== undefined) {
+        return {
+          last_effect_checkpoint: existingManifest.last_effect_checkpoint
+        };
+      }
+      return {};
+    })()
+  };
+  await persistStateCommitManifest(fsAdapter, paths.commitManifestFile, manifest);
+}
+
+export async function recordEffectCheckpoint(
+  fsAdapter: FilesystemAdapter,
+  config: SetupConfig,
+  checkpoint: {
+    attemptId: string;
+    operationId: string;
+    stage: StageId;
+    sequence: number;
+    stateHash: string;
+  }
+): Promise<void> {
+  const paths = buildStatePaths(config);
+  const manifest = await readStateCommitManifest(fsAdapter, config);
+  if (manifest === null) {
+    throw setupError({
+      exitCode: ExitCode.DriftOrRecoveryRequired,
+      code: "state_commit_manifest_missing",
+      publicMessage: "State commit manifest is missing while recording checkpoint evidence.",
+      nextAction: "Run recover and reconcile state/journal evidence before retrying mutations.",
+      evidenceRef: paths.commitManifestFile
+    });
+  }
+  if (manifest.last_state_hash !== checkpoint.stateHash) {
+    throw setupError({
+      exitCode: ExitCode.DriftOrRecoveryRequired,
+      code: "state_commit_manifest_state_mismatch",
+      publicMessage: "Checkpoint evidence does not match current persisted state generation.",
+      nextAction: "Run recover and reconcile state/journal evidence before retrying mutations.",
+      evidenceRef: paths.commitManifestFile
+    });
+  }
+  const nextManifest: StateCommitManifest = {
+    ...manifest,
+    generation: manifest.generation + 1,
+    updated_at: new Date().toISOString(),
+    last_effect_checkpoint: {
+      attempt_id: checkpoint.attemptId,
+      operation_id: checkpoint.operationId,
+      stage: checkpoint.stage,
+      state_hash: checkpoint.stateHash,
+      sequence: checkpoint.sequence,
+      updated_at: new Date().toISOString()
+    }
+  };
+  await persistStateCommitManifest(fsAdapter, paths.commitManifestFile, nextManifest);
 }
 
 export async function restorePrimaryState(
@@ -400,7 +659,36 @@ export async function restorePrimaryState(
 ): Promise<void> {
   const paths = buildStatePaths(config);
   const serialized = `${JSON.stringify(state, null, 2)}\n`;
-  await writeAtomicJson(fsAdapter, paths.stateFile, serialized);
+  const committedStateHash = stateHash(state);
+  try {
+    await writeAtomicJson(fsAdapter, paths.stateFile, serialized);
+    const existingManifest = await readStateCommitManifest(fsAdapter, config);
+    const manifest: StateCommitManifest = {
+      schema_version: COMMIT_MANIFEST_SCHEMA_VERSION,
+      installation_id: config.installation_id,
+      generation: (existingManifest?.generation ?? 0) + 1,
+      last_state_hash: committedStateHash,
+      updated_at: new Date().toISOString(),
+      ...(() => {
+        const checkpoint = existingManifest?.last_effect_checkpoint;
+        if (checkpoint !== undefined && checkpoint.state_hash === committedStateHash) {
+          return { last_effect_checkpoint: checkpoint };
+        }
+        return {};
+      })()
+    };
+    await persistStateCommitManifest(fsAdapter, paths.commitManifestFile, manifest);
+  } catch (error) {
+    const code = errorCode(error);
+    throw setupError({
+      exitCode: ExitCode.DriftOrRecoveryRequired,
+      code: "recovery_primary_persist_failed",
+      publicMessage: "Failed to persist recovered primary state snapshot.",
+      nextAction: "Run recover again to resume recovery commit cleanup after fixing filesystem I/O.",
+      retryable: true,
+      evidenceRef: `${paths.stateFile}:${code ?? "unknown"}`
+    });
+  }
 }
 
 function parseEventLine(line: string): ParsedJournalEvent {
@@ -530,6 +818,7 @@ function parseJournalRecords(lines: string[], installationId: string): ParsedJou
   let unknownOrder = false;
   let legacyFormat = false;
   let expectedSequence = 1;
+  let latestCheckpoint: ParsedJournal["latestCheckpoint"] = null;
 
   const attempts = new Map<string, {
     stage: StageId;
@@ -592,6 +881,15 @@ function parseJournalRecords(lines: string[], installationId: string): ParsedJou
 
     existing.phase = record.code;
     attempts.set(key, existing);
+    if (record.code === "checkpoint") {
+      latestCheckpoint = {
+        attemptId: record.attempt_id,
+        operationId: record.operation_id,
+        stage: record.stage,
+        stateHash: record.state_hash!,
+        sequence: record.sequence
+      };
+    }
   }
 
   const unresolvedOperationIds = Array.from(
@@ -611,7 +909,8 @@ function parseJournalRecords(lines: string[], installationId: string): ParsedJou
     parseError,
     unknownOrder,
     unresolvedOperationIds,
-    legacyFormat
+    legacyFormat,
+    latestCheckpoint
   };
 }
 
@@ -757,6 +1056,7 @@ export async function inspectJournalEvidence(
       unknownOrder: false,
       oversized: true,
       legacyFormat: false,
+      latestCheckpoint: null,
       evidenceRef: eventsFile
     };
   }
@@ -769,6 +1069,7 @@ export async function inspectJournalEvidence(
     unknownOrder: parsed.unknownOrder,
     oversized: false,
     legacyFormat: parsed.legacyFormat,
+    latestCheckpoint: parsed.latestCheckpoint,
     evidenceRef: eventsFile
   };
 }
@@ -834,7 +1135,14 @@ export async function appendEvent(
     state_hash?: string;
     at?: string;
   }
-): Promise<void> {
+): Promise<{
+  sequence: number;
+  attempt_id: string;
+  operation_id: string;
+  stage: StageId;
+  code: JournalEventCode;
+  state_hash?: string;
+}> {
   const eventsPath = buildStatePaths(config).eventsFile;
   const existing = await readEvents(fsAdapter, config);
   const lastSequence = existing.length > 0 ? existing[existing.length - 1]?.record.sequence ?? 0 : 0;
@@ -877,6 +1185,14 @@ export async function appendEvent(
       evidenceRef: `${eventsPath}:${code ?? "unknown"}`
     });
   }
+  return {
+    sequence: record.sequence,
+    attempt_id: record.attempt_id,
+    operation_id: record.operation_id,
+    stage: record.stage,
+    code: record.code,
+    ...(record.state_hash === undefined ? {} : { state_hash: record.state_hash })
+  };
 }
 
 export async function loadState(
@@ -1019,6 +1335,112 @@ export async function loadState(
       nextAction: "Run 'factory-setup recover --config PATH' and reconcile event evidence.",
       evidenceRef: evidence.journal.evidenceRef
     });
+  }
+
+  const commitManifest = await readStateCommitManifest(fsAdapter, config);
+  if (commitManifest === null) {
+    if (journalHasEvidence(evidence.journal)) {
+      if (!loadOptions.readOnly) {
+        await persistRecoveryMarker(fsAdapter, paths.recoveryMarkerFile, {
+          schema_version: 1,
+          reason: "state_commit_manifest_missing",
+          journal_present: evidence.journal.hasRecords,
+          journal_latest_checkpoint: evidence.journal.latestCheckpoint,
+          observed_at: clock.now().toISOString()
+        });
+      }
+      throw setupError({
+        exitCode: ExitCode.DriftOrRecoveryRequired,
+        code: "state_commit_manifest_missing",
+        publicMessage: "State commit metadata is missing for recorded journal evidence.",
+        nextAction: "Run 'factory-setup recover --config PATH' and reconcile committed state evidence.",
+        evidenceRef: paths.commitManifestFile
+      });
+    }
+  } else {
+    if (commitManifest.installation_id !== config.installation_id) {
+      if (!loadOptions.readOnly) {
+        await persistRecoveryMarker(fsAdapter, paths.recoveryMarkerFile, {
+          schema_version: 1,
+          reason: "state_commit_manifest_installation_mismatch",
+          manifest_installation_id: commitManifest.installation_id,
+          expected_installation_id: config.installation_id,
+          observed_at: clock.now().toISOString()
+        });
+      }
+      throw setupError({
+        exitCode: ExitCode.DriftOrRecoveryRequired,
+        code: "state_commit_manifest_installation_mismatch",
+        publicMessage: "State commit metadata belongs to a different installation.",
+        nextAction: "Run recover and reconcile installation evidence before mutating commands.",
+        evidenceRef: paths.commitManifestFile
+      });
+    }
+
+    const currentStateHash = stateHash(state);
+    if (commitManifest.last_state_hash !== currentStateHash) {
+      if (!loadOptions.readOnly) {
+        await persistRecoveryMarker(fsAdapter, paths.recoveryMarkerFile, {
+          schema_version: 1,
+          reason: "state_generation_mismatch",
+          manifest_state_hash: commitManifest.last_state_hash,
+          current_state_hash: currentStateHash,
+          observed_at: clock.now().toISOString()
+        });
+      }
+      throw setupError({
+        exitCode: ExitCode.DriftOrRecoveryRequired,
+        code: "state_generation_mismatch",
+        publicMessage: "Primary state generation does not match committed state metadata.",
+        nextAction: "Run 'factory-setup recover --config PATH' and reconcile state generations.",
+        evidenceRef: paths.commitManifestFile
+      });
+    }
+
+    const latestCheckpoint = evidence.journal.latestCheckpoint;
+    const manifestCheckpoint = commitManifest.last_effect_checkpoint;
+    if (latestCheckpoint !== null) {
+      const checkpointMismatch = manifestCheckpoint === undefined
+        || manifestCheckpoint.state_hash !== latestCheckpoint.stateHash
+        || manifestCheckpoint.attempt_id !== latestCheckpoint.attemptId
+        || manifestCheckpoint.operation_id !== latestCheckpoint.operationId
+        || manifestCheckpoint.stage !== latestCheckpoint.stage
+        || manifestCheckpoint.sequence !== latestCheckpoint.sequence;
+      if (checkpointMismatch) {
+        if (!loadOptions.readOnly) {
+          await persistRecoveryMarker(fsAdapter, paths.recoveryMarkerFile, {
+            schema_version: 1,
+            reason: "state_checkpoint_proof_mismatch",
+            journal_checkpoint: latestCheckpoint,
+            manifest_checkpoint: manifestCheckpoint ?? null,
+            observed_at: clock.now().toISOString()
+          });
+        }
+        throw setupError({
+          exitCode: ExitCode.DriftOrRecoveryRequired,
+          code: "state_checkpoint_proof_mismatch",
+          publicMessage: "Journal checkpoint evidence does not match committed state metadata.",
+          nextAction: "Run recover and reconcile committed state evidence before mutating commands.",
+          evidenceRef: paths.commitManifestFile
+        });
+      }
+    } else if (manifestCheckpoint !== undefined) {
+      if (!loadOptions.readOnly) {
+        await persistRecoveryMarker(fsAdapter, paths.recoveryMarkerFile, {
+          schema_version: 1,
+          reason: "state_checkpoint_evidence_missing",
+          manifest_checkpoint: manifestCheckpoint,
+          observed_at: clock.now().toISOString()
+        });
+      }
+      throw setupError({
+        exitCode: ExitCode.DriftOrRecoveryRequired,
+        code: "state_checkpoint_evidence_missing",
+        publicMessage: "Committed checkpoint metadata exists without corresponding journal checkpoint evidence.",
+        nextAction: "Run recover and reconcile journal/state evidence before mutating commands.",
+        evidenceRef: evidence.journal.evidenceRef
+      });
+    }
   }
 
   const configHash = hashConfig(config);

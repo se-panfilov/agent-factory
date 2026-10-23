@@ -95,7 +95,7 @@ test("S02 plans pinned package install and applies via apt adapter", async () =>
   assert.equal(plan.operations.length, 3);
 
   const receipts = await stage.apply(ctx("supervised"), plan);
-  assert.equal(receipts.length, 1);
+  assert.equal(receipts.length, 3);
   assert.equal(apt.refreshed, 1);
   assert.equal(apt.simulated.length, 1);
   assert.equal(apt.installed.length, 1);

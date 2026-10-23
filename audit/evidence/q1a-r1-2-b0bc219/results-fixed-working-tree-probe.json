@@ -1,0 +1,43 @@
+{
+  "mode": "fixed",
+  "N00": {
+    "plan": 0,
+    "apply": 0,
+    "status": 0,
+    "resume": 0,
+    "applyCode": null
+  },
+  "N01": {
+    "plan": 0,
+    "apply": 0,
+    "status": 0,
+    "resume": 0,
+    "statusCode": null,
+    "resumeCode": null
+  },
+  "N02": {
+    "plan": 0,
+    "apply": 0,
+    "status": 0,
+    "resume": 0,
+    "statusCode": null,
+    "resumeCode": null
+  },
+  "N03": {
+    "recover": 8,
+    "recoverCode": "journal_recovery_required"
+  },
+  "N06": {
+    "plan": 8,
+    "planCode": "state_corrupt",
+    "recover": 8,
+    "recoverCode": "recovery_unresolved"
+  },
+  "N07": {
+    "recover1": 8,
+    "recover1Code": "recovery_unresolved",
+    "recoverFaultHit": 0,
+    "recover2": 8,
+    "recover2Code": "recovery_unresolved"
+  }
+}

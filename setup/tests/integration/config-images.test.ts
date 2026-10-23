@@ -4,8 +4,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { NodeFilesystemAdapter } from "../../src/adapters/filesystem";
+import { type HttpAdapter, type HttpGetOptions, type HttpResponse } from "../../src/adapters/http";
 import { type CommandOptions, type CommandResult, type ProcessAdapter } from "../../src/adapters/process";
-import { ExitCode, type SetupConfig, type StageContext } from "../../src/core/types";
+import { SetupEngine } from "../../src/core/engine";
+import { createRegistry } from "../../src/core/plan";
+import { ExitCode, type JsonEnvelope, type SetupConfig, type StageContext, type StageModule } from "../../src/core/types";
 import { createConfigurationStage } from "../../src/stages/configuration";
 
 const DIGEST_A = `sha256:${"a".repeat(64)}`;
@@ -78,7 +81,7 @@ class FakeProcessAdapter implements ProcessAdapter {
     return "factory";
   }
   async bootId(): Promise<string> {
-    return "boot-id";
+    return "f324dcd7-4035-4430-ab39-ce31f9e396bf";
   }
   async machineIdHash(): Promise<string> {
     return this.machineHash;
@@ -108,6 +111,12 @@ class FakeProcessAdapter implements ProcessAdapter {
       timedOut: false,
       durationMs: 1
     };
+  }
+}
+
+class TestHttpAdapter implements HttpAdapter {
+  async get(_options: HttpGetOptions): Promise<HttpResponse> {
+    throw new Error("network access is not expected in this test");
   }
 }
 
@@ -226,6 +235,67 @@ async function prepareRoot(): Promise<{ root: string; config: SetupConfig; codex
   return { root, config, codexPath };
 }
 
+async function writeConfig(configPath: string, config: SetupConfig): Promise<void> {
+  await fs.promises.mkdir(path.dirname(configPath), { recursive: true, mode: 0o700 });
+  await fs.promises.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+}
+
+function makeNoopDependencyStage(id: "S05"): StageModule {
+  return {
+    id,
+    dependencies: [],
+    supportedProfiles: ["supervised", "service"],
+    optional: false,
+    requiredCapabilities: [],
+    async observe() {
+      return {
+        stageId: id,
+        status: "verified",
+        checks: { noop: true },
+        versions: {},
+        observedAt: new Date().toISOString()
+      };
+    },
+    plan() {
+      return {
+        stageId: id,
+        optional: false,
+        requiredCapabilities: [],
+        operations: [],
+        requiredGates: []
+      };
+    },
+    async apply() {
+      return [];
+    },
+    async verify() {
+      return [];
+    },
+    async recover() {
+      return [];
+    }
+  };
+}
+
+async function approveRequiredGates(
+  engine: SetupEngine,
+  configPath: string,
+  planResult: { envelope: JsonEnvelope; exitCode: number }
+): Promise<void> {
+  assert.equal(typeof planResult.envelope.plan_hash, "string");
+  const approvals = Array.isArray(planResult.envelope.data?.required_approvals)
+    ? planResult.envelope.data.required_approvals as Array<{ id: string }>
+    : [];
+  for (const approval of approvals) {
+    const approve = await engine.run("gate-approve", {
+      configPath,
+      gateId: approval.id,
+      planHash: planResult.envelope.plan_hash as string
+    });
+    assert.equal(approve.exitCode, ExitCode.Success, JSON.stringify(approve.envelope));
+  }
+}
+
 test("S06 applies canonical config/image and is idempotent on second run", async () => {
   const { config, codexPath } = await prepareRoot();
   const processAdapter = new FakeProcessAdapter(codexPath, "0.32.0", DIGEST_B, "machine-A");
@@ -285,6 +355,65 @@ test("S06 writes .proposed and blocks when user modified policy", async () => {
   );
   assert.equal(fs.existsSync(`${policyPath}.proposed`), true);
   assert.equal(fs.existsSync(`${policyPath}.proposed.diff`), true);
+});
+
+test("K08 real S06 verified lifecycle executes fresh no-op apply/status/resume", async () => {
+  const { root, config, codexPath } = await prepareRoot();
+  const configPath = path.join(root, "config", "setup.json");
+  await writeConfig(configPath, config);
+
+  const fsAdapter = new NodeFilesystemAdapter();
+  const processAdapter = new FakeProcessAdapter(codexPath, "0.32.0", DIGEST_B, "1".repeat(64));
+  const engine = new SetupEngine(
+    {
+      fsAdapter,
+      processAdapter,
+      httpAdapter: new TestHttpAdapter(),
+      installerVersion: "0.0.1",
+      clock: { now: () => new Date("2026-10-23T14:00:00.000Z") }
+    },
+    createRegistry([makeNoopDependencyStage("S05"), createConfigurationStage(fsAdapter, processAdapter)])
+  );
+
+  const plan1 = await engine.run("plan", { configPath, stageId: "S06" });
+  assert.equal(plan1.exitCode, ExitCode.Success, JSON.stringify(plan1.envelope));
+  await approveRequiredGates(engine, configPath, plan1);
+  const apply1 = await engine.run("apply", {
+    configPath,
+    planPath: plan1.envelope.data?.plan_path as string,
+    nonInteractive: true
+  });
+  assert.equal(apply1.exitCode, ExitCode.Success, JSON.stringify(apply1.envelope));
+  assert.equal(processAdapter.buildCalls, 1);
+
+  const status1 = await engine.run("status", { configPath });
+  assert.equal(status1.exitCode, ExitCode.Success, JSON.stringify(status1.envelope));
+  const resume1 = await engine.run("resume", { configPath });
+  assert.equal(resume1.exitCode, ExitCode.Success, JSON.stringify(resume1.envelope));
+
+  const plan2 = await engine.run("plan", { configPath, stageId: "S06" });
+  assert.equal(plan2.exitCode, ExitCode.Success, JSON.stringify(plan2.envelope));
+  await approveRequiredGates(engine, configPath, plan2);
+  const plan2File = plan2.envelope.data?.plan_path as string;
+  const plan2Json = JSON.parse(await fs.promises.readFile(plan2File, "utf8")) as {
+    stages: Array<{ stage_id: string; operations: unknown[] }>;
+  };
+  const s06Plan = plan2Json.stages.find((entry) => entry.stage_id === "S06");
+  assert.ok(s06Plan !== undefined);
+  assert.equal(s06Plan.operations.length, 0);
+
+  const apply2 = await engine.run("apply", {
+    configPath,
+    planPath: plan2File,
+    nonInteractive: true
+  });
+  assert.equal(apply2.exitCode, ExitCode.Success, JSON.stringify(apply2.envelope));
+  assert.equal(processAdapter.buildCalls, 1);
+
+  const status2 = await engine.run("status", { configPath });
+  assert.equal(status2.exitCode, ExitCode.Success, JSON.stringify(status2.envelope));
+  const resume2 = await engine.run("resume", { configPath });
+  assert.equal(resume2.exitCode, ExitCode.Success, JSON.stringify(resume2.envelope));
 });
 
 test("S06 fails closed on unknown policy fields", async () => {

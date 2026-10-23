@@ -1260,6 +1260,9 @@ export function createConfigurationStage(
       };
     },
     async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
+      if (approvedPlan.operations.length === 0) {
+        return this.verify(ctx);
+      }
       const config = ctx.config;
       const snapshot = await observeSnapshot(fsAdapter, processAdapter, config);
       assertSnapshotReadyForApply(snapshot);
@@ -1351,7 +1354,7 @@ export function createConfigurationStage(
         {
           operationId,
           stageId: "S06",
-          resourceId: "configuration-and-image",
+          resourceId: "configuration-and-pinned-image",
           observedAt: new Date().toISOString(),
           checks: {
             auth_dir_0700: true,
@@ -1391,7 +1394,7 @@ export function createConfigurationStage(
         {
           operationId: "s06-verify",
           stageId: "S06",
-          resourceId: "configuration-and-image",
+          resourceId: "configuration-and-pinned-image",
           observedAt: new Date().toISOString(),
           checks: checksFromSnapshot(snapshot),
           versions: versionsFromSnapshot(snapshot),

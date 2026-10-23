@@ -10,7 +10,7 @@ This guide maps installer failures to exact causes and safe next actions under C
 | 5 | `unsupported_stage`, `*_capability_missing`, `*_version_lock_invalid` | Blocked by missing evidence/capability/artifact | Provide reviewed artifact/capability evidence and rerun |
 | 6 | `*_download_failed`, `*_build_failed`, `*_verify_failed` | Operation/verification failed after bounded retries | Inspect local evidence, fix root cause, rerun from observe/plan |
 | 7 | `lock_owned_by_another` | Another installer owns lock | Wait, cancel, or run `recover --lock-only` if stale |
-| 8 | `state_resource_drift`, `*_plan_drifted`, `recovery_required`, `state_recovery_required`, `journal_recovery_required`, `recovery_unresolved`, cleanup failure | Drift/recovery required | `status --refresh`, inspect marker/journal/previous evidence, run `recover` (not lock-only) when safe, then re-plan |
+| 8 | `state_resource_drift`, `*_plan_drifted`, `recovery_required`, `state_recovery_required`, `journal_recovery_required`, `recovery_unresolved`, `state_generation_mismatch`, `state_checkpoint_proof_mismatch`, `state_checkpoint_evidence_missing`, `state_commit_manifest_*`, `recovery_primary_persist_failed`, cleanup failure | Drift/recovery required | `status --refresh`, inspect marker/journal/manifest/previous evidence, run `recover` (not lock-only) when safe, then re-plan |
 | 9 | `*_pin_mismatch`, `*_signature_failed`, security checks | Security boundary/integrity violation | Replace with reviewed signed artifacts, never bypass checks |
 | 10 | optional-stage failure codes | Explicit optional stage failed/blocked | Fix optional stage or rerun without explicit optional target |
 
@@ -27,11 +27,14 @@ This guide maps installer failures to exact causes and safe next actions under C
 
 - `status` without `--refresh` and `gate list` are diagnostic/read-only paths and do not quarantine, initialize, or repair state files.
 - Journal admission is strict: only valid attempt-scoped `intent -> effect -> verify -> checkpoint` chains are considered completed. Gap/reorder/duplicate/stage-mismatch/legacy-format evidence remains recovery-required.
+- Committed-state admission is strict: `state-commit.json` must match current `state.json` hash and latest journal checkpoint identity (`attempt_id`, `operation_id`, `stage`, `sequence`, `state_hash`). Mismatch or missing proof remains blocked.
 - `recover --lock-only` handles only stale lock ownership and **does not clear** recovery marker, journal uncertainty, or in-flight blockers.
+- Prepared recovery decisions are immutable across resumes; if `state.json.previous` or current primary diverges from persisted `candidate_state_hash`, recover remains `exit 8` and preserves evidence.
 - Full `recover` has three truthful outcomes:
   - `recovery_not_required` (state is already consistent),
   - `recovered_previous_generation` (trusted previous snapshot restored),
   - `exit 8` (`recovery_unresolved`) when outcome cannot be proven.
+- Empty/verify-only plans do not call mutating stage `apply`; they run observe/verify-only lifecycle checks.
 - Do not delete recovery artifacts (`recovery-required.json`, `state.json.previous`, `events.jsonl`) to bypass blockers; preserve evidence and reconcile first.
 
 ## Release/transport issues

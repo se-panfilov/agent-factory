@@ -14,8 +14,10 @@ import {
   initState,
   inspectStateEvidence,
   loadState,
+  readStateCommitManifest,
   saveState,
   stateHash,
+  type StateCommitManifest,
   type RecoveryMarkerRecord
 } from "../../src/core/state";
 import { stableStringify } from "../../src/core/config";
@@ -40,7 +42,7 @@ type FsMethod = keyof FilesystemAdapter;
 
 interface FailureRule {
   method: FsMethod;
-  atCall: number;
+  atCall?: number;
   pathIncludes?: string;
   code: string;
   message?: string;
@@ -50,6 +52,7 @@ class InstrumentedFilesystemAdapter implements FilesystemAdapter {
   private readonly delegate = new NodeFilesystemAdapter();
   private readonly callCounts = new Map<FsMethod, number>();
   private failureRules: FailureRule[];
+  private readonly consumedRules = new Set<number>();
   private triggeredFailures = 0;
   readonly calls: Array<{ method: FsMethod; path: string }> = [];
 
@@ -60,6 +63,7 @@ class InstrumentedFilesystemAdapter implements FilesystemAdapter {
   setFailureRules(rules: FailureRule[]): void {
     this.failureRules = rules;
     this.callCounts.clear();
+    this.consumedRules.clear();
     this.triggeredFailures = 0;
   }
 
@@ -165,12 +169,15 @@ class InstrumentedFilesystemAdapter implements FilesystemAdapter {
     const current = this.callCounts.get(method) ?? 0;
     const next = current + 1;
     this.callCounts.set(method, next);
-    const matchingRule = this.failureRules.find((rule) =>
-      rule.method === method
-      && rule.atCall === next
+    const matchingRuleIndex = this.failureRules.findIndex((rule, index) =>
+      !this.consumedRules.has(index)
+      && rule.method === method
+      && (rule.atCall === undefined || rule.atCall === next)
       && (rule.pathIncludes === undefined || targetPath.includes(rule.pathIncludes))
     );
-    if (matchingRule !== undefined) {
+    if (matchingRuleIndex >= 0) {
+      const matchingRule = this.failureRules[matchingRuleIndex]!;
+      this.consumedRules.add(matchingRuleIndex);
       this.triggeredFailures += 1;
       const error = new Error(matchingRule.message ?? `${matchingRule.method} injected failure`) as NodeJS.ErrnoException;
       error.code = matchingRule.code;
@@ -667,6 +674,83 @@ function recoveryMarkerBody(config: SetupConfig, overrides: Partial<RecoveryMark
   };
 }
 
+function commitManifestPath(config: SetupConfig): string {
+  return path.join(config.paths.setup_state_dir, "state-commit.json");
+}
+
+async function seedProvenMissingPrimaryFixture(
+  fsAdapter: FilesystemAdapter,
+  processAdapter: ProcessAdapter,
+  config: SetupConfig
+): Promise<{ candidateHash: string }> {
+  const base = await seedValidState(fsAdapter, processAdapter, config);
+  const candidateHash = stateHash(base);
+  const evolved: SetupState = {
+    ...base,
+    last_error: {
+      code: "proof-evolved",
+      stage: "S01",
+      operation_id: "proof-op",
+      retryable: false,
+      public_message: "proof",
+      next_action: "proof",
+      evidence_ref: "proof"
+    }
+  };
+  await saveState(fsAdapter, config, evolved);
+  const attemptId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  await appendEvent(fsAdapter, config, {
+    operation_id: "proof-op",
+    stage: "S01",
+    code: "intent",
+    message: "intent:proof-op",
+    attempt_id: attemptId
+  });
+  await appendEvent(fsAdapter, config, {
+    operation_id: "proof-op",
+    stage: "S01",
+    code: "effect",
+    message: "effect:proof-op",
+    attempt_id: attemptId
+  });
+  await appendEvent(fsAdapter, config, {
+    operation_id: "proof-op",
+    stage: "S01",
+    code: "verify",
+    message: "verify:verified",
+    attempt_id: attemptId
+  });
+  const checkpoint = await appendEvent(fsAdapter, config, {
+    operation_id: "proof-op",
+    stage: "S01",
+    code: "checkpoint",
+    message: "checkpoint:verified",
+    attempt_id: attemptId,
+    state_hash: candidateHash
+  });
+  const manifest = await readStateCommitManifest(fsAdapter, config);
+  assert.ok(manifest !== null);
+  const proven: StateCommitManifest = {
+    ...manifest,
+    last_effect_checkpoint: {
+      attempt_id: attemptId,
+      operation_id: "proof-op",
+      stage: "S01",
+      state_hash: candidateHash,
+      sequence: checkpoint.sequence,
+      updated_at: "2026-10-23T12:00:00.000Z"
+    }
+  };
+  await fs.promises.writeFile(commitManifestPath(config), `${JSON.stringify(proven, null, 2)}\n`, "utf8");
+  await fs.promises.writeFile(
+    path.join(config.paths.setup_state_dir, "recovery-required.json"),
+    `${JSON.stringify(recoveryMarkerBody(config, {}), null, 2)}\n`,
+    "utf8"
+  );
+  await fs.promises.rm(path.join(config.paths.setup_state_dir, "state.json"), { force: true });
+  return { candidateHash };
+}
+
 async function withNodeVersion<T>(nodeVersion: string, run: () => Promise<T>): Promise<T> {
   const descriptor = Object.getOwnPropertyDescriptor(process.versions, "node");
   Object.defineProperty(process.versions, "node", {
@@ -950,7 +1034,14 @@ test("R1-04 save/journal fault boundaries keep deterministic old/new or recovery
       const hash = stateHash(loaded);
       assert.ok(hash === baseHash || hash === upgradedHash, `unexpected state hash after ${failure.method}`);
     } else {
-      assert.equal(loadError?.code === "recovery_required" || loadError?.code === "state_recovery_required", true);
+      assert.equal(
+        loadError?.code === "recovery_required"
+          || loadError?.code === "state_recovery_required"
+          || loadError?.code === "state_generation_mismatch"
+          || loadError?.code === "state_commit_manifest_missing"
+          || loadError?.code === "state_commit_manifest_invalid",
+        true
+      );
     }
   }
 
@@ -1152,17 +1243,12 @@ test("R1-08 supported recovery restores previous snapshot and is idempotent", as
     "1".repeat(64),
     100
   );
-  const snapshot = await initState(new NodeFilesystemAdapter(), processAdapter, { now: () => new Date("2026-10-23T12:00:00.000Z") }, config, "0.0.1");
-  await fs.promises.writeFile(path.join(config.paths.setup_state_dir, "state.json.previous"), `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
-  await fs.promises.writeFile(
-    path.join(config.paths.setup_state_dir, "recovery-required.json"),
-    `${JSON.stringify({ schema_version: 1, reason: "state_primary_missing_previous_present", observed_at: "2026-10-23T12:00:00.000Z" }, null, 2)}\n`,
-    "utf8"
-  );
+  const fsAdapter = new NodeFilesystemAdapter();
+  await seedProvenMissingPrimaryFixture(fsAdapter, processAdapter, config);
 
   const engine = new SetupEngine(
     {
-      fsAdapter: new NodeFilesystemAdapter(),
+      fsAdapter,
       processAdapter,
       httpAdapter: new FakeHttpAdapter(),
       installerVersion: "0.0.1",
@@ -1918,27 +2004,27 @@ test("J06 interrupted recovery boundaries keep candidate durable and resume safe
   const boundaries: Array<{ name: string; rule: FailureRule }> = [
     {
       name: "marker-prepare-write",
-      rule: { method: "writeText", atCall: 2, pathIncludes: "recovery-required.json.tmp-", code: "EIO" }
+      rule: { method: "writeText", pathIncludes: "recovery-required.json.tmp-", code: "EIO" }
     },
     {
       name: "marker-prepare-fsync",
-      rule: { method: "fsyncFile", atCall: 2, pathIncludes: "recovery-required.json.tmp-", code: "EIO" }
+      rule: { method: "fsyncFile", pathIncludes: "recovery-required.json.tmp-", code: "EIO" }
     },
     {
       name: "marker-prepare-rename",
-      rule: { method: "rename", atCall: 1, pathIncludes: "recovery-required.json.tmp-", code: "EIO" }
+      rule: { method: "rename", pathIncludes: "recovery-required.json.tmp-", code: "EIO" }
     },
     {
       name: "primary-write",
-      rule: { method: "writeText", atCall: 3, pathIncludes: "state.json.tmp-", code: "EIO" }
+      rule: { method: "writeText", pathIncludes: "state.json.tmp-", code: "EIO" }
     },
     {
       name: "primary-fsync",
-      rule: { method: "fsyncFile", atCall: 3, pathIncludes: "state.json.tmp-", code: "EIO" }
+      rule: { method: "fsyncFile", pathIncludes: "state.json.tmp-", code: "EIO" }
     },
     {
       name: "primary-rename",
-      rule: { method: "rename", atCall: 2, pathIncludes: "state.json.tmp-", code: "EIO" }
+      rule: { method: "rename", pathIncludes: "state.json.tmp-", code: "EIO" }
     },
     {
       name: "primary-fsync-dir",
@@ -1959,14 +2045,7 @@ test("J06 interrupted recovery boundaries keep candidate durable and resume safe
       "1".repeat(64),
       100
     );
-    const seeded = await seedValidState(fsAdapter, processAdapter, config);
-    await saveState(fsAdapter, config, seeded);
-    await fsAdapter.remove(path.join(config.paths.setup_state_dir, "state.json"));
-    await fsAdapter.writeText(
-      path.join(config.paths.setup_state_dir, "recovery-required.json"),
-      `${JSON.stringify(recoveryMarkerBody(config, {}), null, 2)}\n`,
-      0o600
-    );
+    await seedProvenMissingPrimaryFixture(fsAdapter, processAdapter, config);
     fsAdapter.setFailureRules([boundary.rule]);
 
     const engine = new SetupEngine(
@@ -1983,6 +2062,7 @@ test("J06 interrupted recovery boundaries keep candidate durable and resume safe
     const firstRecover = await engine.run("recover", { configPath });
     assert.equal(fsAdapter.getTriggeredFailures(), 1, `${boundary.name}: fault injection did not trigger`);
     assert.notEqual(firstRecover.exitCode, ExitCode.Success, `${boundary.name}: ${JSON.stringify(firstRecover.envelope)}`);
+    assert.equal(firstRecover.exitCode, ExitCode.DriftOrRecoveryRequired, `${boundary.name}: ${JSON.stringify(firstRecover.envelope)}`);
 
     fsAdapter.setFailureRules([]);
     const resumeEngine = new SetupEngine(
@@ -2035,18 +2115,10 @@ test("J07 committed recovery with marker cleanup failure resumes idempotently", 
     "1".repeat(64),
     100
   );
-  const seeded = await seedValidState(fsAdapter, processAdapter, config);
-  await saveState(fsAdapter, config, seeded);
-  await fsAdapter.remove(path.join(config.paths.setup_state_dir, "state.json"));
-  await fsAdapter.writeText(
-    path.join(config.paths.setup_state_dir, "recovery-required.json"),
-    `${JSON.stringify(recoveryMarkerBody(config, {}), null, 2)}\n`,
-    0o600
-  );
+  await seedProvenMissingPrimaryFixture(fsAdapter, processAdapter, config);
   fsAdapter.setFailureRules([
     {
       method: "remove",
-      atCall: 1,
       pathIncludes: "recovery-required.json",
       code: "EIO"
     }
@@ -2191,7 +2263,6 @@ test("J09 fault injections assert exact hit and fail when disabled on fresh fixt
 
   const rule: FailureRule = {
     method: "rename",
-    atCall: 2,
     pathIncludes: "state.json.tmp-",
     code: "EIO"
   };
@@ -2202,14 +2273,7 @@ test("J09 fault injections assert exact hit and fail when disabled on fresh fixt
     "1".repeat(64),
     100
   );
-  const seeded = await seedValidState(fsAdapter, processAdapter, config);
-  await saveState(fsAdapter, config, seeded);
-  await fsAdapter.remove(path.join(config.paths.setup_state_dir, "state.json"));
-  await fsAdapter.writeText(
-    path.join(config.paths.setup_state_dir, "recovery-required.json"),
-    `${JSON.stringify(recoveryMarkerBody(config, {}), null, 2)}\n`,
-    0o600
-  );
+  await seedProvenMissingPrimaryFixture(fsAdapter, processAdapter, config);
   fsAdapter.setFailureRules([rule]);
   const engine = new SetupEngine(
     {
@@ -2236,14 +2300,7 @@ test("J09 fault injections assert exact hit and fail when disabled on fresh fixt
     "1".repeat(64),
     100
   );
-  const cleanSeeded = await seedValidState(cleanFsAdapter, cleanProcessAdapter, cleanConfig);
-  await saveState(cleanFsAdapter, cleanConfig, cleanSeeded);
-  await cleanFsAdapter.remove(path.join(cleanConfig.paths.setup_state_dir, "state.json"));
-  await cleanFsAdapter.writeText(
-    path.join(cleanConfig.paths.setup_state_dir, "recovery-required.json"),
-    `${JSON.stringify(recoveryMarkerBody(cleanConfig, {}), null, 2)}\n`,
-    0o600
-  );
+  await seedProvenMissingPrimaryFixture(cleanFsAdapter, cleanProcessAdapter, cleanConfig);
   const cleanEngine = new SetupEngine(
     {
       fsAdapter: cleanFsAdapter,
@@ -2390,4 +2447,600 @@ main().catch((error) => {
   holder.stdin.write("release\n");
   const [holderCode] = await once(holder, "exit") as [number | null];
   assert.equal(holderCode, 0, stdoutChunks.join(""));
+});
+
+test("K10 cross-process interrupted writer keeps reader non-mutating and blocks unsafe recovery", async () => {
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-k10-"));
+  const configPath = path.join(root, "config", "setup.json");
+  const effectPath = path.join(root, "effect", "k10.txt");
+  const readyPath = path.join(root, "ipc", "writer-ready");
+  const releasePath = path.join(root, "ipc", "writer-release");
+  const config = makeConfig(root);
+  await writeConfig(configPath, config);
+
+  const engineModulePath = path.resolve(__dirname, "../../src/core/engine.js");
+  const planModulePath = path.resolve(__dirname, "../../src/core/plan.js");
+  const fsModulePath = path.resolve(__dirname, "../../src/adapters/filesystem.js");
+
+  const writerPath = path.join(root, "writer.js");
+  const writerScript = `
+const fs = require("node:fs");
+const path = require("node:path");
+
+const [configPath, effectPath, readyPath, releasePath, engineModulePath, planModulePath, fsModulePath] = process.argv.slice(2);
+const { SetupEngine } = require(engineModulePath);
+const { createRegistry } = require(planModulePath);
+const { NodeFilesystemAdapter } = require(fsModulePath);
+
+class ProcessAdapterImpl {
+  async runCommand() { return { exitCode: 0, stdout: "", stderr: "", timedOut: false, durationMs: 1 }; }
+  pid() { return process.pid; }
+  uid() { return 1000; }
+  username() { return "factory"; }
+  async bootId() { return "f324dcd7-4035-4430-ab39-ce31f9e396bf"; }
+  async machineIdHash() { return "${"1".repeat(64)}"; }
+  async processStartTicks(pid) { return pid === process.pid ? 1 : null; }
+  isPidAlive(pid) { try { process.kill(pid, 0); return true; } catch { return false; } }
+}
+
+class HttpAdapterImpl {
+  async get() { return { statusCode: 200, headers: {}, body: Buffer.from("") }; }
+}
+
+function makeS00() {
+  return {
+    id: "S00",
+    dependencies: [],
+    supportedProfiles: ["supervised", "service"],
+    optional: false,
+    requiredCapabilities: [],
+    async observe() {
+      return { stageId: "S00", status: "verified", checks: { ok: true }, versions: {}, observedAt: new Date().toISOString() };
+    },
+    plan() {
+      return { stageId: "S00", optional: false, requiredCapabilities: [], operations: [], requiredGates: [] };
+    },
+    async apply() { return []; },
+    async verify() { return []; },
+    async recover() { return []; }
+  };
+}
+
+function makeWriterStage() {
+  return {
+    id: "S01",
+    dependencies: ["S00"],
+    supportedProfiles: ["supervised", "service"],
+    optional: false,
+    requiredCapabilities: [],
+    async observe() {
+      return {
+        stageId: "S01",
+        status: fs.existsSync(effectPath) ? "verified" : "planned",
+        checks: {},
+        versions: {},
+        observedAt: new Date().toISOString()
+      };
+    },
+    plan() {
+      return {
+        stageId: "S01",
+        optional: false,
+        requiredCapabilities: [],
+        operations: [{
+          id: "k10-op",
+          stageId: "S01",
+          kind: "mutate",
+          resourceId: "k10-resource",
+          risk: "low",
+          gateIds: [],
+          preconditions: [],
+          sideEffects: ["write effect"],
+          timeoutSec: 60,
+          retryable: false
+        }],
+        requiredGates: []
+      };
+    },
+    async apply() {
+      await fs.promises.mkdir(path.dirname(effectPath), { recursive: true });
+      await fs.promises.mkdir(path.dirname(readyPath), { recursive: true });
+      await fs.promises.writeFile(effectPath, "effect\\n", "utf8");
+      await fs.promises.writeFile(readyPath, "ready\\n", "utf8");
+      const deadline = Date.now() + 30_000;
+      while (!fs.existsSync(releasePath)) {
+        if (Date.now() > deadline) {
+          throw new Error("release timeout");
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      return [{
+        operationId: "k10-op",
+        stageId: "S01",
+        resourceId: "k10-resource",
+        observedAt: new Date().toISOString(),
+        checks: { applied: true },
+        versions: {},
+        artifacts: [effectPath]
+      }];
+    },
+    async verify() {
+      return [];
+    },
+    async recover() {
+      return [];
+    }
+  };
+}
+
+async function main() {
+  const engine = new SetupEngine(
+    {
+      fsAdapter: new NodeFilesystemAdapter(),
+      processAdapter: new ProcessAdapterImpl(),
+      httpAdapter: new HttpAdapterImpl(),
+      installerVersion: "0.0.1",
+      clock: { now: () => new Date("2026-10-23T14:40:00.000Z") }
+    },
+    createRegistry([makeS00(), makeWriterStage()])
+  );
+  const plan = await engine.run("plan", { configPath, stageId: "S01" });
+  if (plan.exitCode !== 0 || typeof plan.envelope.data?.plan_path !== "string") {
+    console.error(JSON.stringify(plan));
+    process.exit(20);
+    return;
+  }
+  const apply = await engine.run("apply", {
+    configPath,
+    planPath: plan.envelope.data.plan_path,
+    nonInteractive: true
+  });
+  console.log(JSON.stringify(apply));
+  process.exit(apply.exitCode === 0 ? 0 : 21);
+}
+
+main().catch((error) => {
+  console.error(String(error?.stack ?? error));
+  process.exit(22);
+});
+`;
+  await fs.promises.writeFile(writerPath, writerScript, "utf8");
+
+  const child = spawn(process.execPath, [
+    writerPath,
+    configPath,
+    effectPath,
+    readyPath,
+    releasePath,
+    engineModulePath,
+    planModulePath,
+    fsModulePath
+  ], { stdio: ["ignore", "pipe", "pipe"] });
+
+  const childStderr: string[] = [];
+  child.stderr.on("data", (chunk: Buffer) => childStderr.push(chunk.toString("utf8")));
+
+  const waitDeadline = Date.now() + 30_000;
+  while (!fs.existsSync(readyPath)) {
+    if (Date.now() > waitDeadline) {
+      throw new Error(`writer did not reach barrier: ${childStderr.join("")}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  const parentFs = new InstrumentedFilesystemAdapter();
+  const parentProcess = new CountingProcessAdapter(
+    3101,
+    "f324dcd7-4035-4430-ab39-ce31f9e396bf",
+    "1".repeat(64),
+    100
+  );
+  const parentEngine = new SetupEngine(
+    {
+      fsAdapter: parentFs,
+      processAdapter: parentProcess,
+      httpAdapter: new FakeHttpAdapter(),
+      installerVersion: "0.0.1",
+      clock: { now: () => new Date("2026-10-23T14:41:00.000Z") }
+    },
+    createRegistry([makeS00(), makeMutatingStage(effectPath)])
+  );
+
+  const statusDuringWrite = await parentEngine.run("status", { configPath });
+  assert.equal(statusDuringWrite.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(statusDuringWrite.envelope));
+  assert.equal(
+    ["journal_recovery_required", "recovery_required", "state_recovery_required"].includes(statusDuringWrite.envelope.error?.code ?? ""),
+    true,
+    JSON.stringify(statusDuringWrite.envelope)
+  );
+  assert.deepEqual(parentFs.getMutatingCalls().map((entry) => entry.method), []);
+
+  child.kill("SIGKILL");
+  const [childCode, signal] = await once(child, "exit") as [number | null, NodeJS.Signals | null];
+  assert.equal(signal === "SIGKILL" || childCode !== 0, true, childStderr.join(""));
+  assert.equal(fs.existsSync(effectPath), true);
+
+  const lockOnly = await parentEngine.run("recover", { configPath, lockOnly: true });
+  assert.equal(lockOnly.exitCode, ExitCode.Success, JSON.stringify(lockOnly.envelope));
+
+  const recover = await parentEngine.run("recover", { configPath });
+  assert.equal(recover.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(recover.envelope));
+  assert.equal(
+    ["recovery_unresolved", "state_recovery_required", "in_flight_operation_present", "journal_recovery_required"].includes(recover.envelope.error?.code ?? ""),
+    true,
+    JSON.stringify(recover.envelope)
+  );
+
+  const evidence = await inspectStateEvidence(new NodeFilesystemAdapter(), config);
+  assert.equal(evidence.journal.unresolvedOperationIds.includes("k10-op"), true);
+  const rawState = await fs.promises.readFile(path.join(config.paths.setup_state_dir, "state.json"), "utf8");
+  const parsedState = JSON.parse(rawState) as SetupState;
+  assert.ok(parsedState.in_flight_operation !== null);
+});
+
+test("K01 stale primary plus completed journal checkpoint remains recovery-blocked", async () => {
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-k01-"));
+  const configPath = path.join(root, "config", "setup.json");
+  const effectPath = path.join(root, "effect", "k01.txt");
+  const config = makeConfig(root);
+  await writeConfig(configPath, config);
+
+  const fsAdapter = new NodeFilesystemAdapter();
+  const processAdapter = new CountingProcessAdapter(
+    3001,
+    "f324dcd7-4035-4430-ab39-ce31f9e396bf",
+    "1".repeat(64),
+    100
+  );
+  const engine = new SetupEngine(
+    {
+      fsAdapter,
+      processAdapter,
+      httpAdapter: new FakeHttpAdapter(),
+      installerVersion: "0.0.1",
+      clock: { now: () => new Date("2026-10-23T14:00:00.000Z") }
+    },
+    createRegistry([makeS00(), makeMutatingStage(effectPath)])
+  );
+
+  const plan = await engine.run("plan", { configPath, stageId: "S01" });
+  assert.equal(plan.exitCode, ExitCode.Success, JSON.stringify(plan.envelope));
+  const initialRaw = await fs.promises.readFile(path.join(config.paths.setup_state_dir, "state.json"), "utf8");
+  const apply = await engine.run("apply", {
+    configPath,
+    planPath: plan.envelope.data?.plan_path as string,
+    nonInteractive: true
+  });
+  assert.equal(apply.exitCode, ExitCode.Success, JSON.stringify(apply.envelope));
+  assert.equal(fs.existsSync(effectPath), true);
+
+  await fs.promises.writeFile(path.join(config.paths.setup_state_dir, "state.json"), initialRaw, "utf8");
+
+  const recover = await engine.run("recover", { configPath });
+  assert.equal(recover.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(recover.envelope));
+  assert.equal(
+    ["state_generation_mismatch", "state_checkpoint_proof_mismatch", "recovery_unresolved"].includes(recover.envelope.error?.code ?? ""),
+    true
+  );
+
+  const planAfter = await engine.run("plan", { configPath, stageId: "S01" });
+  assert.equal(planAfter.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(planAfter.envelope));
+  assert.equal(
+    ["state_generation_mismatch", "state_checkpoint_proof_mismatch", "recovery_required", "state_recovery_required"].includes(planAfter.envelope.error?.code ?? ""),
+    true
+  );
+});
+
+test("K04 prepared recovery decision is immutable across previous/current substitution", async () => {
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-k04-"));
+  const configPath = path.join(root, "config", "setup.json");
+  const config = makeConfig(root);
+  await writeConfig(configPath, config);
+
+  const fsAdapter = new InstrumentedFilesystemAdapter();
+  const processAdapter = new CountingProcessAdapter(
+    3002,
+    "f324dcd7-4035-4430-ab39-ce31f9e396bf",
+    "1".repeat(64),
+    100
+  );
+  await seedProvenMissingPrimaryFixture(fsAdapter, processAdapter, config);
+  fsAdapter.setFailureRules([{ method: "writeText", pathIncludes: "state.json.tmp-", code: "EIO" }]);
+
+  const engine = new SetupEngine(
+    {
+      fsAdapter,
+      processAdapter,
+      httpAdapter: new FakeHttpAdapter(),
+      installerVersion: "0.0.1",
+      clock: { now: () => new Date("2026-10-23T14:05:00.000Z") }
+    },
+    createRegistry([makeS00(), makeNoopStage("S01", ["S00"])])
+  );
+
+  const interrupted = await engine.run("recover", { configPath });
+  assert.equal(interrupted.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(interrupted.envelope));
+  assert.equal(interrupted.envelope.error?.code, "recovery_primary_persist_failed");
+
+  const markerBeforeRaw = await fs.promises.readFile(path.join(config.paths.setup_state_dir, "recovery-required.json"), "utf8");
+  const markerBefore = JSON.parse(markerBeforeRaw) as RecoveryMarkerRecord;
+  assert.equal(markerBefore.recovery_commit?.phase, "prepared");
+  const preparedHash = markerBefore.recovery_commit?.candidate_state_hash ?? "";
+
+  const previousRaw = await fs.promises.readFile(path.join(config.paths.setup_state_dir, "state.json.previous"), "utf8");
+  const previousState = JSON.parse(previousRaw) as SetupState;
+  const rewrittenPrevious: SetupState = {
+    ...previousState,
+    last_error: {
+      code: "mutated",
+      stage: "S01",
+      operation_id: "mutated",
+      retryable: false,
+      public_message: "mutated",
+      next_action: "mutated",
+      evidence_ref: "mutated"
+    }
+  };
+  await fs.promises.writeFile(
+    path.join(config.paths.setup_state_dir, "state.json.previous"),
+    `${JSON.stringify(rewrittenPrevious, null, 2)}\n`,
+    "utf8"
+  );
+
+  fsAdapter.setFailureRules([]);
+  const afterPreviousSwap = await engine.run("recover", { configPath });
+  assert.equal(afterPreviousSwap.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(afterPreviousSwap.envelope));
+  assert.equal(afterPreviousSwap.envelope.error?.code, "recovery_unresolved");
+  const markerAfterPreviousSwapRaw = await fs.promises.readFile(path.join(config.paths.setup_state_dir, "recovery-required.json"), "utf8");
+  const markerAfterPreviousSwap = JSON.parse(markerAfterPreviousSwapRaw) as RecoveryMarkerRecord;
+  assert.equal(markerAfterPreviousSwap.recovery_commit?.candidate_state_hash, preparedHash);
+
+  const foreignCurrent: SetupState = {
+    ...previousState,
+    in_flight_operation: {
+      id: "unknown-op",
+      stage_id: "S02",
+      kind: "mutate",
+      started_at: "2026-10-23T14:06:00.000Z"
+    }
+  };
+  await fs.promises.writeFile(path.join(config.paths.setup_state_dir, "state.json"), `${JSON.stringify(foreignCurrent, null, 2)}\n`, "utf8");
+  const stateBefore = await fs.promises.readFile(path.join(config.paths.setup_state_dir, "state.json"), "utf8");
+  const afterCurrentSwap = await engine.run("recover", { configPath });
+  assert.equal(afterCurrentSwap.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(afterCurrentSwap.envelope));
+  assert.equal(afterCurrentSwap.envelope.error?.code, "recovery_unresolved");
+  const stateAfter = await fs.promises.readFile(path.join(config.paths.setup_state_dir, "state.json"), "utf8");
+  assert.equal(stateAfter, stateBefore);
+});
+
+test("K05 missing primary with old previous and empty journal remains unresolved without generation proof", async () => {
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-k05-"));
+  const configPath = path.join(root, "config", "setup.json");
+  const config = makeConfig(root);
+  await writeConfig(configPath, config);
+
+  const fsAdapter = new NodeFilesystemAdapter();
+  const processAdapter = new CountingProcessAdapter(
+    3003,
+    "f324dcd7-4035-4430-ab39-ce31f9e396bf",
+    "1".repeat(64),
+    100
+  );
+  const base = await seedValidState(fsAdapter, processAdapter, config);
+  await saveState(fsAdapter, config, {
+    ...base,
+    last_error: {
+      code: "newer",
+      stage: "S01",
+      operation_id: "newer",
+      retryable: false,
+      public_message: "newer",
+      next_action: "newer",
+      evidence_ref: "newer"
+    }
+  });
+  await fs.promises.rm(path.join(config.paths.setup_state_dir, "state.json"), { force: true });
+  await fs.promises.writeFile(
+    path.join(config.paths.setup_state_dir, "recovery-required.json"),
+    `${JSON.stringify(recoveryMarkerBody(config, {}), null, 2)}\n`,
+    "utf8"
+  );
+
+  const engine = new SetupEngine(
+    {
+      fsAdapter,
+      processAdapter,
+      httpAdapter: new FakeHttpAdapter(),
+      installerVersion: "0.0.1",
+      clock: { now: () => new Date("2026-10-23T14:10:00.000Z") }
+    },
+    createRegistry([makeS00(), makeNoopStage("S01", ["S00"])])
+  );
+
+  const recover = await engine.run("recover", { configPath });
+  assert.equal(recover.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(recover.envelope));
+  assert.equal(recover.envelope.error?.code, "recovery_unresolved");
+  assert.equal(fs.existsSync(path.join(config.paths.setup_state_dir, "state.json")), false);
+});
+
+test("K07 receipts must match planned operation/stage/resource and cannot be foreign", async () => {
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-k07-"));
+  const configPath = path.join(root, "config", "setup.json");
+  const config = makeConfig(root);
+  await writeConfig(configPath, config);
+
+  const foreignStage: StageModule = {
+    id: "S01",
+    dependencies: ["S00"],
+    supportedProfiles: ["supervised", "service"],
+    optional: false,
+    requiredCapabilities: [],
+    async observe() {
+      return {
+        stageId: "S01",
+        status: "planned",
+        checks: { staged: true },
+        versions: {},
+        observedAt: new Date().toISOString()
+      };
+    },
+    plan() {
+      return {
+        stageId: "S01",
+        optional: false,
+        requiredCapabilities: [],
+        operations: [
+          {
+            id: "op-a",
+            stageId: "S01",
+            kind: "mutate",
+            resourceId: "resource-a",
+            risk: "low",
+            gateIds: [],
+            preconditions: [],
+            sideEffects: [],
+            timeoutSec: 5,
+            retryable: false
+          },
+          {
+            id: "op-b",
+            stageId: "S01",
+            kind: "mutate",
+            resourceId: "resource-b",
+            risk: "low",
+            gateIds: [],
+            preconditions: [],
+            sideEffects: [],
+            timeoutSec: 5,
+            retryable: false
+          }
+        ],
+        requiredGates: []
+      };
+    },
+    async apply() {
+      return [
+        {
+          operationId: "foreign-op",
+          stageId: "S12",
+          resourceId: "foreign-resource",
+          observedAt: new Date().toISOString(),
+          checks: { forged: true },
+          versions: {},
+          artifacts: []
+        }
+      ];
+    },
+    async verify() {
+      return [];
+    },
+    async recover() {
+      return [];
+    }
+  };
+
+  const engine = new SetupEngine(
+    {
+      fsAdapter: new NodeFilesystemAdapter(),
+      processAdapter: new CountingProcessAdapter(
+        3004,
+        "f324dcd7-4035-4430-ab39-ce31f9e396bf",
+        "1".repeat(64),
+        100
+      ),
+      httpAdapter: new FakeHttpAdapter(),
+      installerVersion: "0.0.1",
+      clock: { now: () => new Date("2026-10-23T14:20:00.000Z") }
+    },
+    createRegistry([makeS00(), foreignStage])
+  );
+
+  const plan = await engine.run("plan", { configPath, stageId: "S01" });
+  assert.equal(plan.exitCode, ExitCode.Success, JSON.stringify(plan.envelope));
+  const apply = await engine.run("apply", {
+    configPath,
+    planPath: plan.envelope.data?.plan_path as string,
+    nonInteractive: true
+  });
+  assert.equal(apply.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(apply.envelope));
+  assert.equal(
+    ["stage_effect_receipt_stage_mismatch", "stage_effect_receipt_unplanned", "stage_effect_receipt_missing"].includes(apply.envelope.error?.code ?? ""),
+    true
+  );
+  const journalRaw = await fs.promises.readFile(path.join(config.paths.setup_state_dir, "events.jsonl"), "utf8");
+  assert.equal(journalRaw.includes("\"code\":\"checkpoint\""), false);
+});
+
+test("K09 empty or verify-only plan does not call stage.apply (trap stage)", async () => {
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-k09-"));
+  const configPath = path.join(root, "config", "setup.json");
+  const effectPath = path.join(root, "effect", "trap.txt");
+  const config = makeConfig(root);
+  await writeConfig(configPath, config);
+
+  let applyCalls = 0;
+  const trapStage: StageModule = {
+    id: "S01",
+    dependencies: ["S00"],
+    supportedProfiles: ["supervised", "service"],
+    optional: false,
+    requiredCapabilities: [],
+    async observe() {
+      return {
+        stageId: "S01",
+        status: "verified",
+        checks: { noop: true },
+        versions: {},
+        observedAt: new Date().toISOString()
+      };
+    },
+    plan() {
+      return {
+        stageId: "S01",
+        optional: false,
+        requiredCapabilities: [],
+        operations: [],
+        requiredGates: []
+      };
+    },
+    async apply() {
+      applyCalls += 1;
+      await fs.promises.mkdir(path.dirname(effectPath), { recursive: true, mode: 0o700 });
+      await fs.promises.writeFile(effectPath, "trap\n", "utf8");
+      return [];
+    },
+    async verify() {
+      return [];
+    },
+    async recover() {
+      return [];
+    }
+  };
+
+  const engine = new SetupEngine(
+    {
+      fsAdapter: new NodeFilesystemAdapter(),
+      processAdapter: new CountingProcessAdapter(
+        3005,
+        "f324dcd7-4035-4430-ab39-ce31f9e396bf",
+        "1".repeat(64),
+        100
+      ),
+      httpAdapter: new FakeHttpAdapter(),
+      installerVersion: "0.0.1",
+      clock: { now: () => new Date("2026-10-23T14:30:00.000Z") }
+    },
+    createRegistry([makeS00(), trapStage, makeNoopStage("S12", ["S01"])])
+  );
+
+  const plan = await engine.run("plan", { configPath, stageId: "S01" });
+  assert.equal(plan.exitCode, ExitCode.Success, JSON.stringify(plan.envelope));
+  const apply = await engine.run("apply", {
+    configPath,
+    planPath: plan.envelope.data?.plan_path as string,
+    nonInteractive: true
+  });
+  assert.equal(apply.exitCode, ExitCode.Success, JSON.stringify(apply.envelope));
+  assert.equal(applyCalls, 0);
+  assert.equal(fs.existsSync(effectPath), false);
 });

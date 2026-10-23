@@ -320,17 +320,7 @@ export function createSystemStage(aptAdapter: AptAdapter): StageModule {
 
       const current = plannedPinsFromObservation(observed);
       if (approvedPlan.operations.length === 0) {
-        return [
-          {
-            operationId: "s02-noop",
-            stageId: "S02",
-            resourceId: "system-packages",
-            observedAt: new Date().toISOString(),
-            checks: checksFromObservation(observed, current, profile),
-            versions: versionsFromObservation(observed),
-            artifacts: []
-          }
-        ];
+        return [];
       }
       const plannedFromPlan = parsePlanPins(approvedPlan);
       if (plannedFromPlan.packageSetHash !== current.packageSetHash) {
@@ -344,28 +334,55 @@ export function createSystemStage(aptAdapter: AptAdapter): StageModule {
         });
       }
 
-      if (approvedPlan.operations.some((op) => op.id.startsWith("s02-apt-update-"))) {
+      const updateOperation = approvedPlan.operations.find((op) => op.id.startsWith("s02-apt-update-"));
+      const simulateOperation = approvedPlan.operations.find((op) => op.id.startsWith("s02-apt-simulate-"));
+      const installOperation = approvedPlan.operations.find((op) => op.id.startsWith("s02-apt-install-"));
+      const receipts: StageReceipt[] = [];
+
+      if (updateOperation !== undefined) {
         await aptAdapter.refreshMetadata();
+        const afterUpdate = await aptAdapter.observe(requiredPackageNames(profile));
+        const updatedPins = plannedPinsFromObservation(afterUpdate);
+        receipts.push({
+          operationId: updateOperation.id,
+          stageId: "S02",
+          resourceId: updateOperation.resourceId,
+          observedAt: new Date().toISOString(),
+          checks: checksFromObservation(afterUpdate, updatedPins, profile),
+          versions: versionsFromObservation(afterUpdate),
+          artifacts: []
+        });
       }
-      if (approvedPlan.operations.some((op) => op.id.startsWith("s02-apt-simulate-"))) {
+      if (simulateOperation !== undefined) {
         await aptAdapter.simulateInstall(plannedFromPlan.pins);
+        const afterSimulate = await aptAdapter.observe(requiredPackageNames(profile));
+        const simulatedPins = plannedPinsFromObservation(afterSimulate);
+        receipts.push({
+          operationId: simulateOperation.id,
+          stageId: "S02",
+          resourceId: simulateOperation.resourceId,
+          observedAt: new Date().toISOString(),
+          checks: checksFromObservation(afterSimulate, simulatedPins, profile),
+          versions: versionsFromObservation(afterSimulate),
+          artifacts: []
+        });
       }
-      if (approvedPlan.operations.some((op) => op.id.startsWith("s02-apt-install-"))) {
+      if (installOperation !== undefined) {
         await aptAdapter.installPinned(plannedFromPlan.pins);
+        const afterInstall = await aptAdapter.observe(requiredPackageNames(profile));
+        const installedPins = plannedPinsFromObservation(afterInstall);
+        receipts.push({
+          operationId: installOperation.id,
+          stageId: "S02",
+          resourceId: installOperation.resourceId,
+          observedAt: new Date().toISOString(),
+          checks: checksFromObservation(afterInstall, installedPins, profile),
+          versions: versionsFromObservation(afterInstall),
+          artifacts: []
+        });
       }
 
       const after = await aptAdapter.observe(requiredPackageNames(profile));
-      const afterPlanned = plannedPinsFromObservation(after);
-      const receipt: StageReceipt = {
-        operationId: approvedPlan.operations.at(-1)?.id ?? "s02-observe-only",
-        stageId: "S02",
-        resourceId: "system-packages",
-        observedAt: new Date().toISOString(),
-        checks: checksFromObservation(after, afterPlanned, profile),
-        versions: versionsFromObservation(after),
-        artifacts: []
-      };
-
       if (!after.dpkgAuditClean) {
         throw setupError({
           exitCode: ExitCode.ManualActionRequired,
@@ -376,7 +393,16 @@ export function createSystemStage(aptAdapter: AptAdapter): StageModule {
           evidenceRef: after.dpkgAuditOutput.slice(0, 512)
         });
       }
-      return [receipt];
+      if (receipts.length === 0) {
+        throw setupError({
+          exitCode: ExitCode.DriftOrRecoveryRequired,
+          code: "s02_operation_receipts_missing",
+          publicMessage: "S02 plan expected operation receipts but none were produced.",
+          nextAction: "Preserve recovery evidence and rerun recover before retrying apply.",
+          stage: "S02"
+        });
+      }
+      return receipts;
     },
     async verify(ctx: StageContext): Promise<StageReceipt[]> {
       const profile = ctx.profile;
