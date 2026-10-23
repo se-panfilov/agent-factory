@@ -10,7 +10,7 @@ This guide maps installer failures to exact causes and safe next actions under C
 | 5 | `unsupported_stage`, `*_capability_missing`, `*_version_lock_invalid` | Blocked by missing evidence/capability/artifact | Provide reviewed artifact/capability evidence and rerun |
 | 6 | `*_download_failed`, `*_build_failed`, `*_verify_failed` | Operation/verification failed after bounded retries | Inspect local evidence, fix root cause, rerun from observe/plan |
 | 7 | `lock_owned_by_another` | Another installer owns lock | Wait, cancel, or run `recover --lock-only` if stale |
-| 8 | `state_resource_drift`, `*_plan_drifted`, cleanup failure | Drift/recovery required | `status --refresh`, reconcile resources, generate fresh plan |
+| 8 | `state_resource_drift`, `*_plan_drifted`, `recovery_required`, `state_recovery_required`, `journal_recovery_required`, `recovery_unresolved`, cleanup failure | Drift/recovery required | `status --refresh`, inspect marker/journal/previous evidence, run `recover` (not lock-only) when safe, then re-plan |
 | 9 | `*_pin_mismatch`, `*_signature_failed`, security checks | Security boundary/integrity violation | Replace with reviewed signed artifacts, never bypass checks |
 | 10 | optional-stage failure codes | Explicit optional stage failed/blocked | Fix optional stage or rerun without explicit optional target |
 
@@ -22,6 +22,16 @@ This guide maps installer failures to exact causes and safe next actions under C
 4. `factory-setup gate list --config PATH`
 5. `factory-setup gate approve --config PATH --id <gate-id> --plan-hash <hash>`
 6. `factory-setup resume --config PATH [--non-interactive]`
+
+## State and recovery notes (Q1A-R1)
+
+- `status` without `--refresh` and `gate list` are diagnostic/read-only paths and do not quarantine, initialize, or repair state files.
+- `recover --lock-only` handles only stale lock ownership and **does not clear** recovery marker, journal uncertainty, or in-flight blockers.
+- Full `recover` has three truthful outcomes:
+  - `recovery_not_required` (state is already consistent),
+  - `recovered_previous_generation` (trusted previous snapshot restored),
+  - `exit 8` (`recovery_unresolved`) when outcome cannot be proven.
+- Do not delete recovery artifacts (`recovery-required.json`, `state.json.previous`, `events.jsonl`) to bypass blockers; preserve evidence and reconcile first.
 
 ## Release/transport issues
 

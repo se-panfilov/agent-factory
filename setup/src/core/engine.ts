@@ -1,5 +1,6 @@
 import path from "node:path";
 import os from "node:os";
+import { createHash } from "node:crypto";
 import { NodeFilesystemAdapter, type FilesystemAdapter } from "../adapters/filesystem";
 import { NodeHttpAdapter, type HttpAdapter } from "../adapters/http";
 import { NodeProcessAdapter, type ProcessAdapter } from "../adapters/process";
@@ -29,7 +30,20 @@ import { setupError, toSetupError } from "./errors";
 import { approveGate, ensureGateApproved, ensureNonInteractiveGates, expireGates, upsertPlanGates } from "./gates";
 import { acquireLock, consumeCancelRequest, recoverLockOnly, requestCancel, type LockOwner } from "./lock";
 import { buildStageClosure, createPlanFile, createRegistry, loadPlan, validatePlanConsistency, type StageRegistry } from "./plan";
-import { appendEvent, loadState, saveState, updateObservedStage, withInFlightOperation, withLastError, type LoadStateOptions } from "./state";
+import {
+  appendEvent,
+  buildStatePaths,
+  clearRecoveryMarker,
+  FALLBACK_MACHINE_ID_HASH,
+  inspectStateEvidence,
+  loadState,
+  saveState,
+  updateObservedStage,
+  withInFlightOperation,
+  withLastError,
+  type LoadStateOptions
+} from "./state";
+import { validateContractSchema } from "./validators";
 
 export interface EngineDeps {
   fsAdapter: FilesystemAdapter;
@@ -438,6 +452,95 @@ export class SetupEngine {
     }
   }
 
+  private assertOrdinaryEffectAdmission(state: SetupState): void {
+    if (state.in_flight_operation !== null) {
+      throw setupError({
+        exitCode: ExitCode.DriftOrRecoveryRequired,
+        code: "in_flight_operation_present",
+        publicMessage: "State contains an unfinished operation and requires explicit recovery.",
+        nextAction: "Run recover and reconcile pending operation evidence before retrying mutations.",
+        stage: state.in_flight_operation.stage_id,
+        operationId: state.in_flight_operation.id
+      });
+    }
+  }
+
+  private async loadRecoveryCandidate(previousPath: string): Promise<SetupState> {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await this.deps.fsAdapter.readText(previousPath));
+    } catch {
+      throw setupError({
+        exitCode: ExitCode.DriftOrRecoveryRequired,
+        code: "recovery_candidate_invalid",
+        publicMessage: "Recovery candidate snapshot is unreadable or invalid JSON.",
+        nextAction: "Inspect state.previous and recovery marker evidence before retrying recover.",
+        evidenceRef: previousPath
+      });
+    }
+    const validation = validateContractSchema("state", parsed);
+    if (!validation.ok) {
+      throw setupError({
+        exitCode: ExitCode.DriftOrRecoveryRequired,
+        code: "recovery_candidate_invalid",
+        publicMessage: `Recovery candidate schema mismatch: ${validation.errors.join("; ")}`,
+        nextAction: "Use a reviewed installer release compatible with recorded state schema.",
+        evidenceRef: previousPath
+      });
+    }
+    return parsed as SetupState;
+  }
+
+  private async assertRecoveryCandidateTrusted(candidate: SetupState, config: SetupConfig, evidenceRef: string): Promise<void> {
+    if (candidate.installation_id !== config.installation_id) {
+      throw setupError({
+        exitCode: ExitCode.DriftOrRecoveryRequired,
+        code: "recovery_candidate_foreign_installation",
+        publicMessage: "Recovery candidate belongs to a different installation.",
+        nextAction: "Preserve evidence and provide the correct setup config for this installation.",
+        evidenceRef
+      });
+    }
+    if (candidate.host_fingerprint.os !== config.host.os || candidate.host_fingerprint.arch !== config.host.arch) {
+      throw setupError({
+        exitCode: ExitCode.DriftOrRecoveryRequired,
+        code: "recovery_candidate_host_mismatch",
+        publicMessage: "Recovery candidate host fingerprint does not match configured host identity.",
+        nextAction: "Use the original host/config pair or reconcile evidence manually.",
+        evidenceRef
+      });
+    }
+    const expectedLockHash = createHash("sha256").update(config.paths.setup_state_dir).digest("hex");
+    if (candidate.lock_hash !== expectedLockHash) {
+      throw setupError({
+        exitCode: ExitCode.DriftOrRecoveryRequired,
+        code: "recovery_candidate_lock_mismatch",
+        publicMessage: "Recovery candidate lock hash does not match current installation path.",
+        nextAction: "Preserve state evidence and recover with matching installation paths.",
+        evidenceRef
+      });
+    }
+    const machineIdHash = await this.deps.processAdapter.machineIdHash();
+    if (!/^[0-9a-f]{64}$/.test(machineIdHash) || machineIdHash === FALLBACK_MACHINE_ID_HASH) {
+      throw setupError({
+        exitCode: ExitCode.DriftOrRecoveryRequired,
+        code: "recovery_host_identity_unavailable",
+        publicMessage: "Host machine identity is unavailable for trusted recovery candidate validation.",
+        nextAction: "Fix machine identity source and rerun recover without deleting existing evidence.",
+        evidenceRef
+      });
+    }
+    if (candidate.host_fingerprint.machine_id_hash !== machineIdHash) {
+      throw setupError({
+        exitCode: ExitCode.DriftOrRecoveryRequired,
+        code: "recovery_candidate_host_mismatch",
+        publicMessage: "Recovery candidate machine identity does not match this host.",
+        nextAction: "Preserve evidence and run recovery on the original host.",
+        evidenceRef
+      });
+    }
+  }
+
   private stageStatusesForSelection(
     state: SetupState,
     stageIds: StageId[]
@@ -755,16 +858,7 @@ export class SetupEngine {
     try {
       state = await this.loadStateWithOptions(config, { initializeIfMissing: true });
       state = expireGates(state, this.deps.clock);
-      if (state.in_flight_operation !== null) {
-        throw setupError({
-          exitCode: ExitCode.DriftOrRecoveryRequired,
-          code: "in_flight_operation_present",
-          publicMessage: "State contains an unfinished operation and requires explicit recovery.",
-          nextAction: "Run recover/resume workflow and inspect in-flight evidence.",
-          stage: state.in_flight_operation.stage_id,
-          operationId: state.in_flight_operation.id
-        });
-      }
+      this.assertOrdinaryEffectAdmission(state);
       ensureNonInteractiveGates(state, plan.plan_hash, options.nonInteractive ?? false, this.deps.clock);
       await this.consumeCancelOrThrow(config, lock.owner);
 
@@ -944,16 +1038,16 @@ export class SetupEngine {
 
   private async runStatus(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
     const config = await loadConfig(this.deps.fsAdapter, options.configPath);
-    let state = await this.loadStateWithOptions(config, {
-      initializeIfMissing: false,
-      persistConfigDrift: false,
-      readOnly: options.refresh !== true
-    });
     const selectedClosure = buildStageClosure(this.registry, config.selected_stages);
+    let state: SetupState;
     if (options.refresh === true) {
       const lock = await acquireLock(this.deps.fsAdapter, this.deps.processAdapter, config);
       try {
-        state = await this.loadStateWithOptions(config, { initializeIfMissing: false });
+        state = await this.loadStateWithOptions(config, {
+          initializeIfMissing: false,
+          persistConfigDrift: false,
+          readOnly: false
+        });
         for (const stageId of selectedClosure) {
           const stage = this.registry.byId.get(stageId);
           if (stage === undefined) {
@@ -973,6 +1067,12 @@ export class SetupEngine {
       } finally {
         await lock.release();
       }
+    } else {
+      state = await this.loadStateWithOptions(config, {
+        initializeIfMissing: false,
+        persistConfigDrift: false,
+        readOnly: true
+      });
     }
     const envelope = envelopeBase("status", config, state, null);
     const selectedStatuses = this.stageStatusesForSelection(state, selectedClosure);
@@ -1147,27 +1247,166 @@ export class SetupEngine {
 
   private async runRecover(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
     const config = await loadConfig(this.deps.fsAdapter, options.configPath);
+    const paths = buildStatePaths(config);
+    const previousPath = `${paths.stateFile}.previous`;
+    const unresolvedNextAction = "Preserve state/marker/journal evidence, run manual reconciliation, then rerun recover. Do not delete recovery artifacts.";
+
+    if (options.lockOnly === true) {
+      const recovered = await recoverLockOnly(this.deps.fsAdapter, this.deps.processAdapter, config);
+      const evidence = await inspectStateEvidence(this.deps.fsAdapter, config);
+      let state: SetupState | null = null;
+      const blockers: string[] = [];
+      if (evidence.marker !== null) {
+        blockers.push(`recovery marker present (${evidence.marker.reason})`);
+      }
+      if (evidence.journal.hasRecords) {
+        blockers.push("event journal contains historical or unresolved entries");
+      }
+      if (evidence.stateExists && evidence.marker === null) {
+        try {
+          state = await this.loadStateWithOptions(config, {
+            initializeIfMissing: false,
+            persistConfigDrift: false,
+            readOnly: true
+          });
+          if (state.in_flight_operation !== null) {
+            blockers.push(`in-flight operation present (${state.in_flight_operation.id})`);
+          }
+        } catch (error) {
+          blockers.push(`state diagnostic failed: ${toSetupError(error).code}`);
+          state = null;
+        }
+      }
+      const envelope = envelopeBase("recover", config, state, null);
+      envelope.overall_status = "ok";
+      envelope.data = {
+        ...recovered,
+        recovery_blockers: blockers
+      };
+      return { envelope, exitCode: ExitCode.Success };
+    }
+
+    const lock = await acquireLock(this.deps.fsAdapter, this.deps.processAdapter, config);
     let state: SetupState | null = null;
     try {
+      const evidence = await inspectStateEvidence(this.deps.fsAdapter, config);
+
+      if (evidence.marker === null && evidence.stateExists) {
+        state = await this.loadStateWithOptions(config, {
+          initializeIfMissing: false,
+          persistConfigDrift: false,
+          readOnly: true
+        });
+        if (state.in_flight_operation !== null) {
+          throw setupError({
+            exitCode: ExitCode.DriftOrRecoveryRequired,
+            code: "recovery_unresolved",
+            publicMessage: "Unfinished operation is still present; recovery cannot declare success.",
+            nextAction: unresolvedNextAction,
+            stage: state.in_flight_operation.stage_id,
+            operationId: state.in_flight_operation.id,
+            evidenceRef: paths.stateFile
+          });
+        }
+        const envelope = envelopeBase("recover", config, state, null);
+        envelope.overall_status = "ok";
+        envelope.data = {
+          outcome: "recovery_not_required",
+          scope: "state_consistent"
+        };
+        return { envelope, exitCode: ExitCode.Success };
+      }
+
+      if (
+        evidence.marker === null
+        && !evidence.stateExists
+        && !evidence.previousExists
+        && evidence.quarantineEntries.length === 0
+        && !evidence.journal.hasRecords
+      ) {
+        const envelope = envelopeBase("recover", config, null, null);
+        envelope.overall_status = "ok";
+        envelope.data = {
+          outcome: "recovery_not_required",
+          scope: "fresh_installation_without_state"
+        };
+        return { envelope, exitCode: ExitCode.Success };
+      }
+
+      const markerReason = evidence.marker?.reason ?? "marker_missing";
+      const supportedReasons = new Set([
+        "state_primary_missing_previous_present",
+        "state_missing_with_recovery_evidence",
+        "state_corrupt",
+        "state_corrupt_primary"
+      ]);
+      const journalBlocksRecovery = evidence.journal.hasRecords;
+      const recoverableWithoutMarker = evidence.marker === null
+        && evidence.previousExists
+        && evidence.quarantineEntries.length === 0
+        && !journalBlocksRecovery;
+
+      if (
+        !recoverableWithoutMarker
+        && (!supportedReasons.has(markerReason) || !evidence.previousExists || journalBlocksRecovery)
+      ) {
+        throw setupError({
+          exitCode: ExitCode.DriftOrRecoveryRequired,
+          code: "recovery_unresolved",
+          publicMessage: "Recovery outcome cannot be proven with current marker/journal evidence.",
+          nextAction: unresolvedNextAction,
+          evidenceRef: evidence.previousExists ? previousPath : paths.stateDir
+        });
+      }
+
+      const candidate = await this.loadRecoveryCandidate(previousPath);
+      await this.assertRecoveryCandidateTrusted(candidate, config, previousPath);
+      if (candidate.in_flight_operation !== null) {
+        throw setupError({
+          exitCode: ExitCode.DriftOrRecoveryRequired,
+          code: "recovery_unresolved",
+          publicMessage: "Recovery candidate still contains unfinished operation evidence.",
+          nextAction: unresolvedNextAction,
+          stage: candidate.in_flight_operation.stage_id,
+          operationId: candidate.in_flight_operation.id,
+          evidenceRef: previousPath
+        });
+      }
+
+      await saveState(this.deps.fsAdapter, config, candidate);
+      await clearRecoveryMarker(this.deps.fsAdapter, config);
       state = await this.loadStateWithOptions(config, {
         initializeIfMissing: false,
         persistConfigDrift: false,
         readOnly: true
       });
-    } catch {
-      state = null;
-    }
-    if (options.lockOnly === true) {
-      const recovered = await recoverLockOnly(this.deps.fsAdapter, this.deps.processAdapter, config);
+
       const envelope = envelopeBase("recover", config, state, null);
       envelope.overall_status = "ok";
-      envelope.data = recovered as unknown as Record<string, unknown>;
+      envelope.data = {
+        outcome: "recovered_previous_generation",
+        source: previousPath,
+        marker_reason: markerReason
+      };
       return { envelope, exitCode: ExitCode.Success };
+    } catch (error) {
+      const setup = toSetupError(error);
+      const envelope = envelopeBase("recover", config, state, null);
+      envelope.overall_status = setup.exitCode === ExitCode.DriftOrRecoveryRequired ? "blocked" : "failed";
+      envelope.manual_actions.push(setup.nextAction);
+      envelope.error = {
+        code: setup.code,
+        stage: setup.stage,
+        operation_id: setup.operationId,
+        retryable: setup.retryable,
+        public_message: setup.message,
+        next_action: setup.nextAction,
+        evidence_ref: setup.evidenceRef
+      };
+      return { envelope, exitCode: setup.exitCode };
+    } finally {
+      await lock.release();
     }
-    const envelope = envelopeBase("recover", config, state, null);
-    envelope.overall_status = "ok";
-    envelope.manual_actions.push("No full recovery operation is implemented in P02; lock-only recovery is available.");
-    return { envelope, exitCode: ExitCode.Success };
   }
 
   private async runBackupCreate(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
@@ -1178,6 +1417,7 @@ export class SetupEngine {
     let result: Awaited<ReturnType<typeof createBackup>> | null = null;
     try {
       state = await this.loadStateWithOptions(config, { initializeIfMissing: false });
+      this.assertOrdinaryEffectAdmission(state);
       result = await createBackup(
         {
           fsAdapter: this.deps.fsAdapter,
@@ -1256,7 +1496,8 @@ export class SetupEngine {
     const lock = await acquireLock(this.deps.fsAdapter, this.deps.processAdapter, config);
     let state: SetupState | null = null;
     try {
-      state = await this.loadStateWithOptions(config, { initializeIfMissing: true });
+      state = await this.loadStateWithOptions(config, { initializeIfMissing: false });
+      this.assertOrdinaryEffectAdmission(state);
       await executeAuthLogin(this.deps.fsAdapter, this.deps.processAdapter, config);
       state = await this.refreshStageObservation(state, config, "S08", "auth-login");
       await saveState(this.deps.fsAdapter, config, state);
@@ -1317,7 +1558,8 @@ export class SetupEngine {
       consumedCount: 0
     };
     try {
-      state = await this.loadStateWithOptions(config, { initializeIfMissing: true });
+      state = await this.loadStateWithOptions(config, { initializeIfMissing: false });
+      this.assertOrdinaryEffectAdmission(state);
       result = await runSmokeCommand(
         this.deps.fsAdapter,
         this.deps.processAdapter,
@@ -1355,6 +1597,7 @@ export class SetupEngine {
     };
     try {
       state = await this.loadStateWithOptions(config, { initializeIfMissing: false });
+      this.assertOrdinaryEffectAdmission(state);
       result = await runInferenceDisable(this.deps.fsAdapter, this.deps.processAdapter, config);
       state = await this.refreshStageObservation(state, config, "S12", "inference-disable");
       await saveState(this.deps.fsAdapter, config, state);

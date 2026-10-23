@@ -559,7 +559,8 @@ test("A09 corrupted state remains recovery-required across repeated loads", asyn
 
   const second = await engine.run("status", { configPath });
   assert.equal(second.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(second.envelope));
-  assert.equal(second.envelope.error?.code, "recovery_required");
+  assert.equal(second.envelope.error?.code, "state_corrupt");
+  assert.equal(fs.existsSync(path.join(config.paths.setup_state_dir, "recovery-required.json")), false);
 });
 
 test("A04 optional disabled/skipped stays successful and does not become verified", async () => {
