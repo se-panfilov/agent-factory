@@ -8,8 +8,8 @@
 ## 1) Verified code/test tree identity
 
 - Tested remediation commit: `c123cd3b8793dcf96ab24836feb4acfe2f3f3bf9`
-- `git rev-parse HEAD` at final packaging: `c123cd3b8793dcf96ab24836feb4acfe2f3f3bf9`
-- Working tree status at final packaging: **dirty** (uncommitted evidence artifacts and report updates for this handoff)
+- Evidence packaging commit: `82b7524f0fe367fb3e66cbb8c01ba58851366350`
+- Working tree status at final packaging: **clean**
 - No history rewrite, no reset, no merge.
 
 Relevant changed files in this pass:
