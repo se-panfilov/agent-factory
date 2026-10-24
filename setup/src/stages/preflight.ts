@@ -174,22 +174,21 @@ export function createPreflightStage(probe: PreflightProbe): StageModule {
         requiredGates: []
       };
     },
-    async apply(ctx: StageContext): Promise<StageReceipt[]> {
+    async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
       if (lastObservation === null) {
         await this.observe(ctx);
       }
       const observation = lastObservation as StageObservation;
-      return [
-        {
-          operationId: "s01-observe-host",
+      return approvedPlan.operations
+        .map((operation) => ({
+          operationId: operation.id,
           stageId: "S01",
-          resourceId: "host-preflight",
+          resourceId: operation.resourceId,
           observedAt: observation.observedAt,
           checks: observation.checks,
           versions: observation.versions,
           artifacts: []
-        }
-      ];
+        }));
     },
     async verify(ctx: StageContext): Promise<StageReceipt[]> {
       const observation = await this.observe(ctx);

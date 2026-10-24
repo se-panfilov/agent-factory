@@ -131,14 +131,6 @@ function inferStatus(snapshot: RuntimeSnapshot): StageObservation["status"] {
   return "planned";
 }
 
-function requiredGates(snapshot: RuntimeSnapshot): string[] {
-  const gates = ["s05-application-release-reviewed", "s05-source-commit-reviewed"];
-  if (snapshot.release.hasDockerfile || snapshot.release.hasBuildContext) {
-    gates.push("s05-dockerfile-build-reviewed");
-  }
-  return gates;
-}
-
 function parsePlanPreconditions(plan: StagePlan): ParsedPlanPreconditions {
   let archiveSha256: string | null = null;
   let sourceCommit: string | null = null;
@@ -372,6 +364,44 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
               ],
               timeoutSec: 300,
               retryable: false
+            },
+            {
+              id: `s05-materialize-checkout-${config.release.source_commit.slice(0, 12)}`,
+              stageId: "S05",
+              kind: "mutate",
+              resourceId: "application-checkout",
+              risk: "high",
+              gateIds: ["s05-application-release-reviewed", "s05-source-commit-reviewed", "s05-dockerfile-build-reviewed"],
+              preconditions: [
+                `s05_archive_sha256:${config.release.sha256}`,
+                `s05_source_commit:${config.release.source_commit}`,
+                `s05_application_dir:${config.paths.application_dir}`,
+                `s05_setup_cache_dir:${config.paths.setup_cache_dir}`
+              ],
+              sideEffects: [
+                "materialize immutable application checkout without reset"
+              ],
+              timeoutSec: 300,
+              retryable: false
+            },
+            {
+              id: `s05-probe-release-${config.release.source_commit.slice(0, 12)}`,
+              stageId: "S05",
+              kind: "observe",
+              resourceId: "application-release",
+              risk: "medium",
+              gateIds: ["s05-application-release-reviewed", "s05-source-commit-reviewed", "s05-dockerfile-build-reviewed"],
+              preconditions: [
+                `s05_archive_sha256:${config.release.sha256}`,
+                `s05_source_commit:${config.release.source_commit}`,
+                `s05_application_dir:${config.paths.application_dir}`,
+                `s05_setup_cache_dir:${config.paths.setup_cache_dir}`
+              ],
+              sideEffects: [
+                "probe offline runner commands from deployed release without live credentials"
+              ],
+              timeoutSec: 120,
+              retryable: false
             }
           ];
 
@@ -379,13 +409,16 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
       return {
         stageId: "S05",
         optional: false,
-        requiredCapabilities: requiredCapabilitiesForProfile(config.profile),
+        requiredCapabilities: [],
         operations,
         requiredGates: [...new Set(gates)]
       };
     },
     async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
       const config = ctx.config;
+      if (approvedPlan.operations.length === 0) {
+        return [];
+      }
       const parsed = parsePlanPreconditions(approvedPlan);
       if (parsed.archiveSha256 !== config.release.sha256 || parsed.sourceCommit !== config.release.source_commit) {
         throw setupError({
@@ -404,32 +437,20 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
         observedSnapshot.checkout.exists
         && observedSnapshot.checkout.deployedSourceCommit === config.release.source_commit
       ) {
-        return [
-          {
-            operationId: approvedPlan.operations[0]?.id ?? "s05-noop-existing-release",
-            stageId: "S05",
-            resourceId: "application-checkout",
-            observedAt: new Date().toISOString(),
-            checks: {
-              noop: true,
-              already_deployed: true
-            },
-            versions: versionsFromSnapshot(observedSnapshot),
-            artifacts: [config.paths.application_dir]
-          }
-        ];
+        return approvedPlan.operations.map((operation) => ({
+          operationId: operation.id,
+          stageId: "S05",
+          resourceId: operation.resourceId,
+          observedAt: new Date().toISOString(),
+          checks: {
+            noop: true,
+            already_deployed: true
+          },
+          versions: versionsFromSnapshot(observedSnapshot),
+          artifacts: [config.paths.application_dir]
+        }));
       }
 
-      const operationId = approvedPlan.operations[0]?.id ?? `s05-apply-${ctx.installationId}`;
-      const stagingRoot = path.join(
-        config.paths.setup_cache_dir,
-        "application-release",
-        config.release.source_commit,
-        operationId
-      );
-      await adapter.extractArchive(config, stagingRoot);
-
-      const releaseRoot = releaseRootFromManifestPath(stagingRoot, observedSnapshot.release.manifestPath);
       const manifest = observedSnapshot.release.manifest;
       if (manifest === null) {
         throw setupError({
@@ -440,62 +461,129 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
           stage: "S05"
         });
       }
-      const mismatches = await adapter.verifyContentHashes(releaseRoot, manifest.content_hashes);
-      if (mismatches.length > 0) {
-        throw setupError({
-          exitCode: ExitCode.SecurityBoundaryViolation,
-          code: "s05_content_hash_mismatch",
-          publicMessage: "Extracted release content hashes do not match deployment-manifest pins.",
-          nextAction: "Replace archive with reviewed artifact and rerun S05.",
-          stage: "S05",
-          evidenceRef: mismatches.slice(0, 5).join(",")
-        });
-      }
-
-      if (observedSnapshot.checkout.hasGitDir && observedSnapshot.checkout.headCommit !== null) {
-        const commitExists = await adapter.commitExists(config.paths.application_dir, config.release.source_commit);
-        if (!commitExists) {
+      const extractAndValidate = async (operationId: string): Promise<{
+        releaseRoot: string;
+        stagingRoot: string;
+      }> => {
+        const stagingRoot = path.join(
+          config.paths.setup_cache_dir,
+          "application-release",
+          config.release.source_commit,
+          operationId
+        );
+        await adapter.extractArchive(config, stagingRoot);
+        const releaseRoot = releaseRootFromManifestPath(stagingRoot, observedSnapshot.release.manifestPath);
+        const mismatches = await adapter.verifyContentHashes(releaseRoot, manifest.content_hashes);
+        if (mismatches.length > 0) {
           throw setupError({
-            exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-            code: "s05_source_commit_missing",
-            publicMessage: "Configured source commit is absent in existing checkout git history.",
-            nextAction: "Fetch reviewed commit manually or redeploy clean checkout.",
-            stage: "S05"
+            exitCode: ExitCode.SecurityBoundaryViolation,
+            code: "s05_content_hash_mismatch",
+            publicMessage: "Extracted release content hashes do not match deployment-manifest pins.",
+            nextAction: "Replace archive with reviewed artifact and rerun S05.",
+            stage: "S05",
+            evidenceRef: mismatches.slice(0, 5).join(",")
           });
         }
-      }
+        return { releaseRoot, stagingRoot };
+      };
 
-      await adapter.materializeRelease(releaseRoot, parsed.applicationDir);
-      const probes = await adapter.probeCommands(parsed.applicationDir, manifest, config);
-      if (!probes.runnerVerifyHelpOk || !probes.runnerStopHelpOk) {
+      const receipts: StageReceipt[] = [];
+      for (const operation of approvedPlan.operations) {
+        if (operation.id.includes("extract-release")) {
+          const extracted = await extractAndValidate(operation.id);
+          receipts.push({
+            operationId: operation.id,
+            stageId: "S05",
+            resourceId: operation.resourceId,
+            observedAt: new Date().toISOString(),
+            checks: {
+              archive_extracted: true,
+              content_hashes_verified: true
+            },
+            versions: {
+              source_commit: config.release.source_commit,
+              application_version: manifest.application_version
+            },
+            artifacts: [extracted.stagingRoot]
+          });
+          continue;
+        }
+
+        if (operation.id.includes("materialize-checkout")) {
+          if (observedSnapshot.checkout.hasGitDir && observedSnapshot.checkout.headCommit !== null) {
+            const commitExists = await adapter.commitExists(config.paths.application_dir, config.release.source_commit);
+            if (!commitExists) {
+              throw setupError({
+                exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
+                code: "s05_source_commit_missing",
+                publicMessage: "Configured source commit is absent in existing checkout git history.",
+                nextAction: "Fetch reviewed commit manually or redeploy clean checkout.",
+                stage: "S05"
+              });
+            }
+          }
+          const extracted = await extractAndValidate(operation.id);
+          await adapter.materializeRelease(extracted.releaseRoot, parsed.applicationDir);
+          receipts.push({
+            operationId: operation.id,
+            stageId: "S05",
+            resourceId: operation.resourceId,
+            observedAt: new Date().toISOString(),
+            checks: {
+              source_commit_verified: true,
+              content_hashes_verified: true,
+              checkout_materialized: true
+            },
+            versions: {
+              source_commit: config.release.source_commit,
+              application_version: manifest.application_version
+            },
+            artifacts: [parsed.applicationDir]
+          });
+          continue;
+        }
+
+        if (operation.id.includes("probe-release")) {
+          const probes = await adapter.probeCommands(parsed.applicationDir, manifest, config);
+          if (!probes.runnerVerifyHelpOk || !probes.runnerStopHelpOk) {
+            throw setupError({
+              exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
+              code: "s05_runner_probe_failed",
+              publicMessage: "Required runner offline probes (--help) failed after deploy.",
+              nextAction: "Provide valid M0/M1 release with runnable runner_verify/runner_stop commands.",
+              stage: "S05",
+              evidenceRef: probes.details.join(";")
+            });
+          }
+          receipts.push({
+            operationId: operation.id,
+            stageId: "S05",
+            resourceId: operation.resourceId,
+            observedAt: new Date().toISOString(),
+            checks: {
+              runner_verify_help_ok: probes.runnerVerifyHelpOk,
+              runner_stop_help_ok: probes.runnerStopHelpOk
+            },
+            versions: {
+              source_commit: config.release.source_commit,
+              application_version: manifest.application_version
+            },
+            artifacts: [parsed.applicationDir]
+          });
+          continue;
+        }
+
         throw setupError({
-          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-          code: "s05_runner_probe_failed",
-          publicMessage: "Required runner offline probes (--help) failed after deploy.",
-          nextAction: "Provide valid M0/M1 release with runnable runner_verify/runner_stop commands.",
+          exitCode: ExitCode.CliOrSchemaError,
+          code: "s05_unplanned_operation",
+          publicMessage: `S05 received unsupported operation '${operation.id}'.`,
+          nextAction: "Regenerate S05 plan with a supported installer release.",
           stage: "S05",
-          evidenceRef: probes.details.join(";")
+          operationId: operation.id
         });
       }
 
-      const receipt: StageReceipt = {
-        operationId,
-        stageId: "S05",
-        resourceId: "application-release",
-        observedAt: new Date().toISOString(),
-        checks: {
-          source_commit_verified: true,
-          content_hashes_verified: true,
-          runner_verify_help_ok: probes.runnerVerifyHelpOk,
-          runner_stop_help_ok: probes.runnerStopHelpOk
-        },
-        versions: {
-          source_commit: config.release.source_commit,
-          application_version: manifest.application_version
-        },
-        artifacts: [parsed.applicationDir]
-      };
-      return [receipt];
+      return receipts;
     },
     async verify(ctx: StageContext): Promise<StageReceipt[]> {
       const observedSnapshot = await snapshot(ctx.config);

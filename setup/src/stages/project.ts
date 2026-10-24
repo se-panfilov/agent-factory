@@ -764,7 +764,7 @@ export function createProjectStage(
         {
           operationId: approvedPlan.operations[0]?.id ?? `s09-apply-${ctx.installationId}`,
           stageId: "S09",
-          resourceId: "project-checkout-and-proposals",
+          resourceId: "github-project-proposals",
           observedAt: new Date().toISOString(),
           checks: {
             detached_checkout_bound_to_sha: true,
@@ -809,7 +809,7 @@ export function createProjectStage(
         {
           operationId: "s09-verify",
           stageId: "S09",
-          resourceId: "project-checkout-and-proposals",
+          resourceId: "github-project-proposals",
           observedAt: new Date().toISOString(),
           checks: {
             detached_checkout_bound_to_sha: true,

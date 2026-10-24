@@ -738,7 +738,7 @@ export function createServiceStage(
         {
           operationId,
           stageId: "S10",
-          resourceId: "systemd-service",
+          resourceId: "service-layout-and-unit",
           observedAt: new Date().toISOString(),
           checks: {
             release_path_prepared: true,
@@ -774,7 +774,7 @@ export function createServiceStage(
         {
           operationId: "s10-verify",
           stageId: "S10",
-          resourceId: "systemd-service",
+          resourceId: "service-layout-and-unit",
           observedAt: new Date().toISOString(),
           checks: checksFromSnapshot(current),
           versions: versionsFromConfig(ctx.config),

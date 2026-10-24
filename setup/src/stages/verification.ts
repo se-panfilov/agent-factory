@@ -326,7 +326,7 @@ export function createVerificationStage(
         {
           operationId: approvedPlan.operations[0]?.id ?? `s07-apply-${ctx.installationId}`,
           stageId: "S07",
-          resourceId: "runner-ready-offline",
+          resourceId: "runner-offline-verification",
           observedAt: new Date().toISOString(),
           checks: {
             runner_ready_offline: true,
@@ -364,7 +364,7 @@ export function createVerificationStage(
         {
           operationId: "s07-verify",
           stageId: "S07",
-          resourceId: "runner-ready-offline",
+          resourceId: "runner-offline-verification",
           observedAt: new Date().toISOString(),
           checks: {
             runner_ready_offline: true,

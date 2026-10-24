@@ -1,0 +1,23 @@
+{
+  "R12_findings": {
+    "R12-F01": ["setup/src/stages/access.ts", "setup/src/stages/docker.ts", "setup/src/stages/application.ts", "setup/src/stages/verification.ts", "setup/src/stages/project.ts", "setup/src/stages/service.ts", "setup/src/stages/preflight.ts"],
+    "R12-F02": ["setup/src/core/state.ts", "setup/src/core/engine.ts", "setup/tests/integration/core-q1a-r1-state-recovery.test.ts"],
+    "R12-F03": ["setup/src/core/engine.ts", "setup/tests/integration/core-q1a-r1-state-recovery.test.ts"],
+    "R12-F04": ["setup/src/core/engine.ts", "setup/src/core/state.ts", "setup/tests/integration/core-q1a-r1-state-recovery.test.ts"],
+    "R12-F05": ["setup/src/core/engine.ts", "setup/src/core/state.ts", "setup/tests/integration/core-q1a-r1-state-recovery.test.ts"]
+  },
+  "acceptance": {
+    "T01": ["stage-compat-b0bc219.jsonl", "stage-compat-13f6137.jsonl", "stage-compat-fixed-working-tree.jsonl"],
+    "T02": ["setup/tests/integration/access.test.ts", "setup/tests/integration/application.test.ts", "setup/tests/integration/docker-host.test.ts"],
+    "T03": ["setup/tests/integration/core-q1a-r1-state-recovery.test.ts::J02", "setup/tests/integration/core-q1a-r1-state-recovery.test.ts::K10"],
+    "T04": ["setup/tests/integration/core-q1a-r1-state-recovery.test.ts::T04"],
+    "T05": ["setup/tests/integration/core-q1a-r1-state-recovery.test.ts::T05"],
+    "T06": ["setup/tests/integration/core-q1a-r1-state-recovery.test.ts::T06"],
+    "T07": ["setup/tests/integration/core-q1a-r1-state-recovery.test.ts::T07"],
+    "T08": ["setup/tests/integration/core-q1a-r1-state-recovery.test.ts::R1-04", "setup/tests/integration/core-q1a-r1-state-recovery.test.ts::J09"],
+    "T09": ["setup/tests/integration/core-q1a-r1-state-recovery.test.ts::J06", "setup/tests/integration/core-q1a-r1-state-recovery.test.ts::J07", "setup/tests/integration/core-q1a-r1-state-recovery.test.ts::K04"],
+    "T10": ["setup/tests/integration/core-q1a-r1-state-recovery.test.ts::K10", "setup/tests/integration/core-q1a-r1-state-recovery.test.ts::R1-11"],
+    "T11": ["setup/tests/integration/core-q1a-r1-state-recovery.test.ts::J01", "setup/tests/integration/core-q1a-r1-state-recovery.test.ts::J02", "setup/tests/integration/core-q1a-r1-state-recovery.test.ts::K09", "setup/tests/integration/config-images.test.ts::K08"],
+    "T12": ["node24-required-commands.log"]
+  }
+}

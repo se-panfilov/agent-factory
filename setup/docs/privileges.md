@@ -45,3 +45,31 @@ Read-only paths (`status` without `--refresh`, `gate list`, blocked `restore/upd
 - No claim of complete per-effect cancellation/cleanup semantics across every stage internals; this pass aligns journal/recovery protocol but does not finish full process-tree cancellation model.
 - No claim that S03 rollback, S04 host isolation, or live/provider paths are production-qualified.
 - No claim that restore/update/inference probe implementations are complete; these are intentionally blocked entrypoints in Q1A.
+
+## R1.3 operation durability boundary (implemented)
+
+`SetupEngine.apply` executes approved operations one-by-one with durable journal/state boundaries owned by the core engine:
+
+1. persist in-flight operation + state commit manifest update;
+2. append journal `intent`;
+3. run stage operation and validate receipt identity (operation/stage/resource);
+4. append `effect` + `verify` records;
+5. persist state with checkpoint metadata and append journal `checkpoint`;
+6. update `state-commit.json` `last_effect_checkpoint` with exact checkpoint identity.
+
+This means completed operations are durable before the next operation starts, and a late failure preserves known completed progress plus uncertainty for the interrupted operation.
+
+## R1.3 unified recovery evidence admission
+
+Recovery admission is now evaluated from one evidence set (`primary`, `previous`, `quarantine`, `journal`, `state-commit`, `marker`) before any cleanup:
+
+| Evidence | Role | Admission rule |
+|---|---|---|
+| `state.json` (primary) | Current generation candidate | Missing primary does not imply fresh state when any other evidence exists. |
+| `state.json.previous` | Recovery candidate snapshot | Candidate must be trusted and generation-proofed; no in-flight operation allowed. |
+| `state.json.corrupt-*` | Quarantined uncertainty | Any quarantine entry blocks automatic cleanup and marker removal. |
+| `events.jsonl` | Operation history/proof chain | Parse/order/legacy/unresolved evidence blocks ordinary effects and blocks unsafe recover cleanup. |
+| `state-commit.json` | Durable generation metadata | Manifest is standalone evidence; missing/invalid/unsupported/foreign manifest is a typed blocker. |
+| `recovery-required.json` | Recovery phase/decision marker | Prepared decision is immutable; `primary_restored` cleanup performs full admission before marker deletion. |
+
+Read-only diagnostics (`status`, `gate list`, read-only load paths) do not mutate this evidence set.

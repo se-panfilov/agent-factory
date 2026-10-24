@@ -1,0 +1,38 @@
+{
+  "state_write_and_manifest_boundaries": {
+    "tests": [
+      "R1-04 save/journal fault boundaries keep deterministic old/new or recovery outcome",
+      "J09 fault injections assert exact hit and fail when disabled on fresh fixture"
+    ],
+    "boundaries": [
+      "state.json tmp write/fsync/rename/dir-fsync",
+      "state.json.previous tmp write/fsync/rename/dir-fsync",
+      "events.jsonl append/fsync/dir-fsync",
+      "state-commit.json mismatch and generation admission via T04/T05 scenarios"
+    ]
+  },
+  "recovery_decision_restore_cleanup_boundaries": {
+    "tests": [
+      "J06 interrupted recovery boundaries keep candidate durable and resume safely",
+      "J07 committed recovery with marker cleanup failure resumes idempotently",
+      "K04 prepared recovery decision is immutable across previous/current substitution",
+      "T06 primary_restored cleanup admission blocks conflicting quarantine evidence"
+    ],
+    "boundaries": [
+      "prepared marker persist",
+      "primary restore write failures",
+      "marker cleanup remove failure",
+      "post-restore conflicting quarantine evidence before marker cleanup"
+    ]
+  },
+  "progress_durability": {
+    "tests": [
+      "J02 real S02 install/refresh/no-op repeat preserves operation evidence and status/resume",
+      "K10 cross-process interrupted writer keeps reader non-mutating and blocks unsafe recovery"
+    ],
+    "evidence": [
+      "per-operation intent/effect/verify/checkpoint journaling",
+      "in-flight marker persistence across process boundaries"
+    ]
+  }
+}

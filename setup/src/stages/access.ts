@@ -154,24 +154,6 @@ function inferStatus(observation: AccessRuntimeObservation): StageObservation["s
   return "planned";
 }
 
-function collectRequiredGates(observation: AccessRuntimeObservation): string[] {
-  const gates = new Set<string>();
-  if (!observation.manual.providerConsoleConfirmed) {
-    gates.add("s03-provider-console-confirmed");
-  }
-  if (!observation.manual.secondSessionValidated || !observation.manual.secondSessionHasSudo) {
-    gates.add("s03-second-session-validated");
-  }
-  if (!observation.manual.tailscaleLoginConfirmed) {
-    gates.add("s03-tailscale-login-confirmed");
-  }
-  gates.add("s03-ssh-firewall-diff-reviewed");
-  gates.add("s03-firewall-cutover-approved");
-  gates.add("s03-cutover-acknowledged");
-  gates.add("s03-sudo-access-mutations");
-  return [...gates];
-}
-
 interface ParsedPlanPreconditions {
   tailscalePin: string;
   observationHash: string;
@@ -184,14 +166,18 @@ function parsePlanPreconditions(plan: StagePlan): ParsedPlanPreconditions {
     for (const precondition of operation.preconditions) {
       if (precondition.startsWith("s03_tailscale_pin:")) {
         tailscalePin = precondition.slice("s03_tailscale_pin:".length);
-      }
-      if (precondition.startsWith("s03_observation_hash:")) {
+      } else if (precondition.startsWith("s03_observation_hash:")) {
         observationHash = precondition.slice("s03_observation_hash:".length);
       }
     }
   }
 
-  if (tailscalePin === null || tailscalePin.length === 0 || observationHash === null || observationHash.length === 0) {
+  if (
+    tailscalePin === null
+    || tailscalePin.length === 0
+    || observationHash === null
+    || observationHash.length === 0
+  ) {
     throw setupError({
       exitCode: ExitCode.CliOrSchemaError,
       code: "s03_plan_preconditions_missing",
@@ -435,53 +421,11 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
         optional: false,
         requiredCapabilities: [],
         operations,
-        requiredGates: collectRequiredGates({
-          tailscale: {
-            installedVersion: observed.versions.tailscale_installed === undefined || observed.versions.tailscale_installed === "absent"
-              ? null
-              : observed.versions.tailscale_installed,
-            candidateVersion: candidate,
-            loginState: (observed.versions.tailscale_login_state as TailscaleLoginState | undefined) ?? "unknown",
-            privateSshReachable: observed.checks.tailscale_private_ssh_reachable === true
-          },
-          ssh: {
-            port: Number(observed.checks.ssh_port ?? 22),
-            hasMatchBlocks: observed.checks.ssh_has_match_blocks === true,
-            users: [],
-            configHash: observed.versions.ssh_config_hash ?? "unknown"
-          },
-          firewall: {
-            manager: (observed.versions.ufw_manager as FirewallManager | undefined) ?? "unknown",
-            enabled: observed.checks.ufw_enabled === true,
-            defaultIncomingPolicy: "unknown",
-            ipv6Enabled: observed.checks.ufw_ipv6_enabled === true,
-            rulesHash: observed.versions.ufw_rules_hash ?? "unknown"
-          },
-          publicExposure: {
-            ipv4SshReachable: observed.checks.public_ipv4_ssh_reachable === true,
-            ipv6SshReachable: observed.checks.public_ipv6_ssh_reachable === true
-          },
-          manual: {
-            providerConsoleConfirmed: observed.checks.provider_console_confirmed === true,
-            secondSessionValidated: observed.checks.second_session_validated === true,
-            secondSessionHasSudo: observed.checks.second_session_has_sudo === true,
-            tailscaleLoginConfirmed: observed.checks.tailscale_login_confirmed === true,
-            cutoverAckConfirmed: observed.checks.cutover_ack_confirmed === true
-          },
-          rollback: {
-            timerTemplatePresent: observed.checks.rollback_timer_template_present === true,
-            serviceTemplatePresent: observed.checks.rollback_service_template_present === true,
-            armed: observed.checks.rollback_timer_armed === true
-          },
-          diff: {
-            sshd: String(observed.checks.sshd_diff_preview ?? ""),
-            firewall: String(observed.checks.firewall_diff_preview ?? "")
-          }
-        })
+        requiredGates: [...new Set(operations.flatMap((operation) => operation.gateIds))]
       };
     },
     async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
-      const observation = await accessAdapter.observe(ctx);
+      let observation = await accessAdapter.observe(ctx);
       verifyRollbackReadiness(observation);
       verifyManualReadiness(observation);
 
@@ -505,34 +449,10 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
       }
 
       if (approvedPlan.operations.length === 0) {
-        return [
-          {
-            operationId: "s03-noop",
-            stageId: "S03",
-            resourceId: "access-cutover",
-            observedAt: new Date().toISOString(),
-            checks: checksFromObservation(observation),
-            versions: versionsFromObservation(observation),
-            artifacts: []
-          }
-        ];
+        return [];
       }
 
       const planPreconditions = parsePlanPreconditions(approvedPlan);
-      const observedHash = stableHash({
-        checks: checksFromObservation(observation),
-        versions: versionsFromObservation(observation)
-      });
-      if (planPreconditions.observationHash !== observedHash) {
-        throw setupError({
-          exitCode: ExitCode.ManualActionRequired,
-          code: "s03_observation_drifted",
-          publicMessage: "S03 observed access state changed since plan approval.",
-          nextAction: "Regenerate S03 plan and re-approve all access gates.",
-          stage: "S03",
-          evidenceRef: `planned=${planPreconditions.observationHash};observed=${observedHash}`
-        });
-      }
       if (planPreconditions.tailscalePin !== observation.tailscale.candidateVersion) {
         throw setupError({
           exitCode: ExitCode.ManualActionRequired,
@@ -544,73 +464,80 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
         });
       }
 
-      let rollbackPrepared = false;
+      const receipts: StageReceipt[] = [];
+      let rollbackPrepared = observation.rollback.armed;
       let cutoverApplied = false;
       try {
-        if (approvedPlan.operations.some((operation) => operation.id.includes("install-tailscale"))) {
-          await accessAdapter.installPinnedTailscale(planPreconditions.tailscalePin);
-        }
-        if (approvedPlan.operations.some((operation) => operation.id.includes("stage-sshd-firewall"))) {
-          await accessAdapter.stageManagedCutover(ctx, planPreconditions.observationHash);
-          await accessAdapter.validateSshdCandidate(ctx);
-        }
-        if (approvedPlan.operations.some((operation) => operation.id.includes("arm-rollback"))) {
-          await accessAdapter.armRollbackTimer(ctx, ROLLBACK_MINUTES);
-          rollbackPrepared = true;
-        }
-        if (approvedPlan.operations.some((operation) => operation.id.includes("cutover"))) {
-          await accessAdapter.applyCutover(ctx);
-          cutoverApplied = true;
-        }
-        if (approvedPlan.operations.some((operation) => operation.id.includes("verify-tailnet"))) {
-          const privateOk = await accessAdapter.verifyPrivateTailnetAccess(ctx);
-          if (!privateOk) {
+        for (const operation of approvedPlan.operations) {
+          if (operation.id.startsWith("s03-install-tailscale-")) {
+            await accessAdapter.installPinnedTailscale(planPreconditions.tailscalePin);
+          } else if (operation.id.startsWith("s03-stage-sshd-firewall-")) {
+            await accessAdapter.stageManagedCutover(ctx, planPreconditions.observationHash);
+            await accessAdapter.validateSshdCandidate(ctx);
+          } else if (operation.id.startsWith("s03-disarm-rollback-")) {
+            observation = await accessAdapter.observe(ctx);
+            if (!observation.manual.cutoverAckConfirmed) {
+              throw setupError({
+                exitCode: ExitCode.ManualActionRequired,
+                code: "s03_cutover_ack_missing",
+                publicMessage: "Independent cutover acknowledgement is missing.",
+                nextAction: "Validate second login through tailnet and confirm cutover acknowledgement gate.",
+                stage: "S03"
+              });
+            }
+            await accessAdapter.disarmRollbackTimer(ctx);
+            rollbackPrepared = false;
+          } else if (operation.id.startsWith("s03-arm-rollback-")) {
+            await accessAdapter.armRollbackTimer(ctx, ROLLBACK_MINUTES);
+            rollbackPrepared = true;
+          } else if (operation.id.startsWith("s03-cutover-")) {
+            await accessAdapter.applyCutover(ctx);
+            cutoverApplied = true;
+          } else if (operation.id.startsWith("s03-verify-tailnet-")) {
+            const privateOk = await accessAdapter.verifyPrivateTailnetAccess(ctx);
+            if (!privateOk) {
+              throw setupError({
+                exitCode: ExitCode.ManualActionRequired,
+                code: "s03_tailnet_private_login_failed",
+                publicMessage: "Private tailnet SSH verification failed after cutover.",
+                nextAction: "Use provider console and rollback evidence, then rerun S03 recovery.",
+                stage: "S03"
+              });
+            }
+            observation = await accessAdapter.observe(ctx);
+            if (observation.publicExposure.ipv4SshReachable || observation.publicExposure.ipv6SshReachable) {
+              throw setupError({
+                exitCode: ExitCode.ManualActionRequired,
+                code: "s03_public_ssh_still_exposed",
+                publicMessage: "Public IPv4/IPv6 SSH exposure remains after S03 cutover.",
+                nextAction: "Rollback managed cutover and inspect sshd/firewall diff before retry.",
+                stage: "S03",
+                evidenceRef: `ipv4=${observation.publicExposure.ipv4SshReachable};ipv6=${observation.publicExposure.ipv6SshReachable}`
+              });
+            }
+          } else {
             throw setupError({
-              exitCode: ExitCode.ManualActionRequired,
-              code: "s03_tailnet_private_login_failed",
-              publicMessage: "Private tailnet SSH verification failed after cutover.",
-              nextAction: "Use provider console and rollback evidence, then rerun S03 recovery.",
-              stage: "S03"
+              exitCode: ExitCode.CliOrSchemaError,
+              code: "s03_unplanned_operation",
+              publicMessage: `S03 received unsupported operation '${operation.id}'.`,
+              nextAction: "Regenerate S03 plan with a supported installer release.",
+              stage: "S03",
+              operationId: operation.id
             });
           }
-        }
 
-        const after = await accessAdapter.observe(ctx);
-        if (after.publicExposure.ipv4SshReachable || after.publicExposure.ipv6SshReachable) {
-          throw setupError({
-            exitCode: ExitCode.ManualActionRequired,
-            code: "s03_public_ssh_still_exposed",
-            publicMessage: "Public IPv4/IPv6 SSH exposure remains after S03 cutover.",
-            nextAction: "Rollback managed cutover and inspect sshd/firewall diff before retry.",
-            stage: "S03",
-            evidenceRef: `ipv4=${after.publicExposure.ipv4SshReachable};ipv6=${after.publicExposure.ipv6SshReachable}`
-          });
-        }
-        if (!after.manual.cutoverAckConfirmed) {
-          throw setupError({
-            exitCode: ExitCode.ManualActionRequired,
-            code: "s03_cutover_ack_missing",
-            publicMessage: "Independent cutover acknowledgement is missing.",
-            nextAction: "Validate second login through tailnet and confirm cutover acknowledgement gate.",
-            stage: "S03"
-          });
-        }
-        if (approvedPlan.operations.some((operation) => operation.id.includes("disarm-rollback"))) {
-          await accessAdapter.disarmRollbackTimer(ctx);
-          rollbackPrepared = false;
-        }
-
-        return [
-          {
-            operationId: approvedPlan.operations.at(-1)?.id ?? "s03-access-cutover",
+          observation = await accessAdapter.observe(ctx);
+          receipts.push({
+            operationId: operation.id,
             stageId: "S03",
-            resourceId: "access-cutover",
+            resourceId: operation.resourceId,
             observedAt: new Date().toISOString(),
-            checks: checksFromObservation(after),
-            versions: versionsFromObservation(after),
+            checks: checksFromObservation(observation),
+            versions: versionsFromObservation(observation),
             artifacts: []
-          }
-        ];
+          });
+        }
+        return receipts;
       } catch (error) {
         if (rollbackPrepared || cutoverApplied) {
           const rollback = await accessAdapter.rollbackManagedCutover(ctx, "s03-apply-failed");

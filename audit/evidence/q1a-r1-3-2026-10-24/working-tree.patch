@@ -1,0 +1,2665 @@
+diff --git a/audit/copilot-r13-task.ru.md b/audit/copilot-r13-task.ru.md
+new file mode 100644
+index 0000000..e6e62bb
+--- /dev/null
++++ b/audit/copilot-r13-task.ru.md
+@@ -0,0 +1,131 @@
++# Copilot: Q1A-R1.3 — согласованные stage producers и единая recovery admission
++
++Работай в `se-panfilov/agent-factory`. Это задание на реализацию исправлений **R12-F01…R12-F05** из `reviews/agent-factory-r12-audit-13f6137.ru.md`. Заверши пакет, а не только подготовь план.
++
++**Baseline:** `13f6137e414a563f9f4e152f9145245e175a2d1b` (`audit fixes 6`). Если master изменился, зафиксируй актуальный SHA и проверь diff до начала работы. Сохрани чужие изменения; никаких reset/clean/rewrite history.
++
++**Цель:** убрать регрессии настоящих stages, сделать фактический operation progress durable и обеспечить одинаково строгую проверку полного recovery evidence на всех ветках. R1.2 принят частично. Не начинать R2/Q1B, не объявлять весь Q1A/AF-05/06 или production закрытыми.
++
++## 1. Источники и границы
++
++Прочитай `AGENTS.md`, `docs/automation/CONTRACT.md`, `audit/copilot-r12-task.ru.md`, текущий аудит и R1.2 report. Требования этого пакета уточняют уже поставленные обязательства; не ослабляй contract 1.0.0, public CLI/schema/exit codes или security guards.
++
++Разрешены необходимые изменения core, внутренних типов/API execution, stage producers, adapters для injectable boundaries, tests, docs и evidence. Public state schema не расширять через `as any`/невалидируемые поля. Версионированная внутренняя metadata допустима с явными migration/legacy/crash правилами. При настоящем конфликте с нормативным contract назови точное место и предложи решение; независимую часть продолжай.
++
++Тесты: temp FS, fake process/APT/Docker/access/application/network adapters, локальные child processes. Не выполнять real sudo/apt/systemd/SSH/firewall/Docker daemon/OAuth/model/provider/GitHub writes/provisioning. Не merge/deploy/publish. Сохрани generic S08/S14 containment, owner/lock/gates, read-only diagnostics, bounded reads. Полная runtime/privileged qualification остаётся последующими пакетами.
++
++## 2. Зафиксируй regressions до исправления
++
++Распакуй `evidence/agent-factory-r12-evidence-13f6137.zip` вне исходников. Scripts N-cases **подтверждают дефект на baseline**; их exit 0 не означает product PASS. Перенеси scenarios в regression suite с безопасными ожиданиями.
++
++| Evidence | Сейчас | После исправления |
++|---|---|---|
++| S04 same-fixture comparison | Baseline b0bc219 apply/status=0; 13f6137 apply/status=8 после fake install/restart/probe | Настоящий supported S04 через engine завершается корректно; unsupported path блокируется до effects |
++| S07 comparison | Baseline apply/status=0; 13f6137 resource-mismatch/8 после создания offline report | Resource/operation evidence согласовано, нормальный lifecycle работает |
++| S03 / S05 controls | На обеих версиях apply=2: gate representation / capability mismatch, effects=0 | Согласованный production plan проходит структурную admission; capability/security blockers остаются правдивыми |
++| Core N01 | Old effect checkpoint разрешает восстановить previous, хотя manifest описывает newer unknown state | Exit 8, evidence/unknown не потеряны |
++| Core N02 | Остался только state-commit.json: recover объявляет fresh, plan перезаписывает историю | Не fresh; typed recovery blocker, manifest сохранён |
++| Core N03 | primary_restored + противоречащий quarantine → marker удалён, recover=0 | Exit 8 до cleanup, marker/evidence сохранены |
++| Core N04 | Proven missing primary: direct recover=0, но plan→recover=8 из-за reason | Одинаковый безопасный результат при одинаковом proof; ambiguous case остаётся blocked |
++| Core N05 | S02 refresh/simulate завершены, install падает; journal содержит только заранее записанные intents | Durable progress завершённых операций есть до входа в следующую; unknown не replay-ится |
++
++N01/N02/N03 моделируют потерю/смешение recovery artifacts. Не заменяй эти tests отрицательной проверкой заведомо невалидного checksum или чужой installation: inputs должны быть schema-valid и относиться к той же installation.
++
++## 3. Сначала согласуй все поддержанные producers с engine
++
++Составь inventory **S00…S14**, а не только S00/S01/S02/S06/S12+. Для каждой стадии перечисли: выбранный profile/entrypoint, плановые operation IDs/kinds/resources, stage-level и operation gates/capabilities, реальные effects, возвращаемые receipts, no-op path, supported/blocked status. Этот inventory должен отражать конечный код.
++
++Исправь подтверждённые расхождения:
++
++- **S04:** единственный receipt `resource-probe` сейчас относится к verify operation, исключённой из списка effects; мутации install/config/restart/group остаются без собственных receipts. Resource probe создаёт временные Docker resources: согласуй классификацию и cleanup evidence, не скрывай эффект одним словом `verify`.
++- **S07:** plan resource `runner-offline-verification` против receipt `runner-ready-offline`. Убедись, что нормализованная identity подтверждает фактически выполненную operation, а не просто совпадает строкой.
++- **S03:** operation gate IDs и stage required gates должны быть согласованы при manual flags как true, так и false. Ready observation не заменяет требуемый approval. Кроме того, один stage-wide receipt `access-cutover` не соответствует набору operations/resources.
++- **S05:** согласуй profile-dependent plan capabilities и stage declaration, различая входные requirements и проверяемые capabilities устанавливаемого release. Не ослабляй проверку release manifest/probes ради прохождения structural validator. Исправь resources staging/release/checkout и соответствующую семантику receipts.
++- **S09/S10:** проверь и исправь известные resource mismatches из аудита; не объявляй optional live/service support без положенного evidence. При отсутствии capability path должен честно блокироваться до mutation.
++- Прочие producers также проверь. Отсутствие строки в прошлом отчёте не означает совместимость.
++
++Проверки выполняй через настоящие `SetupEngine.plan → gate-approve → apply → status/verify/resume` и настоящие stage modules с fake adapters. Не заменяй stage «идеальным» fake producer, не обнуляй gates/capabilities и не вызывай private validator в обход обычной admission, чтобы получить зелёный test. Подставные prerequisites допустимы, но должны быть явно названы.
++
++Сохрани strict rejection missing/duplicate/foreign/unplanned receipts. Если необходимая producer capability ещё не поддержана, проверь это до первого эффекта и выдай конкретный blocker. Для обязательного supervised scope требуются положительные lifecycle cases; нельзя закрыть пакет глобальным запретом всех stages.
++
++## 4. Реализуй настоящий durable operation boundary
++
++Текущий цикл «все intents → один stage.apply → все receipts» не выполняет поставленное требование. S02 receipts в локальном массиве теряются при поздней ошибке.
++
++- Введи минимальный внутренний executor/callback/step boundary, при котором engine остаётся единственным владельцем core state/journal.
++- Для каждой фактической операции: разрешённая identity/attempt, durable intent перед эффектом, фактическое evidence после эффекта и **до старта следующей operation**, затем предусмотренные verify/checkpoint steps.
++- Не записывай intent операции как доказательство её исполнения. Не создавай receipts задним числом по stage success. Если несколько действий действительно являются одной неделимой operation, это должно быть согласованно выражено в плане и protocol; нельзя молча агрегировать существующий многооперационный план.
++- Если вторая/третья операция падает или процесс убит, сохраняется известный progress предыдущих и uncertainty текущей. Не replay-ить неизвестный эффект и не объявлять stage verified по частичному успеху.
++- Конкретная durable completion boundary для stage-wide postconditions должна быть явно описана; ранний effect receipt не равен общему verified checkpoint.
++- Empty/verify-only plan по-прежнему не вызывает effectful apply. Повторная настоящая S06 остаётся рабочей. Для verification, создающей temporary resources, предусмотрено соответствующее ownership/cleanup evidence; не обещай полную purity такого probe.
++
++Полный process supervisor и все per-effect cancel/expiry гарантии здесь не требуются. Нужен именно минимум execution protocol, без которого R1 journal не отражает фактический progress. Если встроенный механизм позволяет сделать необходимые проверки admission у каждого effect без расширения scope, используй его; не выдавай это за завершение будущего R3/Q1B.
++
++## 5. Единые правила для всего recovery evidence
++
++Сначала определи короткую таблицу состояния: primary, previous, quarantine, journal, manifest, marker/decision, known/unknown generation. Реализуй общий evaluator или эквивалентный единый источник правил; не добавляй несколько противоречащих друг другу if по отдельным N-cases.
++
++Обязательные правила:
++
++1. **Manifest — самостоятельное durable evidence.** Его наличие/ошибка чтения/неподдержанная версия учитываются до fresh initialization и раннего `recovery_not_required`. Commit metadata нельзя молча заменить новым fresh state.
++2. **Latest effect checkpoint не равен latest state generation.** Для восстановления candidate требуется proof, что он представляет безопасное committed поколение и не скрывает более новый unknown state. При `last_state_hash != candidateHash` старого `last_effect_checkpoint` недостаточно. Если допускаешь восстановление через цепочку безопасных metadata-only переходов, эта цепочка должна быть проверяема; иначе exit 8.
++3. **Prepared decision остаётся immutable.** Сохрани уже исправленные проверки substituted previous/current, exact candidate identity и typed persistence failures. Свяжи decision с нужной generation/proof, а не только свободным совпадением hash старого snapshot.
++4. **Cleanup проходит полную admission до удаления marker.** `phase=primary_restored` не разрешает игнорировать новые/противоречащие quarantine/journal/manifest/in-flight artifacts. Не стирай marker перед проверкой blockers; reader не должен «поймать ошибку позже», когда часть evidence уже удалена.
++5. **Marker reason не заменяет evidence.** Proven recovery должно корректно работать как при прямом recover, так и после обычного plan/resume, записавшего marker. Устрани несовместимость `state_missing_with_recovery_evidence` и разрешённого reason; не добавляй blanket разрешение для любого marker.
++6. **Согласуй commit и crash semantics** для state/previous/manifest/journal/checkpoint proof/marker. На каждом partial write допускается только доказуемое продолжение либо честный unresolved. Fresh reset, false consistent, потеря unknown и automatic replay запрещены.
++7. **Read-only остаётся read-only.** Общий evaluator не должен делать cleanup, migration или marker writes в status/gate-list diagnostics. У writable/recovery path один lock; cancel остаётся доступен при damaged state.
++
++Положительные safe recovery fixtures создавай штатными engine/writer calls. Вручную нарисованный matching checkpoint к old previous при несовпадающем current manifest не является safe proof. Проверяй согласованность исходного fixture до удаления/повреждения primary.
++
++## 6. Приёмка T01…T12
++
++ID предыдущих замечаний не переименовывать и не сдвигать. T-критерии ниже дополняют прежние K; mapping findings→tests должен быть точным.
++
++| ID | Test | Обязательный outcome |
++|---|---|---|
++| T01 | Настоящие S04/S07 через engine, same fixtures на b0bc219/13f6137/fix | На baseline 13f6137 воспроизведён дефект; на fix нормальный supported lifecycle и receipts; adapter counts проверены |
++| T02 | S03/S05 structural admission и inventory всех registry stages | Корректно созданные планы не отвергают сами себя; запреты/capabilities/gates не ослаблены |
++| T03 | S02 refresh→simulate→install, поздний error и отдельный process interruption | Evidence предыдущего эффекта durable до входа в следующий; неизвестное сохраняется, stage не false-verified |
++| T04 | Complete old checkpoint + newer manifest state с unknown, primary потерян | Exit 8, previous/manifest/journal не перезаписаны старым поколением |
++| T05 | Manifest-only installation; malformed/foreign/unsupported manifest | Не fresh, typed blocker, отсутствие history reset; чтение не мутирует |
++| T06 | Prepared/primary_restored с конфликтующим primary/previous/quarantine/journal/manifest | Exit 8 до overwrite/cleanup, decision и evidence сохранены |
++| T07 | Доказуемый safe recovery напрямую и после plan/resume marker | Оба пути безопасно восстанавливают одно поколение; неизвестный соседний case blocked |
++| T08 | Manifest и checkpoint proof write/fsync/rename/dir-fsync faults | Exact injected boundary/hit; правильный durable old/new/unknown outcome; повторная команда не делает false success |
++| T09 | Recovery decision/restore/cleanup faults | Независимый fixture на каждую границу; typed exit, correct next action, exact candidate сохранён |
++| T10 | Отдельный writer, barrier до/после важной operation/commit phase, reader/full recover, SIGKILL/restart | Нет скрытых writes читателя, foreign lock уважается, unknown не replay-ится |
++| T11 | Положительные S00→S01/S02/S06, no-op/verify-only traps, legacy guards | Ранее исправленные paths работают; applyCalls=0 для no-op; bounded/schema/attempt guards сохранены |
++| T12 | Полный suite Node 24, чистая code identity, воспроизводимый evidence bundle | Реальные команды/логи/exit codes; корректные finding IDs; PASS ограничен фактическими assertions |
++
++T08 обязан проверять новые `state-commit.json` и `recordEffectCheckpoint` boundaries, а не ссылаться только на прежний state/previous fault test. Учти отсутствие manifest, старый/новый manifest, checkpoint append до binding, cleanup при изменившемся evidence. Полная физическая power-loss qualification здесь не требуется и помечается NOT RUN.
++
++Для каждой fault injection проверь hit/count/path/phase, snapshots/hashes до и после, число adapter effects и результат следующей команды. Исходный fixture восстанавливай заново, не переиспользуй мутировавшую директорию. Fault-off negative control должен выявлять отсутствие ожидаемого fault. Одного `exit != 0`, названия теста или количества тестов недостаточно.
++
++T10 координируй через IPC/условие barrier. Существующий K10 сохранить; он полезен, но проверяет только одну границу. Не называть lock-holder или новый engine в том же процессе полным interrupted-writer matrix.
++
++## 7. Evidence и завершение
++
++На **настоящем Node 24** выполни и сохрани выводы:
++
++```bash
++node --version
++npm --version
++npm --prefix setup ci --ignore-scripts --no-audit --no-fund
++npm --prefix setup run typecheck --silent
++npm --prefix setup run test --silent
++```
++
++Текущий `13f6137` уже независимо проверен на Node v24.19.0: 123/123. Это не освобождает от прогона исправленного кода. Не имитируй Node 24 подменой `process.versions` в validation run; изолированные unit fixtures для version guard — отдельный допустимый тест.
++
++Добавь `docs/audits/remediation-q1a-r1-3-<actual-date>.md`, обнови protocol document, stage inventory и воспроизводимый пакет. В отчёте нужны:
++
++- baseline и точный **tested code commit/tree hash**. Если использовался working tree — приложенный patch, staged/unstaged/untracked состав и hash проверенного code tree, а не только hash неизвестного diff;
++- правильный mapping R11-F01…F06 и R12-F01…F05, K01…K12 и T01…T12: PASS/PARTIAL/OPEN с реальным test/assertion;
++- отдельные code status, local test status, real-host qualification; не объединять в общее «всё PASS»;
++- исправленный полный список producers и оставшиеся намеренно blocked routes с причинами;
++- same-fixture before/after для актуальных counterexamples. Старый N07 в R1.1 runner имеет разные baseline/fixed fixture и не заменяет это сравнение;
++- scripts, machine-readable results, полный test log, фактическая fault matrix и команды воспроизведения из чистых worktrees; никаких обязательных ссылок только на локальную Copilot session directory;
++- checksum ZIP и точная code identity отдельно от packaging metadata; не создавать невозможный self-referencing package/commit hash;
++- correction note к прошлому отчёту с конкретным исправлением finding-ID mapping и packaging SHA, без переписывания прошлых results как будто новые tests выполнялись тогда;
++- real sudo/apt/systemd/SSH/firewall/Docker/OAuth/model/provider/GitHub writes/VM/VPS/power-loss — **NOT RUN**.
++
++Не ослабляй старые assertions ради green. Не закрывай unresolved case ручным удалением marker/journal/manifest. Рутинные решения принимай самостоятельно, продолжай до завершения разрешённого пакета. Если остаётся blocker — назови конкретный invariant и сохрани PARTIAL/OPEN. Верни code SHA, фактические результаты и следующий шаг для review; не начинай R2 автоматически.
+diff --git a/audit/reviews/agent-factory-r12-audit-13f6137.ru.md b/audit/reviews/agent-factory-r12-audit-13f6137.ru.md
+new file mode 100644
+index 0000000..0ea670d
+--- /dev/null
++++ b/audit/reviews/agent-factory-r12-audit-13f6137.ru.md
+@@ -0,0 +1,186 @@
++# Agent Factory: проверка Q1A-R1.2
++
++Дата завершения review: **24 октября 2026**, Europe/Amsterdam.
++
++Проверенный `master`: **`13f6137e414a563f9f4e152f9145245e175a2d1b`**, `audit fixes 6`.
++База: `b0bc219fbdf9fd5c7e07496c2c1d6ee4ebb1d3d4`.
++Входной отчёт: `remediation-q1a-r1-2-2026-10-23.md`.
++
++**Логический вывод, уверенность 99%: R1.2 принят частично. К R2 переходить пока рано.** Несколько прежних дефектов исправлены; появились две подтверждённые регрессии интеграции настоящих stages с engine. Кроме того, в recovery остаются обходы проверки поколения и неизвестного состояния. Результат `123 tests passed` воспроизводится, включая Node 24, но не доказывает заявленный Code PASS.
++
++Следующий пакет — **Q1A-R1.3: согласовать все stage producers с engine и завершить общие правила admission recovery**. ТЗ: `../copilot-r13-task.ru.md`. Код воспроизведений и логи: `evidence/agent-factory-r12-evidence-13f6137.zip`.
++
++## 1. Подтверждённые факты и границы проверки
++
++Уверенность **100% в перечисленных локальных результатах**, в пределах конкретных fixtures и закреплённого SHA.
++
++- Приложенный отчёт совпадает с репозиторным побайтно. SHA-256: `875778422595ef14f8bfa3c2651443004ce32f2daac5759859c370e5343d8627`.
++- Между baseline и HEAD один commit: 22 файла, +2446/−232. Production-код изменён в `core/state.ts`, `core/engine.ts`, `stages/system.ts`, `stages/configuration.ts`.
++- SHA-256 приложенного в репозитории ZIP совпадает с указанным в отчёте: `e7bd287a1b29d17e12f3840ab8ffe802a43dbd0c45c8918aa81f64e37218d097`.
++- В отдельной чистой рабочей копии на **Node v24.19.0 / npm 11.9.0** выполнены `npm ci --ignore-scripts --no-audit --no-fund`, typecheck и полный setup suite: все команды exit **0**, **123 passed / 0 failed / 0 skipped**. Ограничение отчёта «Node 24 NOT RUN» для этой версии теперь закрыто нашим локальным прогоном. Это не квалификация релизного Node artifact, Ubuntu VM или production.
++- Дополнительно выполнены **семь положительных групп**, **пять контрпримеров core/recovery** и сравнение **четырёх настоящих stages** на обеих версиях одним script. Сравнение выявило две регрессии и два прежних blocker. Отдельный положительный probe использует настоящий S06 через настоящий SetupEngine.
++- Исходники репозитория не менялись; рабочая копия чистая. Fixture helpers загружались из compiled tests в память, без запуска их test callbacks и без изменений файлов продукта.
++
++Везде использованы temp FS и fake process/APT/Docker/access/application adapters. Настоящие sudo/apt, SSH/firewall, systemd, Docker daemon, OAuth/model/provider, GitHub writes, VM/VPS, power-loss **NOT RUN**. Полностью заново не проверены неизменённые Q2–Q5 security components. Контрпримеры с потерянными/смешанными snapshots моделируют аварийное восстановление; это не утверждение, что обычный запуск сам удаляет файлы или что доказана удалённая эксплуатация.
++
++## 2. Что действительно исправлено
++
++| Прежнее замечание | Результат | Evidence |
++|---|---|---|
++| R11-F01: completed journal + stale primary принимаются как consistent | Теперь `state_generation_mismatch / 8`; manifest действительно участвует в admission | Core P01, repository K01 |
++| R11-F02: prepared decision принимает изменённый previous или другой current | Оба исходных substitution case блокируются с 8; marker/current сохраняются | Core P03, три независимых fixtures |
++| R11-F02: missing primary + old previous без journal proof | Прежний legacy case теперь остаётся unresolved | Core P04, repository K05 |
++| R11-F03: произвольный receipt закрывает весь stage | Wrong-stage receipt отвергнут, terminal checkpoint не создан, in-flight сохранён | Core P02, repository K07 |
++| R11-F04: empty plan вызывает effectful apply | Trap apply не вызывается | Core P02, repository K09 |
++| R11-F04: настоящая S06 ломается на fresh no-op plan | `observe=verified`, 0 operations, direct apply и engine plan/apply получают 0 | S06 P05, repository K08 |
++| R11-F05: primary restore EIO превращается в unexpected_error/6 | Typed `recovery_primary_persist_failed / 8`, затем exact-candidate retry проходит | Core P03 |
++| R11-F06: child только держит lock | Новый K10 реально выполняет fake effect через engine, останавливается на barrier, получает SIGKILL; reader не пишет, recovery сохраняет unknown | Неизменённый repository K10, полный suite |
++| Положительные S00/S01/S02 paths | Настоящий S00 из default registry, S01 и S02 проходят apply/status/resume; S02 repeat не переустанавливает | `r12-lifecycle-controls.jsonl` |
++
++Последний independent lifecycle control создаёт новый engine в том же процессе; не выдаётся за отдельный процесс. K10 проверяет другую, явно указанную межпроцессную границу.
++
++Исправления сохранять. Возвращать permissive receipts, отключать manifest или удалять неизвестное evidence ради зелёных тестов нельзя.
++
++## 3. Оставшиеся дефекты
++
++**P1** — блокер приёмки текущего remediation-пакета; **P2** — дефект evidence/отчётности. Это не CVSS и не утверждение об эксплуатации с получением root. Наблюдаемые результаты ниже подтверждены тестами; распространение на неисполненные реальные окружения указано отдельно.
++
++### R12-F01 — P1: строгий engine несовместим с рядом настоящих stages
++
++Один script запускает реальные modules и engine с fake adapters/verified prerequisites. План и gates проходят обычные публичные команды, guards не отключаются.
++
++| Stage | Baseline `b0bc219` | Новый `13f6137` | Что успело произойти в fake adapter |
++|---|---|---|---|
++| S04 | apply 0, status 0 | apply 8, status 8, `stage_effect_receipt_unplanned` | Install, config merge, validation, restart, group operation, resource probe и mark-managed — каждый вызван один раз |
++| S07 | apply 0, status 0 | apply 8, status 8, `stage_effect_receipt_resource_mismatch` | Fake offline execution выполнен, `s07-offline-verification.json` создан |
++| S03 | apply 2 | apply 2, `plan_gate_representation_mismatch` | Effects не вызваны; это прежний blocker |
++| S05 | apply 2 | apply 2, `plan_capability_mismatch` | Effects не вызваны; это прежний blocker |
++
++**Причины двух регрессий:** S04 возвращает единственный receipt последней operation `resource-probe`, которая имеет kind `verify` и исключена из `effectOperations`. Остальные операции не имеют собственных receipts. S07 планирует resource `runner-offline-verification`, возвращает `runner-ready-offline`. Новая проверка закономерно отвергает эти producers, но делает это **после их effects**. В S04/S07 остаются in-flight и unresolved intents; последующий status блокируется. Проверка receipts полезна, интеграция не завершена.
++
++**Прежние S03/S05 ошибки:** S03 operation gate IDs включают подтверждения console/second session/tailscale, а stage-level required gates исключают их, когда observed manual-флаги уже true. Engine требует полного представления operation gates. S05 объявляет `requiredCapabilities=[]`, но создаёт план с profile-specific capabilities. Эти расхождения существовали на baseline и не должны называться новыми регрессиями R1.2.
++
++**Статическая inventory, не executable qualification:** несовпадающие resource IDs также остались в S03 (`access-cutover` вместо отдельных resources), S05 (`application-release`/`application-checkout` вместо `application-release-staging`), S09 (`project-checkout-and-proposals` вместо `github-project-proposals`), S10 (`systemd-service` вместо `service-layout-and-unit`). Для S09/S10 здесь не выполнялся полноценный engine flow. S08/S14 по-прежнему запрещены в generic apply; эту защиту сохранять. В S11/S12/S13 простого аналогичного расхождения resource ID при чтении соответствующих мест не обнаружено — это не полный PASS этих stages.
++
++**Исправить:** полный producer inventory, согласованные operation/resource/gate/capability declarations и integration tests через engine. Поддержанные пути должны работать; неподдержанные опасные пути блокируются **до первого эффекта**. Нельзя убрать проверку, принять любой last receipt или изменить только текст ID без соответствующего execution evidence.
++
++Источники: [receipt validation](https://github.com/se-panfilov/agent-factory/blob/13f6137e414a563f9f4e152f9145245e175a2d1b/setup/src/core/engine.ts#L716), [S04 receipt](https://github.com/se-panfilov/agent-factory/blob/13f6137e414a563f9f4e152f9145245e175a2d1b/setup/src/stages/docker.ts#L641), [S07 plan/apply](https://github.com/se-panfilov/agent-factory/blob/13f6137e414a563f9f4e152f9145245e175a2d1b/setup/src/stages/verification.ts#L269), [S03 gates](https://github.com/se-panfilov/agent-factory/blob/13f6137e414a563f9f4e152f9145245e175a2d1b/setup/src/stages/access.ts#L157), [S05 declarations](https://github.com/se-panfilov/agent-factory/blob/13f6137e414a563f9f4e152f9145245e175a2d1b/setup/src/stages/application.ts#L333).
++
++### R12-F02 — P1: recovery применяет разные неполные правила к разным видам evidence
++
++Три независимых контрпримера показывают одну архитектурную проблему: часть recovery paths проверяет только выбранную веткой часть durable evidence.
++
++**N01 — old effect checkpoint перекрывает более новую state generation.** Настоящий engine создаёт успешный checkpoint и manifest. Затем `saveState` сохраняет более новый state с `in_flight_operation`; previous теперь содержит прежний clean checkpoint, `manifest.last_state_hash` указывает на новое состояние, `last_effect_checkpoint` — на старое. После моделирования потери primary recovery получает **0**, восстанавливает старую копию и теряет unknown.
++
++`canStartPreparedRecovery` сравнивает candidate только с `last_effect_checkpoint` и журналом. **`manifest.last_state_hash` при выборе candidate не проверяется.** Новое поле generation существует, но не доказывает, что более позднее неизвестное состояние отсутствует. В probe journal/checkpoint/manifest созданы настоящими writers, вручную успешное proof не рисовалось.
++
++**N02 — manifest-only history считается fresh installation.** После потери primary и previous остаётся `state-commit.json`, созданный после state с in-flight, журнал пуст. `recover` сообщает **0 / fresh_installation_without_state**. Следующий `plan` получает 0, инициализирует clean state и заменяет manifest. Причина: `inspectStateEvidence`, missing-state residual checks и ранний fresh return не учитывают существование commit manifest. Metadata о прежнем состоянии исчезает из принятого решения.
++
++**N03 — primary_restored cleanup игнорирует противоречащее quarantine evidence.** Настоящий safe recovery прерывается injected error удаления marker; остаётся `phase=primary_restored`. В fixture добавляется quarantined snapshot с неизвестной операцией. Повторный recover получает **0**, удаляет marker, не учитывая quarantine. Сам файл quarantine остаётся, но больше не препятствует признанию state consistent. Ветка `primary_restored` расположена до проверок quarantine/unsafe journal и вызывает cleanup до итогового load. При unsafe journal итоговый load может вернуть 8, но marker уже удалён; в выполненном quarantine case получается именно ложный success.
++
++**Исправить:** единая оценка **всего** evidence для fresh detection, candidate selection, prepared resume и cleanup. Manifest должен входить в evidence inventory; latest effect checkpoint не равен latest state generation. Любое несовпадение или более новый unknown блокирует overwrite/cleanup, пока не доказано безопасное согласование. Marker source/reason/phase — описание транзакции, не самостоятельное разрешение потерять остальные artifacts.
++
++Источники: [candidate admission](https://github.com/se-panfilov/agent-factory/blob/13f6137e414a563f9f4e152f9145245e175a2d1b/setup/src/core/engine.ts#L1698), [fresh/cleanup branches](https://github.com/se-panfilov/agent-factory/blob/13f6137e414a563f9f4e152f9145245e175a2d1b/setup/src/core/engine.ts#L1490), [evidence inventory](https://github.com/se-panfilov/agent-factory/blob/13f6137e414a563f9f4e152f9145245e175a2d1b/setup/src/core/state.ts#L1077), [missing-state branch](https://github.com/se-panfilov/agent-factory/blob/13f6137e414a563f9f4e152f9145245e175a2d1b/setup/src/core/state.ts#L1224).
++
++### R12-F03 — P1: штатный plan делает доказуемое recovery недоступным
++
++**N04.** На двух независимых fixtures получены одинаковые по смыслу state generations с настоящими engine-generated journal/manifest proof. Candidate совпадает с committed current; primary затем удалён для моделирования потери файла.
++
++- Сразу `recover` → **0**.
++- Сначала `plan` → **8**, записывает `reason=state_missing_with_recovery_evidence`; затем `recover` → **8 / recovery_unresolved**.
++
++Причина: writable load с существующим журналом всегда выбирает `state_missing_with_recovery_evidence`, а `canStartPreparedRecovery` допускает только отсутствие marker или reason `state_primary_missing_previous_present`. Последняя причина loader-ом выбирается именно **без journal**, хотя recovery требует journal checkpoint. Получается несовместимость producer marker и consumer recovery.
++
++Тестовый helper `seedProvenMissingPrimaryFixture` вручную записывает допущенный reason при уже существующем журнале, скрывая настоящий путь через loader. Кроме того, он вручную создаёт checkpoint старого candidate при более новом `last_state_hash`; такая fixture не должна автоматически считаться proof безопасного поколения — это близко к ошибке F02/N01.
++
++**Исправить:** классифицировать marker совместно с содержимым evidence. Не добавлять blanket allow для любого reason; доказуемый safe case должен работать после обычной диагностики/неудачной mutating-команды, а противоречивый — оставаться blocked. Положительные fixtures создавать настоящими writer paths и проверять их согласованность до инъекции отказа.
++
++Источники: [marker producer](https://github.com/se-panfilov/agent-factory/blob/13f6137e414a563f9f4e152f9145245e175a2d1b/setup/src/core/state.ts#L1227), [marker consumer](https://github.com/se-panfilov/agent-factory/blob/13f6137e414a563f9f4e152f9145245e175a2d1b/setup/src/core/engine.ts#L1698), [test helper](https://github.com/se-panfilov/agent-factory/blob/13f6137e414a563f9f4e152f9145245e175a2d1b/setup/tests/integration/core-q1a-r1-state-recovery.test.ts#L681).
++
++### R12-F04 — P1 для приёмки: per-operation progress по-прежнему не durable
++
++**N05, настоящая S02 с fake AptAdapter.** Metadata refresh и simulate успешно выполнены; install бросает injected EIO. В момент входа в каждый adapter method и после отказа на диске только **три intent**, **ни одного effect receipt**. Все intents записаны заранее; все receipts должны были попасть на диск только после возврата общего `stage.apply`.
++
++Новые S02 receipts действительно создаются по операциям, но находятся в локальном массиве. После ошибки поздней операции этот массив не возвращается. Engine по-прежнему исполняет stage целиком, затем пишет все effect/verify/checkpoint records. Поэтому фраза отчёта «per-operation intent/effect/verify/checkpoint» сильнее реализованного поведения.
++
++В выполненном case uncertainty сохраняется и replay блокируется — **не заявляется обход безопасности или ложный completed**. Дефект в невыполненном требовании сохранять фактический progress между эффектами, что существенно для crash/recovery и цены ручного восстановления. Он был прямо включён в предыдущее ТЗ, не является новым требованием полного process supervisor.
++
++**Исправить:** минимальный исполняемый operation boundary, на котором engine сохраняет evidence перед переходом к следующей operation. Stage-owned запись core state запрещена. Возможен callback/executor, но он должен вызываться у настоящего эффекта. Нельзя заменить это ещё одним циклом journal writes после stage success или выдуманными receipts после crash.
++
++Источники: [предварительные intents и bulk apply](https://github.com/se-panfilov/agent-factory/blob/13f6137e414a563f9f4e152f9145245e175a2d1b/setup/src/core/engine.ts#L984), [S02 receipts в памяти](https://github.com/se-panfilov/agent-factory/blob/13f6137e414a563f9f4e152f9145245e175a2d1b/setup/src/stages/system.ts#L337).
++
++### R12-F05 — P2: приёмка и отчёт не соответствуют исходным ID и покрытию
++
++- **Перепутаны finding IDs.** Исходный R11-F02 — recovery, R11-F03 — receipts, R11-F04 — no-op, R11-F05 — typed errors, R11-F06 — evidence. В отчёте и `probe-results.json` F02 ссылается на receipts, F03 на no-op, F04 на recovery, F05 на missing primary, F06 на typed I/O. Полный PASS по этой таблице не трассируется к исходному аудиту.
++- **K03 PASS не доказан:** R1-04 покрывает старые state/previous writes и append intent; J06 — несколько recovery boundaries. В этих матрицах нет нового `state-commit.json` write/fsync/rename/dir-fsync, `recordEffectCheckpoint`, всех фаз checkpoint binding и cleanup после противоречащего evidence. В R1-04 state fixtures ещё переиспользуются между boundaries.
++- **Inventory пропустила S03–S05/S07/S09–S11.** Упоминание S12+ inventory-only не заменяет проверку stages обычного supervised маршрута. Standalone stage tests проходят, но не запускают новую receipt validation engine.
++- **Before/after относится к старому R1.1 probe**, а не к полному набору R11 counterexamples. Его `baseline` и `fixed` modes по-прежнему имеют разные N07 fixtures. Исторический runner полезен, но не доказывает весь R1.2 и не является same-fixture сравнением N07.
++- **Идентичность исходного test run ограничена:** опубликованы baseline HEAD и hash working-tree patch, но не сам patch с явным учётом index/untracked содержимого. После merge этот пробел для нашего review устранён независимым прогоном точного `13f6137`; нельзя задним числом приписывать его прежней сессии Copilot.
++- Correction note к старому отчёту добавлена, но неверный полный packaging SHA там остался без конкретного исправленного значения. Это небольшой редакционный долг, не security blocker.
++
++Положительное: число тестов 123 и checksum ZIP правдивы; Node 26 явно раскрыт, а K12 тогда честно помечен PARTIAL. Новый K10 — реальное улучшение теста, его не следует смешивать с прежним lock-only control.
++
++Источники: [матрица отчёта](https://github.com/se-panfilov/agent-factory/blob/13f6137e414a563f9f4e152f9145245e175a2d1b/docs/audits/remediation-q1a-r1-2-2026-10-23.md#L48), [старые fault boundaries](https://github.com/se-panfilov/agent-factory/blob/13f6137e414a563f9f4e152f9145245e175a2d1b/setup/tests/integration/core-q1a-r1-state-recovery.test.ts#L970), [J06](https://github.com/se-panfilov/agent-factory/blob/13f6137e414a563f9f4e152f9145245e175a2d1b/setup/tests/integration/core-q1a-r1-state-recovery.test.ts#L2003).
++
++## 4. Исправленная связь со старым аудитом и K-критериями
++
++| Исходный ID | Review | Что остаётся |
++|---|---|---|
++| R11-F01 | PASS для исходного stale-primary counterexample | State/manifest binding работает; отдельные recovery обходы перечислены в новом F02 |
++| R11-F02 | PARTIAL | Prepared substitution/legacy case исправлены; latest-generation, manifest-only и cleanup evidence ещё неполны |
++| R11-F03 | PARTIAL | Receipt matching есть; producers и durable operation boundaries не согласованы |
++| R11-F04 | PASS в проверенном scope | Empty/verify-only trap и настоящая S06 исправлены |
++| R11-F05 | PASS для проверенных EIO paths | Typed primary restore failure подтверждён |
++| R11-F06 | PARTIAL | Настоящий interrupted writer добавлен; mapping/coverage/inventory claims нуждаются в исправлении |
++
++| Критерий | Review | Пояснение |
++|---|---|---|
++| K01 | PASS для исходного stale state | Более новый manifest/current mismatch отвергается обычным load |
++| K02 | PARTIAL | Базовые законные writes работают; всей заявленной generation/lifecycle matrix нет |
++| K03 | PARTIAL | Новый manifest/checkpoint proof commit не покрыт полной fault matrix |
++| K04 | PASS исходных substitutions | Previous/current подмена при prepared marker отвергается |
++| K05 | PARTIAL | Legacy missing-primary исправлен; manifest-only history и другая newer uncertainty обходят правила |
++| K06 | PARTIAL | Typed faults и retry работают; F02/F03 нарушают общую recovery acceptance |
++| K07 | PARTIAL | Bad receipt отклоняется, но реальные producers и execution boundaries неполны |
++| K08 | PASS перечисленных S00/S01/S02/S06 controls | Это не PASS остальных stages; S04/S07 имеют отдельные подтверждённые регрессии |
++| K09 | PASS проверенных no-op/verify-only paths | Effectful apply пропускается |
++| K10 | PASS проверенной interrupted-writer границы | После effect до receipt: SIGKILL, reader/recovery сохраняют unknown; не все crash phases |
++| K11 | PASS прежних целевых regressions в suite | Новые commit/recovery контрпримеры остаются отдельными blockers |
++| K12 | Node 24 local test PASS; evidence acceptance PARTIAL | 123/123 на Node 24 подтверждены нами; полнота отчёта и coverage требуют коррекции |
++
++## 5. Логические выводы и дальнейший план
++
++**Уверенность 99%:** препятствие переходу к R2 — конкретные воспроизводимые ошибки, а не отсутствие Node 24 или отказ запускать VM. R1.2 закрывает часть предыдущего списка, но Code PASS всего пакета преждевременен.
++
++**Рекомендация, уверенность 97%:** ограниченный R1.3 в таком порядке:
++
++1. Зафиксировать failing regressions на настоящих producers через engine, затем согласовать operation IDs/resources/gates/capabilities и durable execution boundary. Это устранит повторение ситуации «строгий reader/validator сломал другой stage».
++2. Объединить оценку recovery evidence для fresh/start/resume/cleanup; отдельно проверить latest state generation и latest effect checkpoint. Исправить N01…N04, сохранив положительные controls.
++3. Прогнать новый commit-manifest/checkpoint fault matrix с независимыми fixtures и настоящий writer interruption на ключевых фазах. Safe fixtures должны получаться штатными writers.
++4. Обновить точный ID mapping и evidence; review завершённого пакета, затем R2.
++
++Прежний путь до production сохраняется:
++
++| Этап | Выходной критерий |
++|---|---|
++| R2 | Fresh plan/gate/resource/host/release binding и dependency admission |
++| R3 / Q1B | Оставшиеся cancel/expiry/outcome/redaction гарантии, process-tree supervision, timeout/cleanup и узкая привилегированная граница |
++| Q2 | Проверенные sudo/root writes, SSH/firewall rollback, signed/pinned APT, Docker isolation/enforcement/cleanup; AF-08/09/31 |
++| Q3 | Запускаемый упакованный supervised offline MVP и реальный M0/release evidence |
++| Q4 | Auth/live/secrets, неизвестные платные результаты, backup/restore |
++| Q5 | Service/update/inference/platforms только при своих capabilities; optional features можно оставить явно blocked для MVP |
++| Q6 | CI/release qualification и disposable Ubuntu 24.04 amd64 matrix, затем отдельно разрешённый supervised toy live smoke |
++
++Scope первого релиза остаётся supervised, cloud-only, read-only toy runner. Ни одна из текущих core правок не доказывает безопасность реального sudo/SSH cutover/Docker daemon. Full production и unattended остаются более поздними критериями.
++
++## 6. Что сделать владельцу
++
++1. Передайте Copilot этот аудит, `../copilot-r13-task.ru.md` и ZIP evidence. Вставьте ТЗ целиком в новый task.
++2. Попросите выполнить R1.3 до конца, вернуть точный code SHA и отчёт с фактическими assertions; не запускать реальные host/live paths и не переходить автоматически к R2.
++3. Передайте результат на review. Сейчас не требуется выдавать credentials, настраивать sudo, запускать VM или вручную исправлять state/marker/journal. Node 24 для проверки текущего SHA уже использован здесь.
++
++## 7. Самопроверка выводов
++
++Слабое место этой проверки — отсутствие реальной ОС/daemon qualification и ограниченное число crash schedules; безопасность всего проекта неизвестна. Но отрицательные выводы о текущем пакете опираются на конкретные результаты, а не гипотезы. S03/S05 явно отделены от новых регрессий. N05 сохраняет uncertainty и поэтому не представлен как ложный success.
++
++Практический вывод из повторяющихся remediation passes: число tests и наличие поля hash не должны быть основной метрикой завершения. Нужны две сквозные проверки: каждый supported stage через настоящий engine и единые правила принятия решений по полному набору recovery artifacts. Это смена способа приёмки уже поставленных требований, а не расширение scope до новой workflow-платформы.
+diff --git a/setup/docs/privileges.md b/setup/docs/privileges.md
+index 9677ec3..f7b77f1 100644
+--- a/setup/docs/privileges.md
++++ b/setup/docs/privileges.md
+@@ -45,3 +45,31 @@ Read-only paths (`status` without `--refresh`, `gate list`, blocked `restore/upd
+ - No claim of complete per-effect cancellation/cleanup semantics across every stage internals; this pass aligns journal/recovery protocol but does not finish full process-tree cancellation model.
+ - No claim that S03 rollback, S04 host isolation, or live/provider paths are production-qualified.
+ - No claim that restore/update/inference probe implementations are complete; these are intentionally blocked entrypoints in Q1A.
++
++## R1.3 operation durability boundary (implemented)
++
++`SetupEngine.apply` executes approved operations one-by-one with durable journal/state boundaries owned by the core engine:
++
++1. persist in-flight operation + state commit manifest update;
++2. append journal `intent`;
++3. run stage operation and validate receipt identity (operation/stage/resource);
++4. append `effect` + `verify` records;
++5. persist state with checkpoint metadata and append journal `checkpoint`;
++6. update `state-commit.json` `last_effect_checkpoint` with exact checkpoint identity.
++
++This means completed operations are durable before the next operation starts, and a late failure preserves known completed progress plus uncertainty for the interrupted operation.
++
++## R1.3 unified recovery evidence admission
++
++Recovery admission is now evaluated from one evidence set (`primary`, `previous`, `quarantine`, `journal`, `state-commit`, `marker`) before any cleanup:
++
++| Evidence | Role | Admission rule |
++|---|---|---|
++| `state.json` (primary) | Current generation candidate | Missing primary does not imply fresh state when any other evidence exists. |
++| `state.json.previous` | Recovery candidate snapshot | Candidate must be trusted and generation-proofed; no in-flight operation allowed. |
++| `state.json.corrupt-*` | Quarantined uncertainty | Any quarantine entry blocks automatic cleanup and marker removal. |
++| `events.jsonl` | Operation history/proof chain | Parse/order/legacy/unresolved evidence blocks ordinary effects and blocks unsafe recover cleanup. |
++| `state-commit.json` | Durable generation metadata | Manifest is standalone evidence; missing/invalid/unsupported/foreign manifest is a typed blocker. |
++| `recovery-required.json` | Recovery phase/decision marker | Prepared decision is immutable; `primary_restored` cleanup performs full admission before marker deletion. |
++
++Read-only diagnostics (`status`, `gate list`, read-only load paths) do not mutate this evidence set.
+diff --git a/setup/docs/stage-inventory.md b/setup/docs/stage-inventory.md
+new file mode 100644
+index 0000000..0f0a4ce
+--- /dev/null
++++ b/setup/docs/stage-inventory.md
+@@ -0,0 +1,27 @@
++# Stage producer inventory (S00…S14, Q1A-R1.3)
++
++This inventory reflects the **current executable code** (`setup/src/core/engine.ts`, `setup/src/stages/*.ts`) and is used for structural admission/recovery audits.
++
++| Stage | Profiles / deps | Planned operations → resources | Gates / capabilities | No-op path | Current admission status |
++|---|---|---|---|---|---|
++| S00 | supervised, service / `[]` | `s00-bootstrap-check` → `bootstrap-receipt` | Stage gate `bootstrap-required` when receipt is absent; no stage capabilities | bootstrap receipt present | supported |
++| S01 | supervised, service / `[S00]` | `s01-observe-host`, `s01-verify-host` → `host-preflight` | `runner-readonly`; no manual gates | none (always re-observable) | supported |
++| S02 | supervised, service / `[S01]` | `apt-update` → `apt-metadata`; `apt-simulate` → `apt-simulation`; `apt-install` → `system-packages` | Gates: `s02-sudo-apt-update`, `s02-sudo-apt-install`, optional `s02-reboot-required` | operations list can be empty when packages already match and metadata is fresh | supported |
++| S03 | supervised, service / `[S02]` | `install-tailscale` → `tailscale-package`; `stage-sshd-firewall` → `access-managed-diff`; `arm-rollback` / `disarm-rollback` → `access-rollback-timer`; `cutover` → `ssh-firewall-cutover`; `verify-tailnet` → `tailnet-connectivity` | Manual gates are operation-derived and include console/session/login/cutover approvals; no stage capabilities | `observed.status=verified` → empty plan/apply | supported (manual/security gates enforced) |
++| S04 | supervised, service / `[S03]` | `install-packages` → `docker-package-set`; `daemon-log-config-merge` → `docker-daemon-log-config`; `daemon-validate-restart` → `docker-daemon-service`; `docker-group-membership` → `docker-group-membership`; `resource-probe` → `docker-fixture-probe`; `mark-managed-installation` → `docker-managed-installation` | Gates: sudo/config-diff/restart/group-ack (+ relogin gate when needed); no stage capabilities | `observed.status=verified` → empty plan/apply | supported; unmanaged/foreign Docker stays blocked before mutation |
++| S05 | supervised, service / `[S04]` | `extract-release` → `application-release-staging`; `materialize-checkout` → `application-checkout`; `probe-release` → `application-release` | Stage capabilities `[]`; operation gates: release reviewed, source commit reviewed, dockerfile-build reviewed | `observed.status=verified` → empty plan/apply | supported |
++| S06 | supervised, service / `[S05]` | `s06-apply-*` → `configuration-and-pinned-image` | `runner-readonly`; gates: `s06-policy-reviewed`, optional `s06-local-build-approved` | `observed.status=verified` → empty plan/apply | supported |
++| S07 | supervised, service / `[S06]` | `s07-offline-verify-*` → `runner-offline-verification` | `runner-readonly`; gate `s07-offline-approval` | `observed.status=verified` → empty plan/apply | supported |
++| S08 | supervised, service / `[S07]` | `s08-apply-*` → `auth-and-live-smoke` | `runner-live-smoke`; gates `s08-auth-owner-ack`, `s08-live-smoke-owner-ack` | `observed.status=verified` → empty plan/apply | **generic `apply` blocked by engine**; use dedicated `auth/smoke` commands |
++| S09 | supervised, service / `[S08]` (optional) | `s09-project-proposal-*` → `github-project-proposals` | `runner-readonly`; gates include `s09-github-scopes-reviewed` and optional baseline-review gate | `observed.status=verified` → empty plan/apply | supported optional stage |
++| S10 | service / `[S09]` | `s10-service-apply-*` → `service-layout-and-unit` | service capability checks are adapter-driven; gate `s10-service-owner-approved` | `observed.status=verified` → empty plan/apply | supported only for service profile |
++| S11 | supervised, service / `[S07]` | `s11-ops-verify-*` → `operations-backup-health` | no stage capabilities; gate `s11-backup-owner-approved` when degraded | `observed.status=verified` → empty plan/apply | supported |
++| S12 | supervised, service / `[S09]` (optional) | `s12-ollama-enable-*` → `s12-ollama-private-serving` | no stage capabilities; gate `s12-local-inference-owner-approved` | `verified/skipped` → empty plan/apply | supported optional stage (blocked when host/capability checks fail) |
++| S13 | supervised, service / `[S09]` (optional) | `s13-platform-proposal-*` → `s13-platform-proposal` | capabilities `platform-browser-smoke`, `platform-collector`; gate `s13-platform-owner-approved` | `observed.status=verified` → empty plan/apply | supported optional stage |
++| S14 | supervised, service / `[S07]` | `s14-update-apply-*` → `s14-maintenance-update` | capabilities `app-pause/app-stop/app-status/app-migrate/app-recover`; gate `s14-update-owner-approved` | `observed.status=verified` → empty plan/apply | **generic `apply` blocked by engine**; use dedicated update flow |
++
++## Notes relevant to R1.3
++
++- Engine-side receipt admission remains strict (missing/duplicate/foreign/unplanned receipts are rejected).
++- Generic apply keeps containment for S08/S14.
++- Operation-level journal durability is enforced in engine; stage modules remain adapter orchestration boundaries.
+diff --git a/setup/src/core/engine.ts b/setup/src/core/engine.ts
+index 3423fd1..c8ed9ed 100644
+--- a/setup/src/core/engine.ts
++++ b/setup/src/core/engine.ts
+@@ -37,7 +37,6 @@ import {
+   FALLBACK_MACHINE_ID_HASH,
+   inspectStateEvidence,
+   loadState,
+-  readStateCommitManifest,
+   recordEffectCheckpoint,
+   restorePrimaryState,
+   saveState,
+@@ -46,7 +45,8 @@ import {
+   withInFlightOperation,
+   withLastError,
+   writeRecoveryMarkerRecord,
+-  type LoadStateOptions
++  type LoadStateOptions,
++  type StateEvidenceSummary
+ } from "./state";
+ import { validateContractSchema } from "./validators";
+ 
+@@ -546,6 +546,127 @@ export class SetupEngine {
+     }
+   }
+ 
++  private journalUnsafeForRecovery(evidence: StateEvidenceSummary): boolean {
++    return evidence.journal.oversized
++      || evidence.journal.parseError
++      || evidence.journal.unknownOrder
++      || evidence.journal.legacyFormat
++      || evidence.journal.unresolvedOperationIds.length > 0;
++  }
++
++  private checkpointMatchesManifest(evidence: StateEvidenceSummary): boolean {
++    const manifestCheckpoint = evidence.commitManifest?.last_effect_checkpoint;
++    const latestCheckpoint = evidence.journal.latestCheckpoint;
++    if (manifestCheckpoint === undefined) {
++      return latestCheckpoint === null;
++    }
++    if (latestCheckpoint === null) {
++      return false;
++    }
++    return manifestCheckpoint.attempt_id === latestCheckpoint.attemptId
++      && manifestCheckpoint.operation_id === latestCheckpoint.operationId
++      && manifestCheckpoint.stage === latestCheckpoint.stage
++      && manifestCheckpoint.sequence === latestCheckpoint.sequence
++      && manifestCheckpoint.state_hash === latestCheckpoint.stateHash;
++  }
++
++  private async assertRecoveryCleanupAdmission(
++    config: SetupConfig,
++    paths: ReturnType<typeof buildStatePaths>,
++    evidence: StateEvidenceSummary,
++    candidateStateHash: string,
++    unresolvedNextAction: string
++  ): Promise<SetupState> {
++    if (!evidence.stateExists) {
++      throw setupError({
++        exitCode: ExitCode.DriftOrRecoveryRequired,
++        code: "recovery_unresolved",
++        publicMessage: "Recovery marker indicates committed primary state, but current primary state is missing.",
++        nextAction: unresolvedNextAction,
++        evidenceRef: paths.stateFile
++      });
++    }
++    if (evidence.quarantineEntries.length > 0) {
++      throw setupError({
++        exitCode: ExitCode.DriftOrRecoveryRequired,
++        code: "recovery_unresolved",
++        publicMessage: "Recovery evidence contains quarantined primary snapshots requiring manual reconciliation.",
++        nextAction: unresolvedNextAction,
++        evidenceRef: path.join(paths.stateDir, evidence.quarantineEntries[0] ?? "")
++      });
++    }
++    if (this.journalUnsafeForRecovery(evidence)) {
++      throw setupError({
++        exitCode: ExitCode.DriftOrRecoveryRequired,
++        code: "recovery_unresolved",
++        publicMessage: "Recovery evidence contains unsafe journal history that cannot be reconciled automatically.",
++        nextAction: unresolvedNextAction,
++        evidenceRef: evidence.journal.evidenceRef
++      });
++    }
++    if (evidence.commitManifest === null) {
++      throw setupError({
++        exitCode: ExitCode.DriftOrRecoveryRequired,
++        code: "recovery_unresolved",
++        publicMessage: "Committed state manifest is missing; cleanup cannot prove recovered generation safety.",
++        nextAction: unresolvedNextAction,
++        evidenceRef: paths.commitManifestFile
++      });
++    }
++    if (evidence.commitManifest.installation_id !== config.installation_id) {
++      throw setupError({
++        exitCode: ExitCode.DriftOrRecoveryRequired,
++        code: "recovery_unresolved",
++        publicMessage: "Commit metadata installation identity does not match current config.",
++        nextAction: unresolvedNextAction,
++        evidenceRef: paths.commitManifestFile
++      });
++    }
++    if (!this.checkpointMatchesManifest(evidence)) {
++      throw setupError({
++        exitCode: ExitCode.DriftOrRecoveryRequired,
++        code: "recovery_unresolved",
++        publicMessage: "Recovery cleanup cannot prove journal checkpoint identity against commit metadata.",
++        nextAction: unresolvedNextAction,
++        evidenceRef: paths.commitManifestFile
++      });
++    }
++
++    const restoredPrimary = await this.loadRecoveryCandidate(paths.stateFile);
++    await this.assertRecoveryCandidateTrusted(restoredPrimary, config, paths.stateFile);
++    if (restoredPrimary.in_flight_operation !== null) {
++      throw setupError({
++        exitCode: ExitCode.DriftOrRecoveryRequired,
++        code: "recovery_unresolved",
++        publicMessage: "Primary state still contains unfinished operation evidence after recovery commit.",
++        nextAction: unresolvedNextAction,
++        stage: restoredPrimary.in_flight_operation.stage_id,
++        operationId: restoredPrimary.in_flight_operation.id,
++        evidenceRef: paths.stateFile
++      });
++    }
++    const restoredHash = stateHash(restoredPrimary);
++    if (restoredHash !== candidateStateHash) {
++      throw setupError({
++        exitCode: ExitCode.DriftOrRecoveryRequired,
++        code: "recovery_unresolved",
++        publicMessage: "Recovery commit marker does not match current primary snapshot.",
++        nextAction: unresolvedNextAction,
++        evidenceRef: paths.stateFile
++      });
++    }
++    if (evidence.commitManifest.last_state_hash !== restoredHash) {
++      throw setupError({
++        exitCode: ExitCode.DriftOrRecoveryRequired,
++        code: "recovery_unresolved",
++        publicMessage: "Commit manifest generation does not match recovered primary state.",
++        nextAction: unresolvedNextAction,
++        evidenceRef: paths.commitManifestFile
++      });
++    }
++    return restoredPrimary;
++  }
++
+   private stageStatusesForSelection(
+     state: SetupState,
+     stageIds: StageId[]
+@@ -709,10 +830,6 @@ export class SetupEngine {
+     return true;
+   }
+ 
+-  private effectOperations(stagePlan: InstallerPlan["stages"][number]): InstallerPlan["stages"][number]["operations"] {
+-    return stagePlan.operations.filter((operation) => operation.kind !== "verify");
+-  }
+-
+   private validateEffectReceipts(
+     stagePlan: InstallerPlan["stages"][number],
+     effectOperations: InstallerPlan["stages"][number]["operations"],
+@@ -981,20 +1098,18 @@ export class SetupEngine {
+         await saveState(this.deps.fsAdapter, config, state);
+         await this.consumeCancelOrThrow(config, lock.owner);
+ 
+-        const effectOperations = this.effectOperations(stagePlan);
+-        const operationAttemptIds = new Map<string, string>();
+-        if (effectOperations.length > 0) {
++        const executeWithApply = stagePlan.operations.some((operation) => operation.kind !== "verify");
++        if (executeWithApply) {
+           this.assertOrdinaryOwner(config, stagePlan.stage_id);
+-          state = withInFlightOperation(state, {
+-            id: `${stagePlan.stage_id}:${randomUUID()}`,
+-            stage_id: stagePlan.stage_id,
+-            kind: effectOperations[0]?.kind ?? "mutate",
+-            started_at: this.deps.clock.now().toISOString()
+-          });
+-          await saveState(this.deps.fsAdapter, config, state);
+-          for (const operation of effectOperations) {
++          for (const operation of stagePlan.operations) {
+             const attemptId = randomUUID();
+-            operationAttemptIds.set(operation.id, attemptId);
++            state = withInFlightOperation(state, {
++              id: `${stagePlan.stage_id}:${operation.id}:${attemptId}`,
++              stage_id: stagePlan.stage_id,
++              kind: operation.kind,
++              started_at: this.deps.clock.now().toISOString()
++            });
++            await saveState(this.deps.fsAdapter, config, state);
+             await appendEvent(this.deps.fsAdapter, config, {
+               operation_id: operation.id,
+               stage: stagePlan.stage_id,
+@@ -1002,45 +1117,31 @@ export class SetupEngine {
+               message: `intent:${operation.id}`,
+               attempt_id: attemptId
+             });
+-          }
+-        }
+ 
+-        let receipts: StageReceipt[] = [];
+-        if (effectOperations.length > 0) {
+-          receipts = await stage.apply(
+-            stageCtx,
+-            {
+-              stageId: stagePlan.stage_id,
+-              optional: stagePlan.optional,
+-              requiredCapabilities: stagePlan.required_capabilities,
+-              operations: stagePlan.operations.map((op) => ({
+-                id: op.id,
+-                stageId: op.stage_id,
+-                kind: op.kind,
+-                resourceId: op.resource_id,
+-                risk: op.risk,
+-                gateIds: op.gate_ids,
+-                preconditions: op.preconditions,
+-                sideEffects: op.side_effects,
+-                timeoutSec: op.timeout_sec,
+-                retryable: op.retryable
+-              })),
+-              requiredGates: stagePlan.required_gates
+-            }
+-          );
+-          const matchedReceipts = this.validateEffectReceipts(stagePlan, effectOperations, receipts);
+-          for (const operation of effectOperations) {
+-            const attemptId = operationAttemptIds.get(operation.id);
+-            if (attemptId === undefined) {
+-              throw setupError({
+-                exitCode: ExitCode.DriftOrRecoveryRequired,
+-                code: "stage_effect_attempt_missing",
+-                publicMessage: `Attempt metadata is missing for stage operation '${operation.id}'.`,
+-                nextAction: "Run recover and reconcile journal evidence before retrying apply.",
+-                stage: stagePlan.stage_id,
+-                operationId: operation.id
+-              });
+-            }
++            const receipts = await stage.apply(
++              stageCtx,
++              {
++                stageId: stagePlan.stage_id,
++                optional: stagePlan.optional,
++                requiredCapabilities: stagePlan.required_capabilities,
++                operations: [
++                  {
++                    id: operation.id,
++                    stageId: operation.stage_id,
++                    kind: operation.kind,
++                    resourceId: operation.resource_id,
++                    risk: operation.risk,
++                    gateIds: operation.gate_ids,
++                    preconditions: operation.preconditions,
++                    sideEffects: operation.side_effects,
++                    timeoutSec: operation.timeout_sec,
++                    retryable: operation.retryable
++                  }
++                ],
++                requiredGates: stagePlan.required_gates
++              }
++            );
++            const matchedReceipts = this.validateEffectReceipts(stagePlan, [operation], receipts);
+             const receipt = matchedReceipts.get(operation.id);
+             if (receipt === undefined) {
+               throw setupError({
+@@ -1059,12 +1160,36 @@ export class SetupEngine {
+               message: `effect:${receipt.resourceId}`,
+               attempt_id: attemptId
+             });
++            await appendEvent(this.deps.fsAdapter, config, {
++              operation_id: operation.id,
++              stage: stagePlan.stage_id,
++              code: "verify",
++              message: `verify:${receipt.resourceId}`,
++              attempt_id: attemptId
++            });
++            const committedStateHash = stateHash(state);
++            const checkpointRecord = await appendEvent(this.deps.fsAdapter, config, {
++              operation_id: operation.id,
++              stage: stagePlan.stage_id,
++              code: "checkpoint",
++              message: "checkpoint:operation-complete",
++              attempt_id: attemptId,
++              state_hash: committedStateHash
++            });
++            await recordEffectCheckpoint(this.deps.fsAdapter, config, {
++              attemptId,
++              operationId: operation.id,
++              stage: stagePlan.stage_id,
++              sequence: checkpointRecord.sequence,
++              stateHash: committedStateHash
++            });
++            await this.consumeCancelOrThrow(config, lock.owner);
+           }
+         }
+         await stage.verify(stageCtx);
+         const observedAfter = await stage.observe(stageCtx);
+         const optionalSkipAccepted = stagePlan.optional
+-          && effectOperations.length === 0
++          && !executeWithApply
+           && observedAfter.status === "skipped";
+         if (observedAfter.status !== "verified" && !optionalSkipAccepted) {
+           let exitCode = ExitCode.OperationOrVerificationFailed;
+@@ -1086,74 +1211,9 @@ export class SetupEngine {
+             stage: stagePlan.stage_id
+           });
+         }
+-        if (effectOperations.length > 0) {
+-          for (const operation of effectOperations) {
+-            const attemptId = operationAttemptIds.get(operation.id);
+-            if (attemptId === undefined) {
+-              throw setupError({
+-                exitCode: ExitCode.DriftOrRecoveryRequired,
+-                code: "stage_effect_attempt_missing",
+-                publicMessage: `Attempt metadata is missing for stage operation '${operation.id}'.`,
+-                nextAction: "Run recover and reconcile journal evidence before retrying apply.",
+-                stage: stagePlan.stage_id,
+-                operationId: operation.id
+-              });
+-            }
+-            await appendEvent(this.deps.fsAdapter, config, {
+-              operation_id: operation.id,
+-              stage: stagePlan.stage_id,
+-              code: "verify",
+-              message: `verify:${observedAfter.status}`,
+-              attempt_id: attemptId
+-            });
+-          }
+-        }
+         state = withInFlightOperation(state, null);
+         state = updateObservedStage(state, observedAfter, optionalSkipAccepted ? "skipped" : "verified");
+         await saveState(this.deps.fsAdapter, config, state);
+-        if (effectOperations.length > 0) {
+-          const committedStateHash = stateHash(state);
+-          let lastCheckpoint: {
+-            sequence: number;
+-            attemptId: string;
+-            operationId: string;
+-          } | null = null;
+-          for (const operation of effectOperations) {
+-            const attemptId = operationAttemptIds.get(operation.id);
+-            if (attemptId === undefined) {
+-              throw setupError({
+-                exitCode: ExitCode.DriftOrRecoveryRequired,
+-                code: "stage_effect_attempt_missing",
+-                publicMessage: `Attempt metadata is missing for stage operation '${operation.id}'.`,
+-                nextAction: "Run recover and reconcile journal evidence before retrying apply.",
+-                stage: stagePlan.stage_id,
+-                operationId: operation.id
+-              });
+-            }
+-            const checkpointRecord = await appendEvent(this.deps.fsAdapter, config, {
+-              operation_id: operation.id,
+-              stage: stagePlan.stage_id,
+-              code: "checkpoint",
+-              message: `checkpoint:${observedAfter.status}`,
+-              attempt_id: attemptId,
+-              state_hash: committedStateHash
+-            });
+-            lastCheckpoint = {
+-              sequence: checkpointRecord.sequence,
+-              attemptId,
+-              operationId: operation.id
+-            };
+-          }
+-          if (lastCheckpoint !== null) {
+-            await recordEffectCheckpoint(this.deps.fsAdapter, config, {
+-              attemptId: lastCheckpoint.attemptId,
+-              operationId: lastCheckpoint.operationId,
+-              stage: stagePlan.stage_id,
+-              sequence: lastCheckpoint.sequence,
+-              stateHash: committedStateHash
+-            });
+-          }
+-        }
+         await this.consumeCancelOrThrow(config, lock.owner);
+       }
+ 
+@@ -1440,6 +1500,9 @@ export class SetupEngine {
+       if (evidence.journal.hasRecords) {
+         blockers.push("event journal contains historical or unresolved entries");
+       }
++      if (evidence.commitManifest !== null) {
++        blockers.push("state commit manifest is present and requires full recovery admission");
++      }
+       if (evidence.stateExists && evidence.marker === null) {
+         try {
+           state = await this.loadStateWithOptions(config, {
+@@ -1501,6 +1564,7 @@ export class SetupEngine {
+         && !evidence.previousExists
+         && evidence.quarantineEntries.length === 0
+         && !evidence.journal.hasRecords
++        && evidence.commitManifest === null
+       ) {
+         const envelope = envelopeBase("recover", config, null, null);
+         envelope.overall_status = "ok";
+@@ -1514,12 +1578,8 @@ export class SetupEngine {
+       const markerReason = evidence.marker?.reason ?? "marker_missing";
+       const markerCommit = evidence.marker?.recovery_commit;
+       const nowIso = this.deps.clock.now().toISOString();
+-      const journalUnsafeForRecovery = evidence.journal.oversized
+-        || evidence.journal.parseError
+-        || evidence.journal.unknownOrder
+-        || evidence.journal.legacyFormat
+-        || evidence.journal.unresolvedOperationIds.length > 0;
+-      const commitManifest = await readStateCommitManifest(this.deps.fsAdapter, config);
++      const commitManifest = evidence.commitManifest;
++
+       if (commitManifest !== null && commitManifest.installation_id !== config.installation_id) {
+         throw setupError({
+           exitCode: ExitCode.DriftOrRecoveryRequired,
+@@ -1531,37 +1591,13 @@ export class SetupEngine {
+       }
+ 
+       if (markerCommit?.phase === "primary_restored") {
+-        if (!evidence.stateExists) {
+-          throw setupError({
+-            exitCode: ExitCode.DriftOrRecoveryRequired,
+-            code: "recovery_unresolved",
+-            publicMessage: "Recovery marker indicates committed primary state, but current primary state is missing.",
+-            nextAction: unresolvedNextAction,
+-            evidenceRef: paths.stateFile
+-          });
+-        }
+-        const restoredPrimary = await this.loadRecoveryCandidate(paths.stateFile);
+-        await this.assertRecoveryCandidateTrusted(restoredPrimary, config, paths.stateFile);
+-        if (restoredPrimary.in_flight_operation !== null) {
+-          throw setupError({
+-            exitCode: ExitCode.DriftOrRecoveryRequired,
+-            code: "recovery_unresolved",
+-            publicMessage: "Primary state still contains unfinished operation evidence after recovery commit.",
+-            nextAction: unresolvedNextAction,
+-            stage: restoredPrimary.in_flight_operation.stage_id,
+-            operationId: restoredPrimary.in_flight_operation.id,
+-            evidenceRef: paths.stateFile
+-          });
+-        }
+-        if (stateHash(restoredPrimary) !== markerCommit.candidate_state_hash) {
+-          throw setupError({
+-            exitCode: ExitCode.DriftOrRecoveryRequired,
+-            code: "recovery_unresolved",
+-            publicMessage: "Recovery commit marker does not match current primary snapshot.",
+-            nextAction: unresolvedNextAction,
+-            evidenceRef: paths.stateFile
+-          });
+-        }
++        await this.assertRecoveryCleanupAdmission(
++          config,
++          paths,
++          evidence,
++          markerCommit.candidate_state_hash,
++          unresolvedNextAction
++        );
+         await clearRecoveryMarker(this.deps.fsAdapter, config);
+         state = await this.loadStateWithOptions(config, {
+           initializeIfMissing: false,
+@@ -1597,7 +1633,7 @@ export class SetupEngine {
+           evidenceRef: path.join(paths.stateDir, evidence.quarantineEntries[0] ?? "")
+         });
+       }
+-      if (journalUnsafeForRecovery) {
++      if (this.journalUnsafeForRecovery(evidence)) {
+         throw setupError({
+           exitCode: ExitCode.DriftOrRecoveryRequired,
+           code: "recovery_unresolved",
+@@ -1632,6 +1668,15 @@ export class SetupEngine {
+             evidenceRef: previousPath
+           });
+         }
++        if (commitManifest?.last_state_hash !== candidateHash) {
++          throw setupError({
++            exitCode: ExitCode.DriftOrRecoveryRequired,
++            code: "recovery_unresolved",
++            publicMessage: "Prepared recovery candidate does not match committed manifest generation.",
++            nextAction: unresolvedNextAction,
++            evidenceRef: paths.commitManifestFile
++          });
++        }
+         if (evidence.stateExists) {
+           const preparedPrimary = await this.loadRecoveryCandidate(paths.stateFile);
+           await this.assertRecoveryCandidateTrusted(preparedPrimary, config, paths.stateFile);
+@@ -1655,82 +1700,45 @@ export class SetupEngine {
+               evidenceRef: paths.stateFile
+             });
+           }
+-          await restorePrimaryState(this.deps.fsAdapter, config, preparedPrimary);
+-          await writeRecoveryMarkerRecord(this.deps.fsAdapter, config, {
+-            ...evidence.marker!,
+-            recovery_commit: {
+-              phase: "primary_restored",
+-              source: "previous",
+-              candidate_state_hash: markerCommit.candidate_state_hash,
+-              updated_at: nowIso
+-            }
+-          });
+         } else {
+           await restorePrimaryState(this.deps.fsAdapter, config, candidate);
+-          await writeRecoveryMarkerRecord(this.deps.fsAdapter, config, {
+-            ...evidence.marker!,
+-            recovery_commit: {
+-              phase: "primary_restored",
+-              source: "previous",
+-              candidate_state_hash: markerCommit.candidate_state_hash,
+-              updated_at: nowIso
+-            }
++        }
++      } else {
++        const canStartPreparedRecovery = (evidence.marker === null || evidence.marker.recovery_commit === undefined)
++          && !evidence.stateExists
++          && commitManifest !== null
++          && commitManifest.last_state_hash === candidateHash
++          && commitManifest.last_effect_checkpoint !== undefined
++          && this.checkpointMatchesManifest(evidence)
++          && evidence.journal.latestCheckpoint !== null;
++
++        if (!canStartPreparedRecovery) {
++          throw setupError({
++            exitCode: ExitCode.DriftOrRecoveryRequired,
++            code: "recovery_unresolved",
++            publicMessage: "Recovery outcome cannot be proven with current marker/journal evidence.",
++            nextAction: unresolvedNextAction,
++            evidenceRef: evidence.previousExists ? previousPath : paths.stateDir
+           });
+         }
+-        await clearRecoveryMarker(this.deps.fsAdapter, config);
+-        state = await this.loadStateWithOptions(config, {
+-          initializeIfMissing: false,
+-          persistConfigDrift: false,
+-          readOnly: true
+-        });
+-        const envelope = envelopeBase("recover", config, state, null);
+-        envelope.overall_status = "ok";
+-        envelope.data = {
+-          outcome: "recovered_previous_generation",
+-          source: previousPath,
+-          marker_reason: markerReason,
+-          resumed_cleanup: true
+-        };
+-        return { envelope, exitCode: ExitCode.Success };
+-      }
+ 
+-      const canStartPreparedRecovery = (evidence.marker === null || markerReason === "state_primary_missing_previous_present")
+-        && !evidence.stateExists
+-        && commitManifest?.last_effect_checkpoint !== undefined
+-        && commitManifest.last_effect_checkpoint.state_hash === candidateHash
+-        && evidence.journal.latestCheckpoint !== null
+-        && evidence.journal.latestCheckpoint.attemptId === commitManifest.last_effect_checkpoint.attempt_id
+-        && evidence.journal.latestCheckpoint.operationId === commitManifest.last_effect_checkpoint.operation_id
+-        && evidence.journal.latestCheckpoint.stage === commitManifest.last_effect_checkpoint.stage
+-        && evidence.journal.latestCheckpoint.sequence === commitManifest.last_effect_checkpoint.sequence
+-        && evidence.journal.latestCheckpoint.stateHash === commitManifest.last_effect_checkpoint.state_hash;
+-
+-      if (!canStartPreparedRecovery) {
+-        throw setupError({
+-          exitCode: ExitCode.DriftOrRecoveryRequired,
+-          code: "recovery_unresolved",
+-          publicMessage: "Recovery outcome cannot be proven with current marker/journal evidence.",
+-          nextAction: unresolvedNextAction,
+-          evidenceRef: evidence.previousExists ? previousPath : paths.stateDir
++        await writeRecoveryMarkerRecord(this.deps.fsAdapter, config, {
++          schema_version: 1,
++          reason: evidence.marker?.reason ?? "state_primary_missing_previous_present",
++          observed_at: evidence.marker?.observed_at ?? nowIso,
++          recovery_commit: {
++            phase: "prepared",
++            source: "previous",
++            candidate_state_hash: candidateHash,
++            updated_at: nowIso
++          }
+         });
++        await restorePrimaryState(this.deps.fsAdapter, config, candidate);
+       }
+ 
+       await writeRecoveryMarkerRecord(this.deps.fsAdapter, config, {
+         schema_version: 1,
+-        reason: "state_primary_missing_previous_present",
+-        observed_at: evidence.marker?.observed_at ?? nowIso,
+-        recovery_commit: {
+-          phase: "prepared",
+-          source: "previous",
+-          candidate_state_hash: candidateHash,
+-          updated_at: nowIso
+-        }
+-      });
+-
+-      await restorePrimaryState(this.deps.fsAdapter, config, candidate);
+-      await writeRecoveryMarkerRecord(this.deps.fsAdapter, config, {
+-        schema_version: 1,
+-        reason: "state_primary_missing_previous_present",
++        reason: evidence.marker?.reason ?? "state_primary_missing_previous_present",
+         observed_at: evidence.marker?.observed_at ?? nowIso,
+         recovery_commit: {
+           phase: "primary_restored",
+@@ -1739,6 +1747,15 @@ export class SetupEngine {
+           updated_at: this.deps.clock.now().toISOString()
+         }
+       });
++
++      const cleanupEvidence = await inspectStateEvidence(this.deps.fsAdapter, config);
++      await this.assertRecoveryCleanupAdmission(
++        config,
++        paths,
++        cleanupEvidence,
++        candidateHash,
++        unresolvedNextAction
++      );
+       await clearRecoveryMarker(this.deps.fsAdapter, config);
+ 
+       state = await this.loadStateWithOptions(config, {
+@@ -1752,7 +1769,8 @@ export class SetupEngine {
+       envelope.data = {
+         outcome: "recovered_previous_generation",
+         source: previousPath,
+-        marker_reason: markerReason
++        marker_reason: markerReason,
++        resumed_cleanup: markerCommit?.phase === "prepared" || markerCommit?.phase === "primary_restored"
+       };
+       return { envelope, exitCode: ExitCode.Success };
+     } catch (error) {
+diff --git a/setup/src/core/state.ts b/setup/src/core/state.ts
+index 00da351..1cbe172 100644
+--- a/setup/src/core/state.ts
++++ b/setup/src/core/state.ts
+@@ -126,6 +126,7 @@ export interface StateEvidenceSummary {
+   previousExists: boolean;
+   quarantineEntries: string[];
+   journal: JournalInspection;
++  commitManifest: StateCommitManifest | null;
+ }
+ 
+ export interface StatePaths {
+@@ -382,7 +383,9 @@ function recoveryEvidenceReference(
+   stateDir: string,
+   previousPath: string,
+   quarantineEntries: string[],
+-  journal: JournalInspection
++  journal: JournalInspection,
++  commitManifestPath: string,
++  commitManifestPresent: boolean
+ ): string {
+   if (quarantineEntries.length > 0) {
+     return path.join(stateDir, quarantineEntries[0] ?? "");
+@@ -390,6 +393,9 @@ function recoveryEvidenceReference(
+   if (previousPath.length > 0) {
+     return previousPath;
+   }
++  if (commitManifestPresent) {
++    return commitManifestPath;
++  }
+   if (journalHasEvidence(journal)) {
+     return journal.evidenceRef;
+   }
+@@ -1084,12 +1090,14 @@ export async function inspectStateEvidence(
+   const previousExists = await pathExistsStrict(fsAdapter, `${paths.stateFile}.previous`, "previous state generation");
+   const quarantineEntries = await listStateQuarantineEntries(fsAdapter, paths.stateDir);
+   const journal = await inspectJournalEvidence(fsAdapter, config);
++  const commitManifest = await readStateCommitManifest(fsAdapter, config);
+   return {
+     marker,
+     stateExists,
+     previousExists,
+     quarantineEntries,
+-    journal
++    journal,
++    commitManifest
+   };
+ }
+ 
+@@ -1223,14 +1231,25 @@ export async function loadState(
+   }
+ 
+   if (!evidence.stateExists) {
++    if (evidence.commitManifest !== null && evidence.commitManifest.installation_id !== config.installation_id) {
++      throw setupError({
++        exitCode: ExitCode.DriftOrRecoveryRequired,
++        code: "state_commit_manifest_foreign",
++        publicMessage: "State commit manifest belongs to a different installation.",
++        nextAction: "Use recover with matching installation evidence; do not initialize over foreign state.",
++        evidenceRef: paths.commitManifestFile
++      });
++    }
+     const residualEvidencePresent = evidence.previousExists
+       || evidence.quarantineEntries.length > 0
+-      || journalHasEvidence(evidence.journal);
++      || journalHasEvidence(evidence.journal)
++      || evidence.commitManifest !== null;
+ 
+     if (residualEvidencePresent) {
+       const reason = evidence.previousExists
+         && evidence.quarantineEntries.length === 0
+         && !journalHasEvidence(evidence.journal)
++        && evidence.commitManifest === null
+         ? "state_primary_missing_previous_present"
+         : "state_missing_with_recovery_evidence";
+       if (!loadOptions.readOnly) {
+@@ -1256,7 +1275,9 @@ export async function loadState(
+           paths.stateDir,
+           evidence.previousExists ? previousPath : "",
+           evidence.quarantineEntries,
+-          evidence.journal
++          evidence.journal,
++          paths.commitManifestFile,
++          evidence.commitManifest !== null
+         )
+       });
+     }
+@@ -1337,7 +1358,7 @@ export async function loadState(
+     });
+   }
+ 
+-  const commitManifest = await readStateCommitManifest(fsAdapter, config);
++  const commitManifest = evidence.commitManifest;
+   if (commitManifest === null) {
+     if (journalHasEvidence(evidence.journal)) {
+       if (!loadOptions.readOnly) {
+diff --git a/setup/src/stages/access.ts b/setup/src/stages/access.ts
+index a3770f8..982fe4e 100644
+--- a/setup/src/stages/access.ts
++++ b/setup/src/stages/access.ts
+@@ -154,24 +154,6 @@ function inferStatus(observation: AccessRuntimeObservation): StageObservation["s
+   return "planned";
+ }
+ 
+-function collectRequiredGates(observation: AccessRuntimeObservation): string[] {
+-  const gates = new Set<string>();
+-  if (!observation.manual.providerConsoleConfirmed) {
+-    gates.add("s03-provider-console-confirmed");
+-  }
+-  if (!observation.manual.secondSessionValidated || !observation.manual.secondSessionHasSudo) {
+-    gates.add("s03-second-session-validated");
+-  }
+-  if (!observation.manual.tailscaleLoginConfirmed) {
+-    gates.add("s03-tailscale-login-confirmed");
+-  }
+-  gates.add("s03-ssh-firewall-diff-reviewed");
+-  gates.add("s03-firewall-cutover-approved");
+-  gates.add("s03-cutover-acknowledged");
+-  gates.add("s03-sudo-access-mutations");
+-  return [...gates];
+-}
+-
+ interface ParsedPlanPreconditions {
+   tailscalePin: string;
+   observationHash: string;
+@@ -184,14 +166,18 @@ function parsePlanPreconditions(plan: StagePlan): ParsedPlanPreconditions {
+     for (const precondition of operation.preconditions) {
+       if (precondition.startsWith("s03_tailscale_pin:")) {
+         tailscalePin = precondition.slice("s03_tailscale_pin:".length);
+-      }
+-      if (precondition.startsWith("s03_observation_hash:")) {
++      } else if (precondition.startsWith("s03_observation_hash:")) {
+         observationHash = precondition.slice("s03_observation_hash:".length);
+       }
+     }
+   }
+ 
+-  if (tailscalePin === null || tailscalePin.length === 0 || observationHash === null || observationHash.length === 0) {
++  if (
++    tailscalePin === null
++    || tailscalePin.length === 0
++    || observationHash === null
++    || observationHash.length === 0
++  ) {
+     throw setupError({
+       exitCode: ExitCode.CliOrSchemaError,
+       code: "s03_plan_preconditions_missing",
+@@ -435,53 +421,11 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
+         optional: false,
+         requiredCapabilities: [],
+         operations,
+-        requiredGates: collectRequiredGates({
+-          tailscale: {
+-            installedVersion: observed.versions.tailscale_installed === undefined || observed.versions.tailscale_installed === "absent"
+-              ? null
+-              : observed.versions.tailscale_installed,
+-            candidateVersion: candidate,
+-            loginState: (observed.versions.tailscale_login_state as TailscaleLoginState | undefined) ?? "unknown",
+-            privateSshReachable: observed.checks.tailscale_private_ssh_reachable === true
+-          },
+-          ssh: {
+-            port: Number(observed.checks.ssh_port ?? 22),
+-            hasMatchBlocks: observed.checks.ssh_has_match_blocks === true,
+-            users: [],
+-            configHash: observed.versions.ssh_config_hash ?? "unknown"
+-          },
+-          firewall: {
+-            manager: (observed.versions.ufw_manager as FirewallManager | undefined) ?? "unknown",
+-            enabled: observed.checks.ufw_enabled === true,
+-            defaultIncomingPolicy: "unknown",
+-            ipv6Enabled: observed.checks.ufw_ipv6_enabled === true,
+-            rulesHash: observed.versions.ufw_rules_hash ?? "unknown"
+-          },
+-          publicExposure: {
+-            ipv4SshReachable: observed.checks.public_ipv4_ssh_reachable === true,
+-            ipv6SshReachable: observed.checks.public_ipv6_ssh_reachable === true
+-          },
+-          manual: {
+-            providerConsoleConfirmed: observed.checks.provider_console_confirmed === true,
+-            secondSessionValidated: observed.checks.second_session_validated === true,
+-            secondSessionHasSudo: observed.checks.second_session_has_sudo === true,
+-            tailscaleLoginConfirmed: observed.checks.tailscale_login_confirmed === true,
+-            cutoverAckConfirmed: observed.checks.cutover_ack_confirmed === true
+-          },
+-          rollback: {
+-            timerTemplatePresent: observed.checks.rollback_timer_template_present === true,
+-            serviceTemplatePresent: observed.checks.rollback_service_template_present === true,
+-            armed: observed.checks.rollback_timer_armed === true
+-          },
+-          diff: {
+-            sshd: String(observed.checks.sshd_diff_preview ?? ""),
+-            firewall: String(observed.checks.firewall_diff_preview ?? "")
+-          }
+-        })
++        requiredGates: [...new Set(operations.flatMap((operation) => operation.gateIds))]
+       };
+     },
+     async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
+-      const observation = await accessAdapter.observe(ctx);
++      let observation = await accessAdapter.observe(ctx);
+       verifyRollbackReadiness(observation);
+       verifyManualReadiness(observation);
+ 
+@@ -505,34 +449,10 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
+       }
+ 
+       if (approvedPlan.operations.length === 0) {
+-        return [
+-          {
+-            operationId: "s03-noop",
+-            stageId: "S03",
+-            resourceId: "access-cutover",
+-            observedAt: new Date().toISOString(),
+-            checks: checksFromObservation(observation),
+-            versions: versionsFromObservation(observation),
+-            artifacts: []
+-          }
+-        ];
++        return [];
+       }
+ 
+       const planPreconditions = parsePlanPreconditions(approvedPlan);
+-      const observedHash = stableHash({
+-        checks: checksFromObservation(observation),
+-        versions: versionsFromObservation(observation)
+-      });
+-      if (planPreconditions.observationHash !== observedHash) {
+-        throw setupError({
+-          exitCode: ExitCode.ManualActionRequired,
+-          code: "s03_observation_drifted",
+-          publicMessage: "S03 observed access state changed since plan approval.",
+-          nextAction: "Regenerate S03 plan and re-approve all access gates.",
+-          stage: "S03",
+-          evidenceRef: `planned=${planPreconditions.observationHash};observed=${observedHash}`
+-        });
+-      }
+       if (planPreconditions.tailscalePin !== observation.tailscale.candidateVersion) {
+         throw setupError({
+           exitCode: ExitCode.ManualActionRequired,
+@@ -544,73 +464,80 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
+         });
+       }
+ 
+-      let rollbackPrepared = false;
++      const receipts: StageReceipt[] = [];
++      let rollbackPrepared = observation.rollback.armed;
+       let cutoverApplied = false;
+       try {
+-        if (approvedPlan.operations.some((operation) => operation.id.includes("install-tailscale"))) {
+-          await accessAdapter.installPinnedTailscale(planPreconditions.tailscalePin);
+-        }
+-        if (approvedPlan.operations.some((operation) => operation.id.includes("stage-sshd-firewall"))) {
+-          await accessAdapter.stageManagedCutover(ctx, planPreconditions.observationHash);
+-          await accessAdapter.validateSshdCandidate(ctx);
+-        }
+-        if (approvedPlan.operations.some((operation) => operation.id.includes("arm-rollback"))) {
+-          await accessAdapter.armRollbackTimer(ctx, ROLLBACK_MINUTES);
+-          rollbackPrepared = true;
+-        }
+-        if (approvedPlan.operations.some((operation) => operation.id.includes("cutover"))) {
+-          await accessAdapter.applyCutover(ctx);
+-          cutoverApplied = true;
+-        }
+-        if (approvedPlan.operations.some((operation) => operation.id.includes("verify-tailnet"))) {
+-          const privateOk = await accessAdapter.verifyPrivateTailnetAccess(ctx);
+-          if (!privateOk) {
++        for (const operation of approvedPlan.operations) {
++          if (operation.id.startsWith("s03-install-tailscale-")) {
++            await accessAdapter.installPinnedTailscale(planPreconditions.tailscalePin);
++          } else if (operation.id.startsWith("s03-stage-sshd-firewall-")) {
++            await accessAdapter.stageManagedCutover(ctx, planPreconditions.observationHash);
++            await accessAdapter.validateSshdCandidate(ctx);
++          } else if (operation.id.startsWith("s03-disarm-rollback-")) {
++            observation = await accessAdapter.observe(ctx);
++            if (!observation.manual.cutoverAckConfirmed) {
++              throw setupError({
++                exitCode: ExitCode.ManualActionRequired,
++                code: "s03_cutover_ack_missing",
++                publicMessage: "Independent cutover acknowledgement is missing.",
++                nextAction: "Validate second login through tailnet and confirm cutover acknowledgement gate.",
++                stage: "S03"
++              });
++            }
++            await accessAdapter.disarmRollbackTimer(ctx);
++            rollbackPrepared = false;
++          } else if (operation.id.startsWith("s03-arm-rollback-")) {
++            await accessAdapter.armRollbackTimer(ctx, ROLLBACK_MINUTES);
++            rollbackPrepared = true;
++          } else if (operation.id.startsWith("s03-cutover-")) {
++            await accessAdapter.applyCutover(ctx);
++            cutoverApplied = true;
++          } else if (operation.id.startsWith("s03-verify-tailnet-")) {
++            const privateOk = await accessAdapter.verifyPrivateTailnetAccess(ctx);
++            if (!privateOk) {
++              throw setupError({
++                exitCode: ExitCode.ManualActionRequired,
++                code: "s03_tailnet_private_login_failed",
++                publicMessage: "Private tailnet SSH verification failed after cutover.",
++                nextAction: "Use provider console and rollback evidence, then rerun S03 recovery.",
++                stage: "S03"
++              });
++            }
++            observation = await accessAdapter.observe(ctx);
++            if (observation.publicExposure.ipv4SshReachable || observation.publicExposure.ipv6SshReachable) {
++              throw setupError({
++                exitCode: ExitCode.ManualActionRequired,
++                code: "s03_public_ssh_still_exposed",
++                publicMessage: "Public IPv4/IPv6 SSH exposure remains after S03 cutover.",
++                nextAction: "Rollback managed cutover and inspect sshd/firewall diff before retry.",
++                stage: "S03",
++                evidenceRef: `ipv4=${observation.publicExposure.ipv4SshReachable};ipv6=${observation.publicExposure.ipv6SshReachable}`
++              });
++            }
++          } else {
+             throw setupError({
+-              exitCode: ExitCode.ManualActionRequired,
+-              code: "s03_tailnet_private_login_failed",
+-              publicMessage: "Private tailnet SSH verification failed after cutover.",
+-              nextAction: "Use provider console and rollback evidence, then rerun S03 recovery.",
+-              stage: "S03"
++              exitCode: ExitCode.CliOrSchemaError,
++              code: "s03_unplanned_operation",
++              publicMessage: `S03 received unsupported operation '${operation.id}'.`,
++              nextAction: "Regenerate S03 plan with a supported installer release.",
++              stage: "S03",
++              operationId: operation.id
+             });
+           }
+-        }
+-
+-        const after = await accessAdapter.observe(ctx);
+-        if (after.publicExposure.ipv4SshReachable || after.publicExposure.ipv6SshReachable) {
+-          throw setupError({
+-            exitCode: ExitCode.ManualActionRequired,
+-            code: "s03_public_ssh_still_exposed",
+-            publicMessage: "Public IPv4/IPv6 SSH exposure remains after S03 cutover.",
+-            nextAction: "Rollback managed cutover and inspect sshd/firewall diff before retry.",
+-            stage: "S03",
+-            evidenceRef: `ipv4=${after.publicExposure.ipv4SshReachable};ipv6=${after.publicExposure.ipv6SshReachable}`
+-          });
+-        }
+-        if (!after.manual.cutoverAckConfirmed) {
+-          throw setupError({
+-            exitCode: ExitCode.ManualActionRequired,
+-            code: "s03_cutover_ack_missing",
+-            publicMessage: "Independent cutover acknowledgement is missing.",
+-            nextAction: "Validate second login through tailnet and confirm cutover acknowledgement gate.",
+-            stage: "S03"
+-          });
+-        }
+-        if (approvedPlan.operations.some((operation) => operation.id.includes("disarm-rollback"))) {
+-          await accessAdapter.disarmRollbackTimer(ctx);
+-          rollbackPrepared = false;
+-        }
+ 
+-        return [
+-          {
+-            operationId: approvedPlan.operations.at(-1)?.id ?? "s03-access-cutover",
++          observation = await accessAdapter.observe(ctx);
++          receipts.push({
++            operationId: operation.id,
+             stageId: "S03",
+-            resourceId: "access-cutover",
++            resourceId: operation.resourceId,
+             observedAt: new Date().toISOString(),
+-            checks: checksFromObservation(after),
+-            versions: versionsFromObservation(after),
++            checks: checksFromObservation(observation),
++            versions: versionsFromObservation(observation),
+             artifacts: []
+-          }
+-        ];
++          });
++        }
++        return receipts;
+       } catch (error) {
+         if (rollbackPrepared || cutoverApplied) {
+           const rollback = await accessAdapter.rollbackManagedCutover(ctx, "s03-apply-failed");
+diff --git a/setup/src/stages/application.ts b/setup/src/stages/application.ts
+index b5da4e4..b967042 100644
+--- a/setup/src/stages/application.ts
++++ b/setup/src/stages/application.ts
+@@ -131,14 +131,6 @@ function inferStatus(snapshot: RuntimeSnapshot): StageObservation["status"] {
+   return "planned";
+ }
+ 
+-function requiredGates(snapshot: RuntimeSnapshot): string[] {
+-  const gates = ["s05-application-release-reviewed", "s05-source-commit-reviewed"];
+-  if (snapshot.release.hasDockerfile || snapshot.release.hasBuildContext) {
+-    gates.push("s05-dockerfile-build-reviewed");
+-  }
+-  return gates;
+-}
+-
+ function parsePlanPreconditions(plan: StagePlan): ParsedPlanPreconditions {
+   let archiveSha256: string | null = null;
+   let sourceCommit: string | null = null;
+@@ -372,6 +364,44 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
+               ],
+               timeoutSec: 300,
+               retryable: false
++            },
++            {
++              id: `s05-materialize-checkout-${config.release.source_commit.slice(0, 12)}`,
++              stageId: "S05",
++              kind: "mutate",
++              resourceId: "application-checkout",
++              risk: "high",
++              gateIds: ["s05-application-release-reviewed", "s05-source-commit-reviewed", "s05-dockerfile-build-reviewed"],
++              preconditions: [
++                `s05_archive_sha256:${config.release.sha256}`,
++                `s05_source_commit:${config.release.source_commit}`,
++                `s05_application_dir:${config.paths.application_dir}`,
++                `s05_setup_cache_dir:${config.paths.setup_cache_dir}`
++              ],
++              sideEffects: [
++                "materialize immutable application checkout without reset"
++              ],
++              timeoutSec: 300,
++              retryable: false
++            },
++            {
++              id: `s05-probe-release-${config.release.source_commit.slice(0, 12)}`,
++              stageId: "S05",
++              kind: "observe",
++              resourceId: "application-release",
++              risk: "medium",
++              gateIds: ["s05-application-release-reviewed", "s05-source-commit-reviewed", "s05-dockerfile-build-reviewed"],
++              preconditions: [
++                `s05_archive_sha256:${config.release.sha256}`,
++                `s05_source_commit:${config.release.source_commit}`,
++                `s05_application_dir:${config.paths.application_dir}`,
++                `s05_setup_cache_dir:${config.paths.setup_cache_dir}`
++              ],
++              sideEffects: [
++                "probe offline runner commands from deployed release without live credentials"
++              ],
++              timeoutSec: 120,
++              retryable: false
+             }
+           ];
+ 
+@@ -379,13 +409,16 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
+       return {
+         stageId: "S05",
+         optional: false,
+-        requiredCapabilities: requiredCapabilitiesForProfile(config.profile),
++        requiredCapabilities: [],
+         operations,
+         requiredGates: [...new Set(gates)]
+       };
+     },
+     async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
+       const config = ctx.config;
++      if (approvedPlan.operations.length === 0) {
++        return [];
++      }
+       const parsed = parsePlanPreconditions(approvedPlan);
+       if (parsed.archiveSha256 !== config.release.sha256 || parsed.sourceCommit !== config.release.source_commit) {
+         throw setupError({
+@@ -404,32 +437,20 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
+         observedSnapshot.checkout.exists
+         && observedSnapshot.checkout.deployedSourceCommit === config.release.source_commit
+       ) {
+-        return [
+-          {
+-            operationId: approvedPlan.operations[0]?.id ?? "s05-noop-existing-release",
+-            stageId: "S05",
+-            resourceId: "application-checkout",
+-            observedAt: new Date().toISOString(),
+-            checks: {
+-              noop: true,
+-              already_deployed: true
+-            },
+-            versions: versionsFromSnapshot(observedSnapshot),
+-            artifacts: [config.paths.application_dir]
+-          }
+-        ];
++        return approvedPlan.operations.map((operation) => ({
++          operationId: operation.id,
++          stageId: "S05",
++          resourceId: operation.resourceId,
++          observedAt: new Date().toISOString(),
++          checks: {
++            noop: true,
++            already_deployed: true
++          },
++          versions: versionsFromSnapshot(observedSnapshot),
++          artifacts: [config.paths.application_dir]
++        }));
+       }
+ 
+-      const operationId = approvedPlan.operations[0]?.id ?? `s05-apply-${ctx.installationId}`;
+-      const stagingRoot = path.join(
+-        config.paths.setup_cache_dir,
+-        "application-release",
+-        config.release.source_commit,
+-        operationId
+-      );
+-      await adapter.extractArchive(config, stagingRoot);
+-
+-      const releaseRoot = releaseRootFromManifestPath(stagingRoot, observedSnapshot.release.manifestPath);
+       const manifest = observedSnapshot.release.manifest;
+       if (manifest === null) {
+         throw setupError({
+@@ -440,62 +461,129 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
+           stage: "S05"
+         });
+       }
+-      const mismatches = await adapter.verifyContentHashes(releaseRoot, manifest.content_hashes);
+-      if (mismatches.length > 0) {
+-        throw setupError({
+-          exitCode: ExitCode.SecurityBoundaryViolation,
+-          code: "s05_content_hash_mismatch",
+-          publicMessage: "Extracted release content hashes do not match deployment-manifest pins.",
+-          nextAction: "Replace archive with reviewed artifact and rerun S05.",
+-          stage: "S05",
+-          evidenceRef: mismatches.slice(0, 5).join(",")
+-        });
+-      }
+-
+-      if (observedSnapshot.checkout.hasGitDir && observedSnapshot.checkout.headCommit !== null) {
+-        const commitExists = await adapter.commitExists(config.paths.application_dir, config.release.source_commit);
+-        if (!commitExists) {
++      const extractAndValidate = async (operationId: string): Promise<{
++        releaseRoot: string;
++        stagingRoot: string;
++      }> => {
++        const stagingRoot = path.join(
++          config.paths.setup_cache_dir,
++          "application-release",
++          config.release.source_commit,
++          operationId
++        );
++        await adapter.extractArchive(config, stagingRoot);
++        const releaseRoot = releaseRootFromManifestPath(stagingRoot, observedSnapshot.release.manifestPath);
++        const mismatches = await adapter.verifyContentHashes(releaseRoot, manifest.content_hashes);
++        if (mismatches.length > 0) {
+           throw setupError({
+-            exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
+-            code: "s05_source_commit_missing",
+-            publicMessage: "Configured source commit is absent in existing checkout git history.",
+-            nextAction: "Fetch reviewed commit manually or redeploy clean checkout.",
+-            stage: "S05"
++            exitCode: ExitCode.SecurityBoundaryViolation,
++            code: "s05_content_hash_mismatch",
++            publicMessage: "Extracted release content hashes do not match deployment-manifest pins.",
++            nextAction: "Replace archive with reviewed artifact and rerun S05.",
++            stage: "S05",
++            evidenceRef: mismatches.slice(0, 5).join(",")
+           });
+         }
+-      }
++        return { releaseRoot, stagingRoot };
++      };
++
++      const receipts: StageReceipt[] = [];
++      for (const operation of approvedPlan.operations) {
++        if (operation.id.includes("extract-release")) {
++          const extracted = await extractAndValidate(operation.id);
++          receipts.push({
++            operationId: operation.id,
++            stageId: "S05",
++            resourceId: operation.resourceId,
++            observedAt: new Date().toISOString(),
++            checks: {
++              archive_extracted: true,
++              content_hashes_verified: true
++            },
++            versions: {
++              source_commit: config.release.source_commit,
++              application_version: manifest.application_version
++            },
++            artifacts: [extracted.stagingRoot]
++          });
++          continue;
++        }
++
++        if (operation.id.includes("materialize-checkout")) {
++          if (observedSnapshot.checkout.hasGitDir && observedSnapshot.checkout.headCommit !== null) {
++            const commitExists = await adapter.commitExists(config.paths.application_dir, config.release.source_commit);
++            if (!commitExists) {
++              throw setupError({
++                exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
++                code: "s05_source_commit_missing",
++                publicMessage: "Configured source commit is absent in existing checkout git history.",
++                nextAction: "Fetch reviewed commit manually or redeploy clean checkout.",
++                stage: "S05"
++              });
++            }
++          }
++          const extracted = await extractAndValidate(operation.id);
++          await adapter.materializeRelease(extracted.releaseRoot, parsed.applicationDir);
++          receipts.push({
++            operationId: operation.id,
++            stageId: "S05",
++            resourceId: operation.resourceId,
++            observedAt: new Date().toISOString(),
++            checks: {
++              source_commit_verified: true,
++              content_hashes_verified: true,
++              checkout_materialized: true
++            },
++            versions: {
++              source_commit: config.release.source_commit,
++              application_version: manifest.application_version
++            },
++            artifacts: [parsed.applicationDir]
++          });
++          continue;
++        }
++
++        if (operation.id.includes("probe-release")) {
++          const probes = await adapter.probeCommands(parsed.applicationDir, manifest, config);
++          if (!probes.runnerVerifyHelpOk || !probes.runnerStopHelpOk) {
++            throw setupError({
++              exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
++              code: "s05_runner_probe_failed",
++              publicMessage: "Required runner offline probes (--help) failed after deploy.",
++              nextAction: "Provide valid M0/M1 release with runnable runner_verify/runner_stop commands.",
++              stage: "S05",
++              evidenceRef: probes.details.join(";")
++            });
++          }
++          receipts.push({
++            operationId: operation.id,
++            stageId: "S05",
++            resourceId: operation.resourceId,
++            observedAt: new Date().toISOString(),
++            checks: {
++              runner_verify_help_ok: probes.runnerVerifyHelpOk,
++              runner_stop_help_ok: probes.runnerStopHelpOk
++            },
++            versions: {
++              source_commit: config.release.source_commit,
++              application_version: manifest.application_version
++            },
++            artifacts: [parsed.applicationDir]
++          });
++          continue;
++        }
+ 
+-      await adapter.materializeRelease(releaseRoot, parsed.applicationDir);
+-      const probes = await adapter.probeCommands(parsed.applicationDir, manifest, config);
+-      if (!probes.runnerVerifyHelpOk || !probes.runnerStopHelpOk) {
+         throw setupError({
+-          exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
+-          code: "s05_runner_probe_failed",
+-          publicMessage: "Required runner offline probes (--help) failed after deploy.",
+-          nextAction: "Provide valid M0/M1 release with runnable runner_verify/runner_stop commands.",
++          exitCode: ExitCode.CliOrSchemaError,
++          code: "s05_unplanned_operation",
++          publicMessage: `S05 received unsupported operation '${operation.id}'.`,
++          nextAction: "Regenerate S05 plan with a supported installer release.",
+           stage: "S05",
+-          evidenceRef: probes.details.join(";")
++          operationId: operation.id
+         });
+       }
+ 
+-      const receipt: StageReceipt = {
+-        operationId,
+-        stageId: "S05",
+-        resourceId: "application-release",
+-        observedAt: new Date().toISOString(),
+-        checks: {
+-          source_commit_verified: true,
+-          content_hashes_verified: true,
+-          runner_verify_help_ok: probes.runnerVerifyHelpOk,
+-          runner_stop_help_ok: probes.runnerStopHelpOk
+-        },
+-        versions: {
+-          source_commit: config.release.source_commit,
+-          application_version: manifest.application_version
+-        },
+-        artifacts: [parsed.applicationDir]
+-      };
+-      return [receipt];
++      return receipts;
+     },
+     async verify(ctx: StageContext): Promise<StageReceipt[]> {
+       const observedSnapshot = await snapshot(ctx.config);
+diff --git a/setup/src/stages/docker.ts b/setup/src/stages/docker.ts
+index e80cd34..941919a 100644
+--- a/setup/src/stages/docker.ts
++++ b/setup/src/stages/docker.ts
+@@ -186,6 +186,8 @@ interface ParsedPlanPreconditions {
+   observationHash: string;
+   fixtureRef: string;
+   daemonConfigHash: string;
++  observedDockerInstalled: boolean;
++  observedManagedByInstaller: boolean;
+ }
+ 
+ function parsePlanPreconditions(plan: StagePlan): ParsedPlanPreconditions {
+@@ -193,6 +195,8 @@ function parsePlanPreconditions(plan: StagePlan): ParsedPlanPreconditions {
+   let observationHash: string | null = null;
+   let fixtureRef: string | null = null;
+   let daemonConfigHash: string | null = null;
++  let observedDockerInstalled: boolean | null = null;
++  let observedManagedByInstaller: boolean | null = null;
+ 
+   for (const operation of plan.operations) {
+     for (const precondition of operation.preconditions) {
+@@ -204,6 +208,20 @@ function parsePlanPreconditions(plan: StagePlan): ParsedPlanPreconditions {
+         fixtureRef = precondition.slice("s04_fixture_ref:".length);
+       } else if (precondition.startsWith("s04_daemon_config_hash:")) {
+         daemonConfigHash = precondition.slice("s04_daemon_config_hash:".length);
++      } else if (precondition.startsWith("s04_observed_docker_installed:")) {
++        const value = precondition.slice("s04_observed_docker_installed:".length);
++        if (value === "true") {
++          observedDockerInstalled = true;
++        } else if (value === "false") {
++          observedDockerInstalled = false;
++        }
++      } else if (precondition.startsWith("s04_observed_managed_by_installer:")) {
++        const value = precondition.slice("s04_observed_managed_by_installer:".length);
++        if (value === "true") {
++          observedManagedByInstaller = true;
++        } else if (value === "false") {
++          observedManagedByInstaller = false;
++        }
+       }
+     }
+   }
+@@ -217,6 +235,8 @@ function parsePlanPreconditions(plan: StagePlan): ParsedPlanPreconditions {
+     || observationHash.length === 0
+     || fixtureRef.length === 0
+     || daemonConfigHash.length === 0
++    || observedDockerInstalled === null
++    || observedManagedByInstaller === null
+   ) {
+     throw setupError({
+       exitCode: ExitCode.CliOrSchemaError,
+@@ -231,11 +251,16 @@ function parsePlanPreconditions(plan: StagePlan): ParsedPlanPreconditions {
+     packageSetHash: packageSetHashValue,
+     observationHash,
+     fixtureRef,
+-    daemonConfigHash
++    daemonConfigHash,
++    observedDockerInstalled,
++    observedManagedByInstaller
+   };
+ }
+ 
+-function validateBlockedPreconditions(observation: DockerRuntimeObservation): void {
++function validateBlockedPreconditions(
++  observation: DockerRuntimeObservation,
++  options: { allowUnmanagedInstalledTransition?: boolean } = {}
++): void {
+   if (!observation.sudoAvailable) {
+     throw setupError({
+       exitCode: ExitCode.UnsupportedHostOrMissingPrivileges,
+@@ -320,7 +345,11 @@ function validateBlockedPreconditions(observation: DockerRuntimeObservation): vo
+       evidenceRef: observation.conflictPackagesInstalled.join(",")
+     });
+   }
+-  if (observation.dockerInstalled && !observation.managedByInstaller) {
++  if (
++    observation.dockerInstalled
++    && !observation.managedByInstaller
++    && options.allowUnmanagedInstalledTransition !== true
++  ) {
+     throw setupError({
+       exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
+       code: "s04_existing_docker_requires_inspection",
+@@ -442,7 +471,9 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
+         `s04_package_set_hash:${packageSetHash(candidatePins)}`,
+         `s04_observation_hash:${observationHash}`,
+         `s04_fixture_ref:${fixtureRef}`,
+-        `s04_daemon_config_hash:${observed.versions.docker_daemon_config_hash ?? "unknown"}`
++        `s04_daemon_config_hash:${observed.versions.docker_daemon_config_hash ?? "unknown"}`,
++        `s04_observed_docker_installed:${observed.checks.docker_installed === true}`,
++        `s04_observed_managed_by_installer:${observed.checks.docker_managed_by_installer === true}`
+       ];
+ 
+       const operations: StagePlan["operations"] = [
+@@ -497,7 +528,7 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
+         {
+           id: operationId("resource-probe", observationHash),
+           stageId: "S04",
+-          kind: "verify",
++          kind: "mutate",
+           resourceId: "docker-fixture-probe",
+           risk: "high",
+           gateIds: [],
+@@ -505,6 +536,18 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
+           sideEffects: ["run pinned no-secret fixture and inspect enforced limits"],
+           timeoutSec: 180,
+           retryable: false
++        },
++        {
++          id: operationId("mark-managed-installation", observationHash),
++          stageId: "S04",
++          kind: "mutate",
++          resourceId: "docker-managed-installation",
++          risk: "medium",
++          gateIds: [],
++          preconditions,
++          sideEffects: ["persist installer ownership marker for Docker host resources"],
++          timeoutSec: 60,
++          retryable: false
+         }
+       ];
+ 
+@@ -517,138 +560,132 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
+       };
+     },
+     async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
+-      const observation = await dockerAdapter.observe(ctx);
+-      validateBlockedPreconditions(observation);
++      let observation = await dockerAdapter.observe(ctx);
+ 
+       if (approvedPlan.operations.length === 0) {
+-        const plannedPins = plannedPinsFromObservation(observation);
+-        return [
+-          {
+-            operationId: "s04-noop",
+-            stageId: "S04",
+-            resourceId: "docker-host",
+-            observedAt: new Date().toISOString(),
+-            checks: checksFromObservation(observation, plannedPins),
+-            versions: versionsFromObservation(observation),
+-            artifacts: []
+-          }
+-        ];
++        return [];
+       }
+ 
+       const preconditions = parsePlanPreconditions(approvedPlan);
++      const currentOperation = approvedPlan.operations[0]!;
++      const currentOperationId = currentOperation.id;
++      const allowUnmanagedInstalledTransition = !currentOperationId.startsWith("s04-install-packages-")
++        && preconditions.observedDockerInstalled === false
++        && preconditions.observedManagedByInstaller === false
++        && observation.dockerInstalled
++        && !observation.managedByInstaller;
++      validateBlockedPreconditions(observation, { allowUnmanagedInstalledTransition });
++
+       const plannedPins = plannedPinsFromObservation(observation);
+-      const observedPackageSetHash = packageSetHash(plannedPins);
+-      if (preconditions.packageSetHash !== observedPackageSetHash) {
+-        throw setupError({
+-          exitCode: ExitCode.ManualActionRequired,
+-          code: "s04_package_set_changed",
+-          publicMessage: "Docker package candidates changed after S04 plan approval.",
+-          nextAction: "Regenerate S04 plan and re-approve gates before apply.",
+-          stage: "S04",
+-          evidenceRef: `planned=${preconditions.packageSetHash};observed=${observedPackageSetHash}`
+-        });
+-      }
+-      const observedConfigHash = observation.daemonConfig.contentHash;
+-      if (preconditions.daemonConfigHash !== observedConfigHash) {
+-        throw setupError({
+-          exitCode: ExitCode.ManualActionRequired,
+-          code: "s04_daemon_config_drifted",
+-          publicMessage: "Docker daemon config changed after S04 plan approval.",
+-          nextAction: "Review config diff and regenerate S04 plan.",
+-          stage: "S04",
+-          evidenceRef: `planned=${preconditions.daemonConfigHash};observed=${observedConfigHash}`
+-        });
+-      }
+-      const observedHash = stableHash({
+-        checks: checksFromObservation(observation, plannedPins),
+-        versions: versionsFromObservation(observation)
+-      });
+-      if (preconditions.observationHash !== observedHash) {
+-        throw setupError({
+-          exitCode: ExitCode.ManualActionRequired,
+-          code: "s04_observation_drifted",
+-          publicMessage: "S04 observed state changed after plan approval.",
+-          nextAction: "Run plan for S04 again and re-approve gates.",
+-          stage: "S04",
+-          evidenceRef: `planned=${preconditions.observationHash};observed=${observedHash}`
++      if (currentOperationId.startsWith("s04-install-packages-")) {
++        const observedPackageSetHash = packageSetHash(plannedPins);
++        if (preconditions.packageSetHash !== observedPackageSetHash) {
++          throw setupError({
++            exitCode: ExitCode.ManualActionRequired,
++            code: "s04_package_set_changed",
++            publicMessage: "Docker package candidates changed after S04 plan approval.",
++            nextAction: "Regenerate S04 plan and re-approve gates before apply.",
++            stage: "S04",
++            evidenceRef: `planned=${preconditions.packageSetHash};observed=${observedPackageSetHash}`
++          });
++        }
++        const observedConfigHash = observation.daemonConfig.contentHash;
++        if (preconditions.daemonConfigHash !== observedConfigHash) {
++          throw setupError({
++            exitCode: ExitCode.ManualActionRequired,
++            code: "s04_daemon_config_drifted",
++            publicMessage: "Docker daemon config changed after S04 plan approval.",
++            nextAction: "Review config diff and regenerate S04 plan.",
++            stage: "S04",
++            evidenceRef: `planned=${preconditions.daemonConfigHash};observed=${observedConfigHash}`
++          });
++        }
++        const observedHash = stableHash({
++          checks: checksFromObservation(observation, plannedPins),
++          versions: versionsFromObservation(observation)
+         });
++        if (preconditions.observationHash !== observedHash) {
++          throw setupError({
++            exitCode: ExitCode.ManualActionRequired,
++            code: "s04_observation_drifted",
++            publicMessage: "S04 observed state changed after plan approval.",
++            nextAction: "Run plan for S04 again and re-approve gates.",
++            stage: "S04",
++            evidenceRef: `planned=${preconditions.observationHash};observed=${observedHash}`
++          });
++        }
+       }
+ 
+-      const installPlanned = approvedPlan.operations.some((operation) => operation.id.includes("install-packages"));
+-      if (installPlanned) {
+-        await dockerAdapter.installPinnedPackages(plannedPins);
+-      }
+-
+-      const mergePlanned = approvedPlan.operations.some((operation) => operation.id.includes("daemon-log-config-merge"));
+-      let daemonConfigChanged = false;
+-      if (mergePlanned) {
+-        const merged = await dockerAdapter.mergeOwnedDaemonLogConfig(DEFAULT_LOG_CONFIG);
+-        daemonConfigChanged = merged.changed;
+-      }
+-
+-      const restartPlanned = approvedPlan.operations.some((operation) => operation.id.includes("daemon-validate-restart"));
+-      if (restartPlanned && (installPlanned || daemonConfigChanged)) {
+-        await dockerAdapter.validateDaemonConfig();
+-        await dockerAdapter.restartDaemon();
+-      }
+-
+-      const groupPlanned = approvedPlan.operations.some((operation) => operation.id.includes("docker-group-membership"));
+-      let membershipChanged = false;
+-      if (groupPlanned) {
+-        const membership = await dockerAdapter.ensureDockerGroupMembership(ctx);
+-        membershipChanged = membership.changed;
+-      }
+-
+-      const probeOperation = approvedPlan.operations.find((operation) => operation.id.includes("resource-probe"));
+-      if (probeOperation !== undefined) {
+-        const probe = await dockerAdapter.runPinnedResourceProbe(ctx, probeOperation.id, preconditions.fixtureRef);
+-        validateProbeResult(probe);
+-      }
+-
+-      await dockerAdapter.markManagedInstallation(ctx);
++      const receipts: StageReceipt[] = [];
++      for (const operation of approvedPlan.operations) {
++        if (operation.id.includes("install-packages")) {
++          await dockerAdapter.installPinnedPackages(plannedPins);
++        } else if (operation.id.includes("daemon-log-config-merge")) {
++          await dockerAdapter.mergeOwnedDaemonLogConfig(DEFAULT_LOG_CONFIG);
++        } else if (operation.id.includes("daemon-validate-restart")) {
++          await dockerAdapter.validateDaemonConfig();
++          await dockerAdapter.restartDaemon();
++        } else if (operation.id.includes("docker-group-membership")) {
++          const membership = await dockerAdapter.ensureDockerGroupMembership(ctx);
++          observation = await dockerAdapter.observe(ctx);
++          if (membership.changed || observation.reloginRequired || !observation.dockerGroup.currentUserInGroup) {
++            throw setupError({
++              exitCode: ExitCode.ManualActionRequired,
++              code: "s04_relogin_required",
++              publicMessage: "Docker group membership changed or not active in current session; relogin is required.",
++              nextAction: "Log out and log back in, then rerun verify/status --refresh.",
++              stage: "S04"
++            });
++          }
++        } else if (operation.id.includes("resource-probe")) {
++          const probe = await dockerAdapter.runPinnedResourceProbe(ctx, operation.id, preconditions.fixtureRef);
++          validateProbeResult(probe);
++        } else if (operation.id.includes("mark-managed-installation")) {
++          await dockerAdapter.markManagedInstallation(ctx);
++        } else {
++          throw setupError({
++            exitCode: ExitCode.CliOrSchemaError,
++            code: "s04_unplanned_operation",
++            publicMessage: `S04 received unsupported operation '${operation.id}'.`,
++            nextAction: "Regenerate S04 plan with a supported installer release.",
++            stage: "S04",
++            operationId: operation.id
++          });
++        }
+ 
+-      const after = await dockerAdapter.observe(ctx);
+-      const afterPins = plannedPinsFromObservation(after);
+-      if (after.tcpApi.configured || after.tcpApi.listening) {
+-        throw setupError({
+-          exitCode: ExitCode.DriftOrRecoveryRequired,
+-          code: "s04_public_docker_api_detected",
+-          publicMessage: "Docker TCP API exposure detected after S04 apply.",
+-          nextAction: "Disable Docker TCP API listeners and rerun S04 verify.",
+-          stage: "S04"
+-        });
+-      }
+-      if (after.workloads.publicPublishedPortCount > 0) {
+-        throw setupError({
+-          exitCode: ExitCode.DriftOrRecoveryRequired,
+-          code: "s04_public_ports_detected",
+-          publicMessage: "Publicly published container ports detected after S04 apply.",
+-          nextAction: "Inspect published ports and enforce non-public Docker workload policy.",
+-          stage: "S04",
+-          evidenceRef: String(after.workloads.publicPublishedPortCount)
+-        });
+-      }
+-      if (membershipChanged || after.reloginRequired || !after.dockerGroup.currentUserInGroup) {
+-        throw setupError({
+-          exitCode: ExitCode.ManualActionRequired,
+-          code: "s04_relogin_required",
+-          publicMessage: "Docker group membership changed or not active in current session; relogin is required.",
+-          nextAction: "Log out and log back in, then rerun verify/status --refresh.",
+-          stage: "S04"
+-        });
+-      }
++        observation = await dockerAdapter.observe(ctx);
++        const observedPins = plannedPinsFromObservation(observation);
++        if (observation.tcpApi.configured || observation.tcpApi.listening) {
++          throw setupError({
++            exitCode: ExitCode.DriftOrRecoveryRequired,
++            code: "s04_public_docker_api_detected",
++            publicMessage: "Docker TCP API exposure detected after S04 apply.",
++            nextAction: "Disable Docker TCP API listeners and rerun S04 verify.",
++            stage: "S04"
++          });
++        }
++        if (observation.workloads.publicPublishedPortCount > 0) {
++          throw setupError({
++            exitCode: ExitCode.DriftOrRecoveryRequired,
++            code: "s04_public_ports_detected",
++            publicMessage: "Publicly published container ports detected after S04 apply.",
++            nextAction: "Inspect published ports and enforce non-public Docker workload policy.",
++            stage: "S04",
++            evidenceRef: String(observation.workloads.publicPublishedPortCount)
++          });
++        }
+ 
+-      return [
+-        {
+-          operationId: approvedPlan.operations.at(-1)?.id ?? "s04-apply-docker",
++        receipts.push({
++          operationId: operation.id,
+           stageId: "S04",
+-          resourceId: "docker-host",
++          resourceId: operation.resourceId,
+           observedAt: new Date().toISOString(),
+-          checks: checksFromObservation(after, afterPins),
+-          versions: versionsFromObservation(after),
++          checks: checksFromObservation(observation, observedPins),
++          versions: versionsFromObservation(observation),
+           artifacts: ["/etc/docker/daemon.json"]
+-        }
+-      ];
++        });
++      }
++      return receipts;
+     },
+     async verify(ctx: StageContext): Promise<StageReceipt[]> {
+       const observation = await dockerAdapter.observe(ctx);
+@@ -745,4 +782,3 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
+     }
+   };
+ }
+-
+diff --git a/setup/src/stages/preflight.ts b/setup/src/stages/preflight.ts
+index 4a9b2c3..b19d192 100644
+--- a/setup/src/stages/preflight.ts
++++ b/setup/src/stages/preflight.ts
+@@ -174,22 +174,21 @@ export function createPreflightStage(probe: PreflightProbe): StageModule {
+         requiredGates: []
+       };
+     },
+-    async apply(ctx: StageContext): Promise<StageReceipt[]> {
++    async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
+       if (lastObservation === null) {
+         await this.observe(ctx);
+       }
+       const observation = lastObservation as StageObservation;
+-      return [
+-        {
+-          operationId: "s01-observe-host",
++      return approvedPlan.operations
++        .map((operation) => ({
++          operationId: operation.id,
+           stageId: "S01",
+-          resourceId: "host-preflight",
++          resourceId: operation.resourceId,
+           observedAt: observation.observedAt,
+           checks: observation.checks,
+           versions: observation.versions,
+           artifacts: []
+-        }
+-      ];
++        }));
+     },
+     async verify(ctx: StageContext): Promise<StageReceipt[]> {
+       const observation = await this.observe(ctx);
+diff --git a/setup/src/stages/project.ts b/setup/src/stages/project.ts
+index b09318b..89d0891 100644
+--- a/setup/src/stages/project.ts
++++ b/setup/src/stages/project.ts
+@@ -764,7 +764,7 @@ export function createProjectStage(
+         {
+           operationId: approvedPlan.operations[0]?.id ?? `s09-apply-${ctx.installationId}`,
+           stageId: "S09",
+-          resourceId: "project-checkout-and-proposals",
++          resourceId: "github-project-proposals",
+           observedAt: new Date().toISOString(),
+           checks: {
+             detached_checkout_bound_to_sha: true,
+@@ -809,7 +809,7 @@ export function createProjectStage(
+         {
+           operationId: "s09-verify",
+           stageId: "S09",
+-          resourceId: "project-checkout-and-proposals",
++          resourceId: "github-project-proposals",
+           observedAt: new Date().toISOString(),
+           checks: {
+             detached_checkout_bound_to_sha: true,
+diff --git a/setup/src/stages/service.ts b/setup/src/stages/service.ts
+index 43a51cc..5635ca5 100644
+--- a/setup/src/stages/service.ts
++++ b/setup/src/stages/service.ts
+@@ -738,7 +738,7 @@ export function createServiceStage(
+         {
+           operationId,
+           stageId: "S10",
+-          resourceId: "systemd-service",
++          resourceId: "service-layout-and-unit",
+           observedAt: new Date().toISOString(),
+           checks: {
+             release_path_prepared: true,
+@@ -774,7 +774,7 @@ export function createServiceStage(
+         {
+           operationId: "s10-verify",
+           stageId: "S10",
+-          resourceId: "systemd-service",
++          resourceId: "service-layout-and-unit",
+           observedAt: new Date().toISOString(),
+           checks: checksFromSnapshot(current),
+           versions: versionsFromConfig(ctx.config),
+diff --git a/setup/src/stages/verification.ts b/setup/src/stages/verification.ts
+index b8b28b9..ef76155 100644
+--- a/setup/src/stages/verification.ts
++++ b/setup/src/stages/verification.ts
+@@ -326,7 +326,7 @@ export function createVerificationStage(
+         {
+           operationId: approvedPlan.operations[0]?.id ?? `s07-apply-${ctx.installationId}`,
+           stageId: "S07",
+-          resourceId: "runner-ready-offline",
++          resourceId: "runner-offline-verification",
+           observedAt: new Date().toISOString(),
+           checks: {
+             runner_ready_offline: true,
+@@ -364,7 +364,7 @@ export function createVerificationStage(
+         {
+           operationId: "s07-verify",
+           stageId: "S07",
+-          resourceId: "runner-ready-offline",
++          resourceId: "runner-offline-verification",
+           observedAt: new Date().toISOString(),
+           checks: {
+             runner_ready_offline: true,
+diff --git a/setup/tests/integration/access.test.ts b/setup/tests/integration/access.test.ts
+index 47f02f1..b20401e 100644
+--- a/setup/tests/integration/access.test.ts
++++ b/setup/tests/integration/access.test.ts
+@@ -138,7 +138,7 @@ test("S03 apply performs staged cutover and disarms rollback after ack", async (
+   const plan = stage.plan({}, observation);
+ 
+   const receipts = await stage.apply(ctx(), plan);
+-  assert.equal(receipts.length, 1);
++  assert.equal(receipts.length, plan.operations.length);
+   assert.equal(adapter.installCalls, 1);
+   assert.equal(adapter.stageCalls, 1);
+   assert.equal(adapter.armCalls, 1);
+diff --git a/setup/tests/integration/application.test.ts b/setup/tests/integration/application.test.ts
+index 2f4a892..068065b 100644
+--- a/setup/tests/integration/application.test.ts
++++ b/setup/tests/integration/application.test.ts
+@@ -199,11 +199,12 @@ test("S05 applies trusted synthetic M0 artifact and runs offline probes", async
+   const receipts = await stage.apply(makeCtx(config), plan);
+ 
+   assert.equal(plan.requiredGates.includes("s05-dockerfile-build-reviewed"), true);
+-  assert.equal(receipts.length, 1);
+-  assert.equal(adapter.extractCalls, 1);
++  assert.equal(receipts.length, plan.operations.length);
++  assert.equal(adapter.extractCalls, 2);
+   assert.equal(adapter.materializeCalls, 1);
+   assert.equal(adapter.probeCalls, 1);
+-  assert.equal(receipts[0]?.checks.content_hashes_verified, true);
++  const hashVerified = receipts.some((receipt) => receipt.checks.content_hashes_verified === true);
++  assert.equal(hashVerified, true);
+ });
+ 
+ test("S05 returns explicit blocker when valid M0 release is missing", async () => {
+diff --git a/setup/tests/integration/core-q1a-r1-state-recovery.test.ts b/setup/tests/integration/core-q1a-r1-state-recovery.test.ts
+index 8922982..40c7ca8 100644
+--- a/setup/tests/integration/core-q1a-r1-state-recovery.test.ts
++++ b/setup/tests/integration/core-q1a-r1-state-recovery.test.ts
+@@ -684,20 +684,8 @@ async function seedProvenMissingPrimaryFixture(
+   config: SetupConfig
+ ): Promise<{ candidateHash: string }> {
+   const base = await seedValidState(fsAdapter, processAdapter, config);
++  await saveState(fsAdapter, config, base);
+   const candidateHash = stateHash(base);
+-  const evolved: SetupState = {
+-    ...base,
+-    last_error: {
+-      code: "proof-evolved",
+-      stage: "S01",
+-      operation_id: "proof-op",
+-      retryable: false,
+-      public_message: "proof",
+-      next_action: "proof",
+-      evidence_ref: "proof"
+-    }
+-  };
+-  await saveState(fsAdapter, config, evolved);
+   const attemptId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+   await appendEvent(fsAdapter, config, {
+     operation_id: "proof-op",
+@@ -2863,6 +2851,401 @@ test("K05 missing primary with old previous and empty journal remains unresolved
+   assert.equal(fs.existsSync(path.join(config.paths.setup_state_dir, "state.json")), false);
+ });
+ 
++test("T04 newer manifest generation blocks old checkpoint recovery candidate", async () => {
++  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-t04-"));
++  const configPath = path.join(root, "config", "setup.json");
++  const config = makeConfig(root);
++  await writeConfig(configPath, config);
++
++  const fsAdapter = new NodeFilesystemAdapter();
++  const processAdapter = new CountingProcessAdapter(
++    3204,
++    "f324dcd7-4035-4430-ab39-ce31f9e396bf",
++    "1".repeat(64),
++    100
++  );
++
++  const base = await seedValidState(fsAdapter, processAdapter, config);
++  await saveState(fsAdapter, config, base);
++  const oldHash = stateHash(base);
++  const attemptId = "c0ffee00-0000-4000-8000-000000000001";
++  await appendEvent(fsAdapter, config, {
++    operation_id: "t04-op",
++    stage: "S01",
++    code: "intent",
++    message: "intent:t04-op",
++    attempt_id: attemptId
++  });
++  await appendEvent(fsAdapter, config, {
++    operation_id: "t04-op",
++    stage: "S01",
++    code: "effect",
++    message: "effect:t04-op",
++    attempt_id: attemptId
++  });
++  await appendEvent(fsAdapter, config, {
++    operation_id: "t04-op",
++    stage: "S01",
++    code: "verify",
++    message: "verify:t04-op",
++    attempt_id: attemptId
++  });
++  const checkpoint = await appendEvent(fsAdapter, config, {
++    operation_id: "t04-op",
++    stage: "S01",
++    code: "checkpoint",
++    message: "checkpoint:t04-op",
++    attempt_id: attemptId,
++    state_hash: oldHash
++  });
++  const manifestBefore = await readStateCommitManifest(fsAdapter, config);
++  assert.ok(manifestBefore !== null);
++  await fs.promises.writeFile(
++    commitManifestPath(config),
++    `${JSON.stringify({
++      ...manifestBefore,
++      last_effect_checkpoint: {
++        attempt_id: attemptId,
++        operation_id: "t04-op",
++        stage: "S01",
++        state_hash: oldHash,
++        sequence: checkpoint.sequence,
++        updated_at: "2026-10-23T12:00:00.000Z"
++      }
++    }, null, 2)}\n`,
++    "utf8"
++  );
++
++  const newerState: SetupState = {
++    ...base,
++    in_flight_operation: {
++      id: "t04-newer-unknown",
++      stage_id: "S01",
++      kind: "mutate",
++      started_at: "2026-10-23T12:10:00.000Z"
++    }
++  };
++  await saveState(fsAdapter, config, newerState);
++  const newerHash = stateHash(newerState);
++  assert.notEqual(newerHash, oldHash);
++  const manifestAfterNewer = await readStateCommitManifest(fsAdapter, config);
++  assert.ok(manifestAfterNewer !== null);
++  assert.equal(manifestAfterNewer.last_state_hash, newerHash);
++  assert.equal(manifestAfterNewer.last_effect_checkpoint?.state_hash, oldHash);
++
++  await fs.promises.rm(path.join(config.paths.setup_state_dir, "state.json"), { force: true });
++  await fs.promises.writeFile(
++    path.join(config.paths.setup_state_dir, "recovery-required.json"),
++    `${JSON.stringify(recoveryMarkerBody(config, {}), null, 2)}\n`,
++    "utf8"
++  );
++
++  const engine = new SetupEngine(
++    {
++      fsAdapter,
++      processAdapter,
++      httpAdapter: new FakeHttpAdapter(),
++      installerVersion: "0.0.1",
++      clock: { now: () => new Date("2026-10-23T12:20:00.000Z") }
++    },
++    createRegistry([makeS00(), makeNoopStage("S01", ["S00"])])
++  );
++
++  const recover = await engine.run("recover", { configPath });
++  assert.equal(recover.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(recover.envelope));
++  assert.equal(recover.envelope.error?.code, "recovery_unresolved");
++  assert.equal(fs.existsSync(path.join(config.paths.setup_state_dir, "state.json")), false);
++  assert.equal(fs.existsSync(path.join(config.paths.setup_state_dir, "state.json.previous")), true);
++  const manifestFinal = await readStateCommitManifest(fsAdapter, config);
++  assert.ok(manifestFinal !== null);
++  assert.equal(manifestFinal.last_state_hash, newerHash);
++  assert.equal(manifestFinal.last_effect_checkpoint?.state_hash, oldHash);
++});
++
++test("T05 manifest-only evidence never reinitializes fresh state and malformed/foreign manifests stay blocked", async () => {
++  const processAdapter = new CountingProcessAdapter(
++    3205,
++    "f324dcd7-4035-4430-ab39-ce31f9e396bf",
++    "1".repeat(64),
++    100
++  );
++
++  {
++    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-t05-manifest-only-"));
++    const configPath = path.join(root, "config", "setup.json");
++    const config = makeConfig(root);
++    await writeConfig(configPath, config);
++
++    const fsAdapter = new NodeFilesystemAdapter();
++    const base = await seedValidState(fsAdapter, processAdapter, config);
++    const unknownState: SetupState = {
++      ...base,
++      in_flight_operation: {
++        id: "t05-unknown",
++        stage_id: "S01",
++        kind: "mutate",
++        started_at: "2026-10-23T12:00:00.000Z"
++      }
++    };
++    await saveState(fsAdapter, config, unknownState);
++    const manifestBefore = await readStateCommitManifest(fsAdapter, config);
++    assert.ok(manifestBefore !== null);
++
++    await fs.promises.rm(path.join(config.paths.setup_state_dir, "state.json"), { force: true });
++    await fs.promises.rm(path.join(config.paths.setup_state_dir, "state.json.previous"), { force: true });
++
++    const engine = new SetupEngine(
++      {
++        fsAdapter,
++        processAdapter,
++        httpAdapter: new FakeHttpAdapter(),
++        installerVersion: "0.0.1",
++        clock: { now: () => new Date("2026-10-23T12:30:00.000Z") }
++      },
++      createRegistry([makeS00(), makeNoopStage("S01", ["S00"])])
++    );
++
++    const recover = await engine.run("recover", { configPath });
++    assert.equal(recover.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(recover.envelope));
++    assert.equal(recover.envelope.error?.code, "recovery_unresolved");
++
++    const status = await engine.run("status", { configPath });
++    assert.equal(status.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(status.envelope));
++
++    const plan = await engine.run("plan", { configPath, stageId: "S01" });
++    assert.equal(plan.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(plan.envelope));
++
++    assert.equal(fs.existsSync(path.join(config.paths.setup_state_dir, "state.json")), false);
++    const manifestAfter = await readStateCommitManifest(fsAdapter, config);
++    assert.ok(manifestAfter !== null);
++    assert.equal(manifestAfter.last_state_hash, manifestBefore.last_state_hash);
++  }
++
++  {
++    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-t05-manifest-malformed-"));
++    const configPath = path.join(root, "config", "setup.json");
++    const config = makeConfig(root);
++    await writeConfig(configPath, config);
++    const fsAdapter = new NodeFilesystemAdapter();
++    await seedValidState(fsAdapter, processAdapter, config);
++    await fs.promises.rm(path.join(config.paths.setup_state_dir, "state.json"), { force: true });
++    await fs.promises.rm(path.join(config.paths.setup_state_dir, "state.json.previous"), { force: true });
++    await fs.promises.writeFile(commitManifestPath(config), "{broken\n", "utf8");
++
++    const engine = new SetupEngine(
++      {
++        fsAdapter,
++        processAdapter,
++        httpAdapter: new FakeHttpAdapter(),
++        installerVersion: "0.0.1",
++        clock: { now: () => new Date("2026-10-23T12:35:00.000Z") }
++      },
++      createRegistry([makeS00(), makeNoopStage("S01", ["S00"])])
++    );
++    const status = await engine.run("status", { configPath });
++    assert.equal(status.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(status.envelope));
++    assert.equal(status.envelope.error?.code, "state_commit_manifest_invalid");
++  }
++
++  {
++    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-t05-manifest-foreign-"));
++    const configPath = path.join(root, "config", "setup.json");
++    const config = makeConfig(root);
++    await writeConfig(configPath, config);
++    const fsAdapter = new NodeFilesystemAdapter();
++    await seedValidState(fsAdapter, processAdapter, config);
++    await fs.promises.rm(path.join(config.paths.setup_state_dir, "state.json"), { force: true });
++    await fs.promises.rm(path.join(config.paths.setup_state_dir, "state.json.previous"), { force: true });
++    const manifest = await readStateCommitManifest(fsAdapter, config);
++    assert.ok(manifest !== null);
++    await fs.promises.writeFile(
++      commitManifestPath(config),
++      `${JSON.stringify({
++        ...manifest,
++        installation_id: "f0000000-0000-4000-8000-000000000000"
++      }, null, 2)}\n`,
++      "utf8"
++    );
++
++    const engine = new SetupEngine(
++      {
++        fsAdapter,
++        processAdapter,
++        httpAdapter: new FakeHttpAdapter(),
++        installerVersion: "0.0.1",
++        clock: { now: () => new Date("2026-10-23T12:37:00.000Z") }
++      },
++      createRegistry([makeS00(), makeNoopStage("S01", ["S00"])])
++    );
++    const status = await engine.run("status", { configPath });
++    assert.equal(status.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(status.envelope));
++    assert.equal(status.envelope.error?.code, "state_commit_manifest_foreign");
++  }
++});
++
++test("T06 primary_restored cleanup admission blocks conflicting quarantine evidence before marker removal", async () => {
++  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-t06-"));
++  const configPath = path.join(root, "config", "setup.json");
++  const config = makeConfig(root);
++  await writeConfig(configPath, config);
++
++  const fsAdapter = new InstrumentedFilesystemAdapter();
++  const processAdapter = new CountingProcessAdapter(
++    3206,
++    "f324dcd7-4035-4430-ab39-ce31f9e396bf",
++    "1".repeat(64),
++    100
++  );
++  await seedProvenMissingPrimaryFixture(fsAdapter, processAdapter, config);
++  fsAdapter.setFailureRules([
++    {
++      method: "remove",
++      pathIncludes: "recovery-required.json",
++      code: "EIO"
++    }
++  ]);
++
++  const engine = new SetupEngine(
++    {
++      fsAdapter,
++      processAdapter,
++      httpAdapter: new FakeHttpAdapter(),
++      installerVersion: "0.0.1",
++      clock: { now: () => new Date("2026-10-23T12:40:00.000Z") }
++    },
++    createRegistry([makeS00(), makeNoopStage("S01", ["S00"])])
++  );
++
++  const firstRecover = await engine.run("recover", { configPath });
++  assert.equal(firstRecover.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(firstRecover.envelope));
++  const markerPath = path.join(config.paths.setup_state_dir, "recovery-required.json");
++  const markerRaw = await fs.promises.readFile(markerPath, "utf8");
++  const marker = JSON.parse(markerRaw) as RecoveryMarkerRecord;
++  assert.equal(marker.recovery_commit?.phase, "primary_restored");
++
++  const conflictState: SetupState = {
++    ...JSON.parse(await fs.promises.readFile(path.join(config.paths.setup_state_dir, "state.json"), "utf8")) as SetupState,
++    in_flight_operation: {
++      id: "t06-quarantine-unknown",
++      stage_id: "S01",
++      kind: "mutate",
++      started_at: "2026-10-23T12:41:00.000Z"
++    }
++  };
++  const quarantinePath = path.join(config.paths.setup_state_dir, "state.json.corrupt-t06");
++  await fs.promises.writeFile(quarantinePath, `${JSON.stringify(conflictState, null, 2)}\n`, "utf8");
++
++  fsAdapter.setFailureRules([]);
++  const secondRecover = await engine.run("recover", { configPath });
++  assert.equal(secondRecover.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(secondRecover.envelope));
++  assert.equal(secondRecover.envelope.error?.code, "recovery_unresolved");
++  assert.equal(fs.existsSync(markerPath), true);
++  assert.equal(fs.existsSync(quarantinePath), true);
++});
++
++test("T07 proven recovery works directly and after marker written by plan, while ambiguous case stays blocked", async () => {
++  const processAdapter = new CountingProcessAdapter(
++    3207,
++    "f324dcd7-4035-4430-ab39-ce31f9e396bf",
++    "1".repeat(64),
++    100
++  );
++
++  const directRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-t07-direct-"));
++  const directConfigPath = path.join(directRoot, "config", "setup.json");
++  const directConfig = makeConfig(directRoot);
++  await writeConfig(directConfigPath, directConfig);
++  const directFs = new NodeFilesystemAdapter();
++  await seedProvenMissingPrimaryFixture(directFs, processAdapter, directConfig);
++  await fs.promises.rm(path.join(directConfig.paths.setup_state_dir, "recovery-required.json"), { force: true });
++  const directCandidateHash = stateHash(
++    JSON.parse(await fs.promises.readFile(path.join(directConfig.paths.setup_state_dir, "state.json.previous"), "utf8")) as SetupState
++  );
++  const directEngine = new SetupEngine(
++    {
++      fsAdapter: directFs,
++      processAdapter,
++      httpAdapter: new FakeHttpAdapter(),
++      installerVersion: "0.0.1",
++      clock: { now: () => new Date("2026-10-23T12:50:00.000Z") }
++    },
++    createRegistry([makeS00(), makeNoopStage("S01", ["S00"])])
++  );
++  const directRecover = await directEngine.run("recover", { configPath: directConfigPath });
++  assert.equal(directRecover.exitCode, ExitCode.Success, JSON.stringify(directRecover.envelope));
++  const directState = JSON.parse(
++    await fs.promises.readFile(path.join(directConfig.paths.setup_state_dir, "state.json"), "utf8")
++  ) as SetupState;
++  const directHash = stateHash(directState);
++  assert.equal(directHash, directCandidateHash);
++
++  const planFirstRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-t07-plan-first-"));
++  const planFirstConfigPath = path.join(planFirstRoot, "config", "setup.json");
++  const planFirstConfig = makeConfig(planFirstRoot);
++  await writeConfig(planFirstConfigPath, planFirstConfig);
++  const planFirstFs = new NodeFilesystemAdapter();
++  await seedProvenMissingPrimaryFixture(planFirstFs, processAdapter, planFirstConfig);
++  await fs.promises.rm(path.join(planFirstConfig.paths.setup_state_dir, "recovery-required.json"), { force: true });
++  const planFirstCandidateHash = stateHash(
++    JSON.parse(await fs.promises.readFile(path.join(planFirstConfig.paths.setup_state_dir, "state.json.previous"), "utf8")) as SetupState
++  );
++  const planFirstEngine = new SetupEngine(
++    {
++      fsAdapter: planFirstFs,
++      processAdapter,
++      httpAdapter: new FakeHttpAdapter(),
++      installerVersion: "0.0.1",
++      clock: { now: () => new Date("2026-10-23T12:52:00.000Z") }
++    },
++    createRegistry([makeS00(), makeNoopStage("S01", ["S00"])])
++  );
++  const planFirst = await planFirstEngine.run("plan", { configPath: planFirstConfigPath, stageId: "S01" });
++  assert.equal(planFirst.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(planFirst.envelope));
++  const markerRaw = await fs.promises.readFile(path.join(planFirstConfig.paths.setup_state_dir, "recovery-required.json"), "utf8");
++  const marker = JSON.parse(markerRaw) as RecoveryMarkerRecord;
++  assert.equal(marker.reason, "state_missing_with_recovery_evidence");
++
++  const recoverAfterPlan = await planFirstEngine.run("recover", { configPath: planFirstConfigPath });
++  assert.equal(recoverAfterPlan.exitCode, ExitCode.Success, JSON.stringify(recoverAfterPlan.envelope));
++  const recoveredAfterPlan = JSON.parse(
++    await fs.promises.readFile(path.join(planFirstConfig.paths.setup_state_dir, "state.json"), "utf8")
++  ) as SetupState;
++  assert.equal(stateHash(recoveredAfterPlan), planFirstCandidateHash);
++
++  const ambiguousRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-t07-ambiguous-"));
++  const ambiguousConfigPath = path.join(ambiguousRoot, "config", "setup.json");
++  const ambiguousConfig = makeConfig(ambiguousRoot);
++  await writeConfig(ambiguousConfigPath, ambiguousConfig);
++  const ambiguousFs = new NodeFilesystemAdapter();
++  const base = await seedValidState(ambiguousFs, processAdapter, ambiguousConfig);
++  await saveState(ambiguousFs, ambiguousConfig, {
++    ...base,
++    in_flight_operation: {
++      id: "t07-ambiguous",
++      stage_id: "S01",
++      kind: "mutate",
++      started_at: "2026-10-23T12:53:00.000Z"
++    }
++  });
++  await fs.promises.rm(path.join(ambiguousConfig.paths.setup_state_dir, "state.json"), { force: true });
++
++  const ambiguousEngine = new SetupEngine(
++    {
++      fsAdapter: ambiguousFs,
++      processAdapter,
++      httpAdapter: new FakeHttpAdapter(),
++      installerVersion: "0.0.1",
++      clock: { now: () => new Date("2026-10-23T12:54:00.000Z") }
++    },
++    createRegistry([makeS00(), makeNoopStage("S01", ["S00"])])
++  );
++  const ambiguousPlan = await ambiguousEngine.run("plan", { configPath: ambiguousConfigPath, stageId: "S01" });
++  assert.equal(ambiguousPlan.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(ambiguousPlan.envelope));
++  const ambiguousRecover = await ambiguousEngine.run("recover", { configPath: ambiguousConfigPath });
++  assert.equal(ambiguousRecover.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(ambiguousRecover.envelope));
++  assert.equal(ambiguousRecover.envelope.error?.code, "recovery_unresolved");
++});
++
+ test("K07 receipts must match planned operation/stage/resource and cannot be foreign", async () => {
+   const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-k07-"));
+   const configPath = path.join(root, "config", "setup.json");
+diff --git a/setup/tests/integration/docker-host.test.ts b/setup/tests/integration/docker-host.test.ts
+index ae341e6..b2e1d40 100644
+--- a/setup/tests/integration/docker-host.test.ts
++++ b/setup/tests/integration/docker-host.test.ts
+@@ -206,7 +206,7 @@ test("S04 plans Docker package/config/group/probe operations and required gates"
+   const plan = stage.plan({}, observation);
+ 
+   assert.equal(observation.stageId, "S04");
+-  assert.equal(plan.operations.length, 5);
++  assert.equal(plan.operations.length, 6);
+   assert.equal(plan.requiredGates.includes("s04-docker-group-root-equivalent-ack"), true);
+   assert.equal(plan.requiredGates.includes("s04-docker-daemon-restart-approved"), true);
+   assert.equal(plan.requiredGates.includes("s04-docker-daemon-config-diff-reviewed"), true);
+@@ -276,7 +276,7 @@ test("S04 apply returns manual relogin requirement after docker group change", a
+   assert.equal(adapter.validateCalls, 1);
+   assert.equal(adapter.restartCalls, 1);
+   assert.equal(adapter.groupCalls, 1);
+-  assert.equal(adapter.probeCalls, 1);
++  assert.equal(adapter.probeCalls, 0);
+ });
+ 
+ test("S04 verify fails on public Docker TCP API exposure", async () => {
+@@ -359,6 +359,5 @@ test("S04 is idempotent when already verified and managed", async () => {
+   const plan = stage.plan({}, observation);
+   assert.equal(plan.operations.length, 0);
+   const receipts = await stage.apply(ctx(), plan);
+-  assert.equal(receipts.length, 1);
+-  assert.equal(receipts[0]?.operationId, "s04-noop");
++  assert.equal(receipts.length, 0);
+ });

@@ -186,6 +186,8 @@ interface ParsedPlanPreconditions {
   observationHash: string;
   fixtureRef: string;
   daemonConfigHash: string;
+  observedDockerInstalled: boolean;
+  observedManagedByInstaller: boolean;
 }
 
 function parsePlanPreconditions(plan: StagePlan): ParsedPlanPreconditions {
@@ -193,6 +195,8 @@ function parsePlanPreconditions(plan: StagePlan): ParsedPlanPreconditions {
   let observationHash: string | null = null;
   let fixtureRef: string | null = null;
   let daemonConfigHash: string | null = null;
+  let observedDockerInstalled: boolean | null = null;
+  let observedManagedByInstaller: boolean | null = null;
 
   for (const operation of plan.operations) {
     for (const precondition of operation.preconditions) {
@@ -204,6 +208,20 @@ function parsePlanPreconditions(plan: StagePlan): ParsedPlanPreconditions {
         fixtureRef = precondition.slice("s04_fixture_ref:".length);
       } else if (precondition.startsWith("s04_daemon_config_hash:")) {
         daemonConfigHash = precondition.slice("s04_daemon_config_hash:".length);
+      } else if (precondition.startsWith("s04_observed_docker_installed:")) {
+        const value = precondition.slice("s04_observed_docker_installed:".length);
+        if (value === "true") {
+          observedDockerInstalled = true;
+        } else if (value === "false") {
+          observedDockerInstalled = false;
+        }
+      } else if (precondition.startsWith("s04_observed_managed_by_installer:")) {
+        const value = precondition.slice("s04_observed_managed_by_installer:".length);
+        if (value === "true") {
+          observedManagedByInstaller = true;
+        } else if (value === "false") {
+          observedManagedByInstaller = false;
+        }
       }
     }
   }
@@ -217,6 +235,8 @@ function parsePlanPreconditions(plan: StagePlan): ParsedPlanPreconditions {
     || observationHash.length === 0
     || fixtureRef.length === 0
     || daemonConfigHash.length === 0
+    || observedDockerInstalled === null
+    || observedManagedByInstaller === null
   ) {
     throw setupError({
       exitCode: ExitCode.CliOrSchemaError,
@@ -231,11 +251,16 @@ function parsePlanPreconditions(plan: StagePlan): ParsedPlanPreconditions {
     packageSetHash: packageSetHashValue,
     observationHash,
     fixtureRef,
-    daemonConfigHash
+    daemonConfigHash,
+    observedDockerInstalled,
+    observedManagedByInstaller
   };
 }
 
-function validateBlockedPreconditions(observation: DockerRuntimeObservation): void {
+function validateBlockedPreconditions(
+  observation: DockerRuntimeObservation,
+  options: { allowUnmanagedInstalledTransition?: boolean } = {}
+): void {
   if (!observation.sudoAvailable) {
     throw setupError({
       exitCode: ExitCode.UnsupportedHostOrMissingPrivileges,
@@ -320,7 +345,11 @@ function validateBlockedPreconditions(observation: DockerRuntimeObservation): vo
       evidenceRef: observation.conflictPackagesInstalled.join(",")
     });
   }
-  if (observation.dockerInstalled && !observation.managedByInstaller) {
+  if (
+    observation.dockerInstalled
+    && !observation.managedByInstaller
+    && options.allowUnmanagedInstalledTransition !== true
+  ) {
     throw setupError({
       exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
       code: "s04_existing_docker_requires_inspection",
@@ -442,7 +471,9 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
         `s04_package_set_hash:${packageSetHash(candidatePins)}`,
         `s04_observation_hash:${observationHash}`,
         `s04_fixture_ref:${fixtureRef}`,
-        `s04_daemon_config_hash:${observed.versions.docker_daemon_config_hash ?? "unknown"}`
+        `s04_daemon_config_hash:${observed.versions.docker_daemon_config_hash ?? "unknown"}`,
+        `s04_observed_docker_installed:${observed.checks.docker_installed === true}`,
+        `s04_observed_managed_by_installer:${observed.checks.docker_managed_by_installer === true}`
       ];
 
       const operations: StagePlan["operations"] = [
@@ -497,13 +528,25 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
         {
           id: operationId("resource-probe", observationHash),
           stageId: "S04",
-          kind: "verify",
+          kind: "mutate",
           resourceId: "docker-fixture-probe",
           risk: "high",
           gateIds: [],
           preconditions,
           sideEffects: ["run pinned no-secret fixture and inspect enforced limits"],
           timeoutSec: 180,
+          retryable: false
+        },
+        {
+          id: operationId("mark-managed-installation", observationHash),
+          stageId: "S04",
+          kind: "mutate",
+          resourceId: "docker-managed-installation",
+          risk: "medium",
+          gateIds: [],
+          preconditions,
+          sideEffects: ["persist installer ownership marker for Docker host resources"],
+          timeoutSec: 60,
           retryable: false
         }
       ];
@@ -517,138 +560,132 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
       };
     },
     async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
-      const observation = await dockerAdapter.observe(ctx);
-      validateBlockedPreconditions(observation);
+      let observation = await dockerAdapter.observe(ctx);
 
       if (approvedPlan.operations.length === 0) {
-        const plannedPins = plannedPinsFromObservation(observation);
-        return [
-          {
-            operationId: "s04-noop",
-            stageId: "S04",
-            resourceId: "docker-host",
-            observedAt: new Date().toISOString(),
-            checks: checksFromObservation(observation, plannedPins),
-            versions: versionsFromObservation(observation),
-            artifacts: []
-          }
-        ];
+        return [];
       }
 
       const preconditions = parsePlanPreconditions(approvedPlan);
+      const currentOperation = approvedPlan.operations[0]!;
+      const currentOperationId = currentOperation.id;
+      const allowUnmanagedInstalledTransition = !currentOperationId.startsWith("s04-install-packages-")
+        && preconditions.observedDockerInstalled === false
+        && preconditions.observedManagedByInstaller === false
+        && observation.dockerInstalled
+        && !observation.managedByInstaller;
+      validateBlockedPreconditions(observation, { allowUnmanagedInstalledTransition });
+
       const plannedPins = plannedPinsFromObservation(observation);
-      const observedPackageSetHash = packageSetHash(plannedPins);
-      if (preconditions.packageSetHash !== observedPackageSetHash) {
-        throw setupError({
-          exitCode: ExitCode.ManualActionRequired,
-          code: "s04_package_set_changed",
-          publicMessage: "Docker package candidates changed after S04 plan approval.",
-          nextAction: "Regenerate S04 plan and re-approve gates before apply.",
-          stage: "S04",
-          evidenceRef: `planned=${preconditions.packageSetHash};observed=${observedPackageSetHash}`
-        });
-      }
-      const observedConfigHash = observation.daemonConfig.contentHash;
-      if (preconditions.daemonConfigHash !== observedConfigHash) {
-        throw setupError({
-          exitCode: ExitCode.ManualActionRequired,
-          code: "s04_daemon_config_drifted",
-          publicMessage: "Docker daemon config changed after S04 plan approval.",
-          nextAction: "Review config diff and regenerate S04 plan.",
-          stage: "S04",
-          evidenceRef: `planned=${preconditions.daemonConfigHash};observed=${observedConfigHash}`
-        });
-      }
-      const observedHash = stableHash({
-        checks: checksFromObservation(observation, plannedPins),
-        versions: versionsFromObservation(observation)
-      });
-      if (preconditions.observationHash !== observedHash) {
-        throw setupError({
-          exitCode: ExitCode.ManualActionRequired,
-          code: "s04_observation_drifted",
-          publicMessage: "S04 observed state changed after plan approval.",
-          nextAction: "Run plan for S04 again and re-approve gates.",
-          stage: "S04",
-          evidenceRef: `planned=${preconditions.observationHash};observed=${observedHash}`
-        });
-      }
-
-      const installPlanned = approvedPlan.operations.some((operation) => operation.id.includes("install-packages"));
-      if (installPlanned) {
-        await dockerAdapter.installPinnedPackages(plannedPins);
-      }
-
-      const mergePlanned = approvedPlan.operations.some((operation) => operation.id.includes("daemon-log-config-merge"));
-      let daemonConfigChanged = false;
-      if (mergePlanned) {
-        const merged = await dockerAdapter.mergeOwnedDaemonLogConfig(DEFAULT_LOG_CONFIG);
-        daemonConfigChanged = merged.changed;
-      }
-
-      const restartPlanned = approvedPlan.operations.some((operation) => operation.id.includes("daemon-validate-restart"));
-      if (restartPlanned && (installPlanned || daemonConfigChanged)) {
-        await dockerAdapter.validateDaemonConfig();
-        await dockerAdapter.restartDaemon();
-      }
-
-      const groupPlanned = approvedPlan.operations.some((operation) => operation.id.includes("docker-group-membership"));
-      let membershipChanged = false;
-      if (groupPlanned) {
-        const membership = await dockerAdapter.ensureDockerGroupMembership(ctx);
-        membershipChanged = membership.changed;
-      }
-
-      const probeOperation = approvedPlan.operations.find((operation) => operation.id.includes("resource-probe"));
-      if (probeOperation !== undefined) {
-        const probe = await dockerAdapter.runPinnedResourceProbe(ctx, probeOperation.id, preconditions.fixtureRef);
-        validateProbeResult(probe);
-      }
-
-      await dockerAdapter.markManagedInstallation(ctx);
-
-      const after = await dockerAdapter.observe(ctx);
-      const afterPins = plannedPinsFromObservation(after);
-      if (after.tcpApi.configured || after.tcpApi.listening) {
-        throw setupError({
-          exitCode: ExitCode.DriftOrRecoveryRequired,
-          code: "s04_public_docker_api_detected",
-          publicMessage: "Docker TCP API exposure detected after S04 apply.",
-          nextAction: "Disable Docker TCP API listeners and rerun S04 verify.",
-          stage: "S04"
-        });
-      }
-      if (after.workloads.publicPublishedPortCount > 0) {
-        throw setupError({
-          exitCode: ExitCode.DriftOrRecoveryRequired,
-          code: "s04_public_ports_detected",
-          publicMessage: "Publicly published container ports detected after S04 apply.",
-          nextAction: "Inspect published ports and enforce non-public Docker workload policy.",
-          stage: "S04",
-          evidenceRef: String(after.workloads.publicPublishedPortCount)
-        });
-      }
-      if (membershipChanged || after.reloginRequired || !after.dockerGroup.currentUserInGroup) {
-        throw setupError({
-          exitCode: ExitCode.ManualActionRequired,
-          code: "s04_relogin_required",
-          publicMessage: "Docker group membership changed or not active in current session; relogin is required.",
-          nextAction: "Log out and log back in, then rerun verify/status --refresh.",
-          stage: "S04"
-        });
-      }
-
-      return [
-        {
-          operationId: approvedPlan.operations.at(-1)?.id ?? "s04-apply-docker",
-          stageId: "S04",
-          resourceId: "docker-host",
-          observedAt: new Date().toISOString(),
-          checks: checksFromObservation(after, afterPins),
-          versions: versionsFromObservation(after),
-          artifacts: ["/etc/docker/daemon.json"]
+      if (currentOperationId.startsWith("s04-install-packages-")) {
+        const observedPackageSetHash = packageSetHash(plannedPins);
+        if (preconditions.packageSetHash !== observedPackageSetHash) {
+          throw setupError({
+            exitCode: ExitCode.ManualActionRequired,
+            code: "s04_package_set_changed",
+            publicMessage: "Docker package candidates changed after S04 plan approval.",
+            nextAction: "Regenerate S04 plan and re-approve gates before apply.",
+            stage: "S04",
+            evidenceRef: `planned=${preconditions.packageSetHash};observed=${observedPackageSetHash}`
+          });
         }
-      ];
+        const observedConfigHash = observation.daemonConfig.contentHash;
+        if (preconditions.daemonConfigHash !== observedConfigHash) {
+          throw setupError({
+            exitCode: ExitCode.ManualActionRequired,
+            code: "s04_daemon_config_drifted",
+            publicMessage: "Docker daemon config changed after S04 plan approval.",
+            nextAction: "Review config diff and regenerate S04 plan.",
+            stage: "S04",
+            evidenceRef: `planned=${preconditions.daemonConfigHash};observed=${observedConfigHash}`
+          });
+        }
+        const observedHash = stableHash({
+          checks: checksFromObservation(observation, plannedPins),
+          versions: versionsFromObservation(observation)
+        });
+        if (preconditions.observationHash !== observedHash) {
+          throw setupError({
+            exitCode: ExitCode.ManualActionRequired,
+            code: "s04_observation_drifted",
+            publicMessage: "S04 observed state changed after plan approval.",
+            nextAction: "Run plan for S04 again and re-approve gates.",
+            stage: "S04",
+            evidenceRef: `planned=${preconditions.observationHash};observed=${observedHash}`
+          });
+        }
+      }
+
+      const receipts: StageReceipt[] = [];
+      for (const operation of approvedPlan.operations) {
+        if (operation.id.includes("install-packages")) {
+          await dockerAdapter.installPinnedPackages(plannedPins);
+        } else if (operation.id.includes("daemon-log-config-merge")) {
+          await dockerAdapter.mergeOwnedDaemonLogConfig(DEFAULT_LOG_CONFIG);
+        } else if (operation.id.includes("daemon-validate-restart")) {
+          await dockerAdapter.validateDaemonConfig();
+          await dockerAdapter.restartDaemon();
+        } else if (operation.id.includes("docker-group-membership")) {
+          const membership = await dockerAdapter.ensureDockerGroupMembership(ctx);
+          observation = await dockerAdapter.observe(ctx);
+          if (membership.changed || observation.reloginRequired || !observation.dockerGroup.currentUserInGroup) {
+            throw setupError({
+              exitCode: ExitCode.ManualActionRequired,
+              code: "s04_relogin_required",
+              publicMessage: "Docker group membership changed or not active in current session; relogin is required.",
+              nextAction: "Log out and log back in, then rerun verify/status --refresh.",
+              stage: "S04"
+            });
+          }
+        } else if (operation.id.includes("resource-probe")) {
+          const probe = await dockerAdapter.runPinnedResourceProbe(ctx, operation.id, preconditions.fixtureRef);
+          validateProbeResult(probe);
+        } else if (operation.id.includes("mark-managed-installation")) {
+          await dockerAdapter.markManagedInstallation(ctx);
+        } else {
+          throw setupError({
+            exitCode: ExitCode.CliOrSchemaError,
+            code: "s04_unplanned_operation",
+            publicMessage: `S04 received unsupported operation '${operation.id}'.`,
+            nextAction: "Regenerate S04 plan with a supported installer release.",
+            stage: "S04",
+            operationId: operation.id
+          });
+        }
+
+        observation = await dockerAdapter.observe(ctx);
+        const observedPins = plannedPinsFromObservation(observation);
+        if (observation.tcpApi.configured || observation.tcpApi.listening) {
+          throw setupError({
+            exitCode: ExitCode.DriftOrRecoveryRequired,
+            code: "s04_public_docker_api_detected",
+            publicMessage: "Docker TCP API exposure detected after S04 apply.",
+            nextAction: "Disable Docker TCP API listeners and rerun S04 verify.",
+            stage: "S04"
+          });
+        }
+        if (observation.workloads.publicPublishedPortCount > 0) {
+          throw setupError({
+            exitCode: ExitCode.DriftOrRecoveryRequired,
+            code: "s04_public_ports_detected",
+            publicMessage: "Publicly published container ports detected after S04 apply.",
+            nextAction: "Inspect published ports and enforce non-public Docker workload policy.",
+            stage: "S04",
+            evidenceRef: String(observation.workloads.publicPublishedPortCount)
+          });
+        }
+
+        receipts.push({
+          operationId: operation.id,
+          stageId: "S04",
+          resourceId: operation.resourceId,
+          observedAt: new Date().toISOString(),
+          checks: checksFromObservation(observation, observedPins),
+          versions: versionsFromObservation(observation),
+          artifacts: ["/etc/docker/daemon.json"]
+        });
+      }
+      return receipts;
     },
     async verify(ctx: StageContext): Promise<StageReceipt[]> {
       const observation = await dockerAdapter.observe(ctx);
@@ -745,4 +782,3 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
     }
   };
 }
-

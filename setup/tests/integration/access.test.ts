@@ -138,7 +138,7 @@ test("S03 apply performs staged cutover and disarms rollback after ack", async (
   const plan = stage.plan({}, observation);
 
   const receipts = await stage.apply(ctx(), plan);
-  assert.equal(receipts.length, 1);
+  assert.equal(receipts.length, plan.operations.length);
   assert.equal(adapter.installCalls, 1);
   assert.equal(adapter.stageCalls, 1);
   assert.equal(adapter.armCalls, 1);

@@ -126,6 +126,7 @@ export interface StateEvidenceSummary {
   previousExists: boolean;
   quarantineEntries: string[];
   journal: JournalInspection;
+  commitManifest: StateCommitManifest | null;
 }
 
 export interface StatePaths {
@@ -382,13 +383,18 @@ function recoveryEvidenceReference(
   stateDir: string,
   previousPath: string,
   quarantineEntries: string[],
-  journal: JournalInspection
+  journal: JournalInspection,
+  commitManifestPath: string,
+  commitManifestPresent: boolean
 ): string {
   if (quarantineEntries.length > 0) {
     return path.join(stateDir, quarantineEntries[0] ?? "");
   }
   if (previousPath.length > 0) {
     return previousPath;
+  }
+  if (commitManifestPresent) {
+    return commitManifestPath;
   }
   if (journalHasEvidence(journal)) {
     return journal.evidenceRef;
@@ -1084,12 +1090,14 @@ export async function inspectStateEvidence(
   const previousExists = await pathExistsStrict(fsAdapter, `${paths.stateFile}.previous`, "previous state generation");
   const quarantineEntries = await listStateQuarantineEntries(fsAdapter, paths.stateDir);
   const journal = await inspectJournalEvidence(fsAdapter, config);
+  const commitManifest = await readStateCommitManifest(fsAdapter, config);
   return {
     marker,
     stateExists,
     previousExists,
     quarantineEntries,
-    journal
+    journal,
+    commitManifest
   };
 }
 
@@ -1223,14 +1231,25 @@ export async function loadState(
   }
 
   if (!evidence.stateExists) {
+    if (evidence.commitManifest !== null && evidence.commitManifest.installation_id !== config.installation_id) {
+      throw setupError({
+        exitCode: ExitCode.DriftOrRecoveryRequired,
+        code: "state_commit_manifest_foreign",
+        publicMessage: "State commit manifest belongs to a different installation.",
+        nextAction: "Use recover with matching installation evidence; do not initialize over foreign state.",
+        evidenceRef: paths.commitManifestFile
+      });
+    }
     const residualEvidencePresent = evidence.previousExists
       || evidence.quarantineEntries.length > 0
-      || journalHasEvidence(evidence.journal);
+      || journalHasEvidence(evidence.journal)
+      || evidence.commitManifest !== null;
 
     if (residualEvidencePresent) {
       const reason = evidence.previousExists
         && evidence.quarantineEntries.length === 0
         && !journalHasEvidence(evidence.journal)
+        && evidence.commitManifest === null
         ? "state_primary_missing_previous_present"
         : "state_missing_with_recovery_evidence";
       if (!loadOptions.readOnly) {
@@ -1256,7 +1275,9 @@ export async function loadState(
           paths.stateDir,
           evidence.previousExists ? previousPath : "",
           evidence.quarantineEntries,
-          evidence.journal
+          evidence.journal,
+          paths.commitManifestFile,
+          evidence.commitManifest !== null
         )
       });
     }
@@ -1337,7 +1358,7 @@ export async function loadState(
     });
   }
 
-  const commitManifest = await readStateCommitManifest(fsAdapter, config);
+  const commitManifest = evidence.commitManifest;
   if (commitManifest === null) {
     if (journalHasEvidence(evidence.journal)) {
       if (!loadOptions.readOnly) {

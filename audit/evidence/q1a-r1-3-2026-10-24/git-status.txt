@@ -1,0 +1,52 @@
+On branch master
+Your branch is up to date with 'origin/master'.
+
+Changes to be committed:
+  (use "git restore --staged <file>..." to unstage)
+	new file:   audit/copilot-r13-task.ru.md
+	new file:   audit/evidence/agent-factory-q1a-r1-3-evidence-2026-10-24.zip
+	new file:   audit/evidence/agent-factory-q1a-r1-3-evidence-2026-10-24.zip.sha256
+	new file:   audit/evidence/agent-factory-r12-evidence-13f6137.zip
+	new file:   audit/evidence/q1a-r1-3-2026-10-24/acceptance-mapping.json
+	new file:   audit/evidence/q1a-r1-3-2026-10-24/fault-matrix.json
+	new file:   audit/evidence/q1a-r1-3-2026-10-24/file-lists.txt
+	new file:   audit/evidence/q1a-r1-3-2026-10-24/git-status-short.txt
+	new file:   audit/evidence/q1a-r1-3-2026-10-24/git-status.txt
+	new file:   audit/evidence/q1a-r1-3-2026-10-24/identity.txt
+	new file:   audit/evidence/q1a-r1-3-2026-10-24/stage-compat-13f6137.jsonl
+	new file:   audit/evidence/q1a-r1-3-2026-10-24/stage-compat-b0bc219.jsonl
+	new file:   audit/evidence/q1a-r1-3-2026-10-24/stage-compat-fixed-working-tree.jsonl
+	new file:   audit/evidence/q1a-r1-3-2026-10-24/stage-compat-summary.json
+	new file:   audit/evidence/q1a-r1-3-2026-10-24/working-tree-hash.txt
+	new file:   audit/evidence/q1a-r1-3-2026-10-24/working-tree.patch
+	new file:   audit/reviews/agent-factory-r12-audit-13f6137.ru.md
+	new file:   docs/audits/remediation-q1a-r1-3-2026-10-24.md
+	modified:   setup/docs/privileges.md
+	new file:   setup/docs/stage-inventory.md
+	modified:   setup/src/core/engine.ts
+	modified:   setup/src/core/state.ts
+	modified:   setup/src/stages/access.ts
+	modified:   setup/src/stages/application.ts
+	modified:   setup/src/stages/docker.ts
+	modified:   setup/src/stages/preflight.ts
+	modified:   setup/src/stages/project.ts
+	modified:   setup/src/stages/service.ts
+	modified:   setup/src/stages/verification.ts
+	modified:   setup/tests/integration/access.test.ts
+	modified:   setup/tests/integration/application.test.ts
+	modified:   setup/tests/integration/core-q1a-r1-state-recovery.test.ts
+	modified:   setup/tests/integration/docker-host.test.ts
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   audit/evidence/agent-factory-q1a-r1-3-evidence-2026-10-24.zip
+	modified:   audit/evidence/agent-factory-q1a-r1-3-evidence-2026-10-24.zip.sha256
+	modified:   audit/evidence/q1a-r1-3-2026-10-24/file-lists.txt
+	modified:   audit/evidence/q1a-r1-3-2026-10-24/git-status-short.txt
+	modified:   audit/evidence/q1a-r1-3-2026-10-24/git-status.txt
+	modified:   audit/evidence/q1a-r1-3-2026-10-24/identity.txt
+	modified:   audit/evidence/q1a-r1-3-2026-10-24/working-tree-hash.txt
+	modified:   audit/evidence/q1a-r1-3-2026-10-24/working-tree.patch
+	modified:   docs/audits/remediation-q1a-r1-3-2026-10-24.md
+

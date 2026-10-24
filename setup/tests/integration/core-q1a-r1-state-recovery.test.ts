@@ -684,20 +684,8 @@ async function seedProvenMissingPrimaryFixture(
   config: SetupConfig
 ): Promise<{ candidateHash: string }> {
   const base = await seedValidState(fsAdapter, processAdapter, config);
+  await saveState(fsAdapter, config, base);
   const candidateHash = stateHash(base);
-  const evolved: SetupState = {
-    ...base,
-    last_error: {
-      code: "proof-evolved",
-      stage: "S01",
-      operation_id: "proof-op",
-      retryable: false,
-      public_message: "proof",
-      next_action: "proof",
-      evidence_ref: "proof"
-    }
-  };
-  await saveState(fsAdapter, config, evolved);
   const attemptId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   await appendEvent(fsAdapter, config, {
     operation_id: "proof-op",
@@ -2861,6 +2849,401 @@ test("K05 missing primary with old previous and empty journal remains unresolved
   assert.equal(recover.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(recover.envelope));
   assert.equal(recover.envelope.error?.code, "recovery_unresolved");
   assert.equal(fs.existsSync(path.join(config.paths.setup_state_dir, "state.json")), false);
+});
+
+test("T04 newer manifest generation blocks old checkpoint recovery candidate", async () => {
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-t04-"));
+  const configPath = path.join(root, "config", "setup.json");
+  const config = makeConfig(root);
+  await writeConfig(configPath, config);
+
+  const fsAdapter = new NodeFilesystemAdapter();
+  const processAdapter = new CountingProcessAdapter(
+    3204,
+    "f324dcd7-4035-4430-ab39-ce31f9e396bf",
+    "1".repeat(64),
+    100
+  );
+
+  const base = await seedValidState(fsAdapter, processAdapter, config);
+  await saveState(fsAdapter, config, base);
+  const oldHash = stateHash(base);
+  const attemptId = "c0ffee00-0000-4000-8000-000000000001";
+  await appendEvent(fsAdapter, config, {
+    operation_id: "t04-op",
+    stage: "S01",
+    code: "intent",
+    message: "intent:t04-op",
+    attempt_id: attemptId
+  });
+  await appendEvent(fsAdapter, config, {
+    operation_id: "t04-op",
+    stage: "S01",
+    code: "effect",
+    message: "effect:t04-op",
+    attempt_id: attemptId
+  });
+  await appendEvent(fsAdapter, config, {
+    operation_id: "t04-op",
+    stage: "S01",
+    code: "verify",
+    message: "verify:t04-op",
+    attempt_id: attemptId
+  });
+  const checkpoint = await appendEvent(fsAdapter, config, {
+    operation_id: "t04-op",
+    stage: "S01",
+    code: "checkpoint",
+    message: "checkpoint:t04-op",
+    attempt_id: attemptId,
+    state_hash: oldHash
+  });
+  const manifestBefore = await readStateCommitManifest(fsAdapter, config);
+  assert.ok(manifestBefore !== null);
+  await fs.promises.writeFile(
+    commitManifestPath(config),
+    `${JSON.stringify({
+      ...manifestBefore,
+      last_effect_checkpoint: {
+        attempt_id: attemptId,
+        operation_id: "t04-op",
+        stage: "S01",
+        state_hash: oldHash,
+        sequence: checkpoint.sequence,
+        updated_at: "2026-10-23T12:00:00.000Z"
+      }
+    }, null, 2)}\n`,
+    "utf8"
+  );
+
+  const newerState: SetupState = {
+    ...base,
+    in_flight_operation: {
+      id: "t04-newer-unknown",
+      stage_id: "S01",
+      kind: "mutate",
+      started_at: "2026-10-23T12:10:00.000Z"
+    }
+  };
+  await saveState(fsAdapter, config, newerState);
+  const newerHash = stateHash(newerState);
+  assert.notEqual(newerHash, oldHash);
+  const manifestAfterNewer = await readStateCommitManifest(fsAdapter, config);
+  assert.ok(manifestAfterNewer !== null);
+  assert.equal(manifestAfterNewer.last_state_hash, newerHash);
+  assert.equal(manifestAfterNewer.last_effect_checkpoint?.state_hash, oldHash);
+
+  await fs.promises.rm(path.join(config.paths.setup_state_dir, "state.json"), { force: true });
+  await fs.promises.writeFile(
+    path.join(config.paths.setup_state_dir, "recovery-required.json"),
+    `${JSON.stringify(recoveryMarkerBody(config, {}), null, 2)}\n`,
+    "utf8"
+  );
+
+  const engine = new SetupEngine(
+    {
+      fsAdapter,
+      processAdapter,
+      httpAdapter: new FakeHttpAdapter(),
+      installerVersion: "0.0.1",
+      clock: { now: () => new Date("2026-10-23T12:20:00.000Z") }
+    },
+    createRegistry([makeS00(), makeNoopStage("S01", ["S00"])])
+  );
+
+  const recover = await engine.run("recover", { configPath });
+  assert.equal(recover.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(recover.envelope));
+  assert.equal(recover.envelope.error?.code, "recovery_unresolved");
+  assert.equal(fs.existsSync(path.join(config.paths.setup_state_dir, "state.json")), false);
+  assert.equal(fs.existsSync(path.join(config.paths.setup_state_dir, "state.json.previous")), true);
+  const manifestFinal = await readStateCommitManifest(fsAdapter, config);
+  assert.ok(manifestFinal !== null);
+  assert.equal(manifestFinal.last_state_hash, newerHash);
+  assert.equal(manifestFinal.last_effect_checkpoint?.state_hash, oldHash);
+});
+
+test("T05 manifest-only evidence never reinitializes fresh state and malformed/foreign manifests stay blocked", async () => {
+  const processAdapter = new CountingProcessAdapter(
+    3205,
+    "f324dcd7-4035-4430-ab39-ce31f9e396bf",
+    "1".repeat(64),
+    100
+  );
+
+  {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-t05-manifest-only-"));
+    const configPath = path.join(root, "config", "setup.json");
+    const config = makeConfig(root);
+    await writeConfig(configPath, config);
+
+    const fsAdapter = new NodeFilesystemAdapter();
+    const base = await seedValidState(fsAdapter, processAdapter, config);
+    const unknownState: SetupState = {
+      ...base,
+      in_flight_operation: {
+        id: "t05-unknown",
+        stage_id: "S01",
+        kind: "mutate",
+        started_at: "2026-10-23T12:00:00.000Z"
+      }
+    };
+    await saveState(fsAdapter, config, unknownState);
+    const manifestBefore = await readStateCommitManifest(fsAdapter, config);
+    assert.ok(manifestBefore !== null);
+
+    await fs.promises.rm(path.join(config.paths.setup_state_dir, "state.json"), { force: true });
+    await fs.promises.rm(path.join(config.paths.setup_state_dir, "state.json.previous"), { force: true });
+
+    const engine = new SetupEngine(
+      {
+        fsAdapter,
+        processAdapter,
+        httpAdapter: new FakeHttpAdapter(),
+        installerVersion: "0.0.1",
+        clock: { now: () => new Date("2026-10-23T12:30:00.000Z") }
+      },
+      createRegistry([makeS00(), makeNoopStage("S01", ["S00"])])
+    );
+
+    const recover = await engine.run("recover", { configPath });
+    assert.equal(recover.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(recover.envelope));
+    assert.equal(recover.envelope.error?.code, "recovery_unresolved");
+
+    const status = await engine.run("status", { configPath });
+    assert.equal(status.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(status.envelope));
+
+    const plan = await engine.run("plan", { configPath, stageId: "S01" });
+    assert.equal(plan.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(plan.envelope));
+
+    assert.equal(fs.existsSync(path.join(config.paths.setup_state_dir, "state.json")), false);
+    const manifestAfter = await readStateCommitManifest(fsAdapter, config);
+    assert.ok(manifestAfter !== null);
+    assert.equal(manifestAfter.last_state_hash, manifestBefore.last_state_hash);
+  }
+
+  {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-t05-manifest-malformed-"));
+    const configPath = path.join(root, "config", "setup.json");
+    const config = makeConfig(root);
+    await writeConfig(configPath, config);
+    const fsAdapter = new NodeFilesystemAdapter();
+    await seedValidState(fsAdapter, processAdapter, config);
+    await fs.promises.rm(path.join(config.paths.setup_state_dir, "state.json"), { force: true });
+    await fs.promises.rm(path.join(config.paths.setup_state_dir, "state.json.previous"), { force: true });
+    await fs.promises.writeFile(commitManifestPath(config), "{broken\n", "utf8");
+
+    const engine = new SetupEngine(
+      {
+        fsAdapter,
+        processAdapter,
+        httpAdapter: new FakeHttpAdapter(),
+        installerVersion: "0.0.1",
+        clock: { now: () => new Date("2026-10-23T12:35:00.000Z") }
+      },
+      createRegistry([makeS00(), makeNoopStage("S01", ["S00"])])
+    );
+    const status = await engine.run("status", { configPath });
+    assert.equal(status.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(status.envelope));
+    assert.equal(status.envelope.error?.code, "state_commit_manifest_invalid");
+  }
+
+  {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-t05-manifest-foreign-"));
+    const configPath = path.join(root, "config", "setup.json");
+    const config = makeConfig(root);
+    await writeConfig(configPath, config);
+    const fsAdapter = new NodeFilesystemAdapter();
+    await seedValidState(fsAdapter, processAdapter, config);
+    await fs.promises.rm(path.join(config.paths.setup_state_dir, "state.json"), { force: true });
+    await fs.promises.rm(path.join(config.paths.setup_state_dir, "state.json.previous"), { force: true });
+    const manifest = await readStateCommitManifest(fsAdapter, config);
+    assert.ok(manifest !== null);
+    await fs.promises.writeFile(
+      commitManifestPath(config),
+      `${JSON.stringify({
+        ...manifest,
+        installation_id: "f0000000-0000-4000-8000-000000000000"
+      }, null, 2)}\n`,
+      "utf8"
+    );
+
+    const engine = new SetupEngine(
+      {
+        fsAdapter,
+        processAdapter,
+        httpAdapter: new FakeHttpAdapter(),
+        installerVersion: "0.0.1",
+        clock: { now: () => new Date("2026-10-23T12:37:00.000Z") }
+      },
+      createRegistry([makeS00(), makeNoopStage("S01", ["S00"])])
+    );
+    const status = await engine.run("status", { configPath });
+    assert.equal(status.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(status.envelope));
+    assert.equal(status.envelope.error?.code, "state_commit_manifest_foreign");
+  }
+});
+
+test("T06 primary_restored cleanup admission blocks conflicting quarantine evidence before marker removal", async () => {
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-t06-"));
+  const configPath = path.join(root, "config", "setup.json");
+  const config = makeConfig(root);
+  await writeConfig(configPath, config);
+
+  const fsAdapter = new InstrumentedFilesystemAdapter();
+  const processAdapter = new CountingProcessAdapter(
+    3206,
+    "f324dcd7-4035-4430-ab39-ce31f9e396bf",
+    "1".repeat(64),
+    100
+  );
+  await seedProvenMissingPrimaryFixture(fsAdapter, processAdapter, config);
+  fsAdapter.setFailureRules([
+    {
+      method: "remove",
+      pathIncludes: "recovery-required.json",
+      code: "EIO"
+    }
+  ]);
+
+  const engine = new SetupEngine(
+    {
+      fsAdapter,
+      processAdapter,
+      httpAdapter: new FakeHttpAdapter(),
+      installerVersion: "0.0.1",
+      clock: { now: () => new Date("2026-10-23T12:40:00.000Z") }
+    },
+    createRegistry([makeS00(), makeNoopStage("S01", ["S00"])])
+  );
+
+  const firstRecover = await engine.run("recover", { configPath });
+  assert.equal(firstRecover.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(firstRecover.envelope));
+  const markerPath = path.join(config.paths.setup_state_dir, "recovery-required.json");
+  const markerRaw = await fs.promises.readFile(markerPath, "utf8");
+  const marker = JSON.parse(markerRaw) as RecoveryMarkerRecord;
+  assert.equal(marker.recovery_commit?.phase, "primary_restored");
+
+  const conflictState: SetupState = {
+    ...JSON.parse(await fs.promises.readFile(path.join(config.paths.setup_state_dir, "state.json"), "utf8")) as SetupState,
+    in_flight_operation: {
+      id: "t06-quarantine-unknown",
+      stage_id: "S01",
+      kind: "mutate",
+      started_at: "2026-10-23T12:41:00.000Z"
+    }
+  };
+  const quarantinePath = path.join(config.paths.setup_state_dir, "state.json.corrupt-t06");
+  await fs.promises.writeFile(quarantinePath, `${JSON.stringify(conflictState, null, 2)}\n`, "utf8");
+
+  fsAdapter.setFailureRules([]);
+  const secondRecover = await engine.run("recover", { configPath });
+  assert.equal(secondRecover.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(secondRecover.envelope));
+  assert.equal(secondRecover.envelope.error?.code, "recovery_unresolved");
+  assert.equal(fs.existsSync(markerPath), true);
+  assert.equal(fs.existsSync(quarantinePath), true);
+});
+
+test("T07 proven recovery works directly and after marker written by plan, while ambiguous case stays blocked", async () => {
+  const processAdapter = new CountingProcessAdapter(
+    3207,
+    "f324dcd7-4035-4430-ab39-ce31f9e396bf",
+    "1".repeat(64),
+    100
+  );
+
+  const directRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-t07-direct-"));
+  const directConfigPath = path.join(directRoot, "config", "setup.json");
+  const directConfig = makeConfig(directRoot);
+  await writeConfig(directConfigPath, directConfig);
+  const directFs = new NodeFilesystemAdapter();
+  await seedProvenMissingPrimaryFixture(directFs, processAdapter, directConfig);
+  await fs.promises.rm(path.join(directConfig.paths.setup_state_dir, "recovery-required.json"), { force: true });
+  const directCandidateHash = stateHash(
+    JSON.parse(await fs.promises.readFile(path.join(directConfig.paths.setup_state_dir, "state.json.previous"), "utf8")) as SetupState
+  );
+  const directEngine = new SetupEngine(
+    {
+      fsAdapter: directFs,
+      processAdapter,
+      httpAdapter: new FakeHttpAdapter(),
+      installerVersion: "0.0.1",
+      clock: { now: () => new Date("2026-10-23T12:50:00.000Z") }
+    },
+    createRegistry([makeS00(), makeNoopStage("S01", ["S00"])])
+  );
+  const directRecover = await directEngine.run("recover", { configPath: directConfigPath });
+  assert.equal(directRecover.exitCode, ExitCode.Success, JSON.stringify(directRecover.envelope));
+  const directState = JSON.parse(
+    await fs.promises.readFile(path.join(directConfig.paths.setup_state_dir, "state.json"), "utf8")
+  ) as SetupState;
+  const directHash = stateHash(directState);
+  assert.equal(directHash, directCandidateHash);
+
+  const planFirstRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-t07-plan-first-"));
+  const planFirstConfigPath = path.join(planFirstRoot, "config", "setup.json");
+  const planFirstConfig = makeConfig(planFirstRoot);
+  await writeConfig(planFirstConfigPath, planFirstConfig);
+  const planFirstFs = new NodeFilesystemAdapter();
+  await seedProvenMissingPrimaryFixture(planFirstFs, processAdapter, planFirstConfig);
+  await fs.promises.rm(path.join(planFirstConfig.paths.setup_state_dir, "recovery-required.json"), { force: true });
+  const planFirstCandidateHash = stateHash(
+    JSON.parse(await fs.promises.readFile(path.join(planFirstConfig.paths.setup_state_dir, "state.json.previous"), "utf8")) as SetupState
+  );
+  const planFirstEngine = new SetupEngine(
+    {
+      fsAdapter: planFirstFs,
+      processAdapter,
+      httpAdapter: new FakeHttpAdapter(),
+      installerVersion: "0.0.1",
+      clock: { now: () => new Date("2026-10-23T12:52:00.000Z") }
+    },
+    createRegistry([makeS00(), makeNoopStage("S01", ["S00"])])
+  );
+  const planFirst = await planFirstEngine.run("plan", { configPath: planFirstConfigPath, stageId: "S01" });
+  assert.equal(planFirst.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(planFirst.envelope));
+  const markerRaw = await fs.promises.readFile(path.join(planFirstConfig.paths.setup_state_dir, "recovery-required.json"), "utf8");
+  const marker = JSON.parse(markerRaw) as RecoveryMarkerRecord;
+  assert.equal(marker.reason, "state_missing_with_recovery_evidence");
+
+  const recoverAfterPlan = await planFirstEngine.run("recover", { configPath: planFirstConfigPath });
+  assert.equal(recoverAfterPlan.exitCode, ExitCode.Success, JSON.stringify(recoverAfterPlan.envelope));
+  const recoveredAfterPlan = JSON.parse(
+    await fs.promises.readFile(path.join(planFirstConfig.paths.setup_state_dir, "state.json"), "utf8")
+  ) as SetupState;
+  assert.equal(stateHash(recoveredAfterPlan), planFirstCandidateHash);
+
+  const ambiguousRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-t07-ambiguous-"));
+  const ambiguousConfigPath = path.join(ambiguousRoot, "config", "setup.json");
+  const ambiguousConfig = makeConfig(ambiguousRoot);
+  await writeConfig(ambiguousConfigPath, ambiguousConfig);
+  const ambiguousFs = new NodeFilesystemAdapter();
+  const base = await seedValidState(ambiguousFs, processAdapter, ambiguousConfig);
+  await saveState(ambiguousFs, ambiguousConfig, {
+    ...base,
+    in_flight_operation: {
+      id: "t07-ambiguous",
+      stage_id: "S01",
+      kind: "mutate",
+      started_at: "2026-10-23T12:53:00.000Z"
+    }
+  });
+  await fs.promises.rm(path.join(ambiguousConfig.paths.setup_state_dir, "state.json"), { force: true });
+
+  const ambiguousEngine = new SetupEngine(
+    {
+      fsAdapter: ambiguousFs,
+      processAdapter,
+      httpAdapter: new FakeHttpAdapter(),
+      installerVersion: "0.0.1",
+      clock: { now: () => new Date("2026-10-23T12:54:00.000Z") }
+    },
+    createRegistry([makeS00(), makeNoopStage("S01", ["S00"])])
+  );
+  const ambiguousPlan = await ambiguousEngine.run("plan", { configPath: ambiguousConfigPath, stageId: "S01" });
+  assert.equal(ambiguousPlan.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(ambiguousPlan.envelope));
+  const ambiguousRecover = await ambiguousEngine.run("recover", { configPath: ambiguousConfigPath });
+  assert.equal(ambiguousRecover.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(ambiguousRecover.envelope));
+  assert.equal(ambiguousRecover.envelope.error?.code, "recovery_unresolved");
 });
 
 test("K07 receipts must match planned operation/stage/resource and cannot be foreign", async () => {

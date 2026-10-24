@@ -206,7 +206,7 @@ test("S04 plans Docker package/config/group/probe operations and required gates"
   const plan = stage.plan({}, observation);
 
   assert.equal(observation.stageId, "S04");
-  assert.equal(plan.operations.length, 5);
+  assert.equal(plan.operations.length, 6);
   assert.equal(plan.requiredGates.includes("s04-docker-group-root-equivalent-ack"), true);
   assert.equal(plan.requiredGates.includes("s04-docker-daemon-restart-approved"), true);
   assert.equal(plan.requiredGates.includes("s04-docker-daemon-config-diff-reviewed"), true);
@@ -276,7 +276,7 @@ test("S04 apply returns manual relogin requirement after docker group change", a
   assert.equal(adapter.validateCalls, 1);
   assert.equal(adapter.restartCalls, 1);
   assert.equal(adapter.groupCalls, 1);
-  assert.equal(adapter.probeCalls, 1);
+  assert.equal(adapter.probeCalls, 0);
 });
 
 test("S04 verify fails on public Docker TCP API exposure", async () => {
@@ -359,6 +359,5 @@ test("S04 is idempotent when already verified and managed", async () => {
   const plan = stage.plan({}, observation);
   assert.equal(plan.operations.length, 0);
   const receipts = await stage.apply(ctx(), plan);
-  assert.equal(receipts.length, 1);
-  assert.equal(receipts[0]?.operationId, "s04-noop");
+  assert.equal(receipts.length, 0);
 });

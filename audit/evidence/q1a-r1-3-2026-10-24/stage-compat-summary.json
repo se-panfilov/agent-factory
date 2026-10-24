@@ -1,0 +1,151 @@
+{
+  "S03": {
+    "b0bc219": {
+      "plan_exit": 0,
+      "apply_exit": 2,
+      "status_exit": 5,
+      "error": "plan_gate_representation_mismatch",
+      "adapter_effect_counts": {
+        "installCalls": 0,
+        "stageCalls": 0,
+        "armCalls": 0,
+        "cutoverCalls": 0,
+        "disarmCalls": 0,
+        "rollbackCalls": 0
+      }
+    },
+    "13f6137": {
+      "plan_exit": 0,
+      "apply_exit": 2,
+      "status_exit": 5,
+      "error": "plan_gate_representation_mismatch",
+      "adapter_effect_counts": {
+        "installCalls": 0,
+        "stageCalls": 0,
+        "armCalls": 0,
+        "cutoverCalls": 0,
+        "disarmCalls": 0,
+        "rollbackCalls": 0
+      }
+    },
+    "fixed": {
+      "plan_exit": 0,
+      "apply_exit": 0,
+      "status_exit": 0,
+      "error": null,
+      "adapter_effect_counts": {
+        "installCalls": 1,
+        "stageCalls": 1,
+        "armCalls": 1,
+        "cutoverCalls": 1,
+        "disarmCalls": 1,
+        "rollbackCalls": 0
+      }
+    }
+  },
+  "S04": {
+    "b0bc219": {
+      "plan_exit": 0,
+      "apply_exit": 0,
+      "status_exit": 0,
+      "error": null,
+      "adapter_effect_counts": {
+        "installCalls": 1,
+        "mergeCalls": 1,
+        "validateCalls": 1,
+        "restartCalls": 1,
+        "groupCalls": 1,
+        "probeCalls": 1,
+        "markManagedCalls": 1
+      }
+    },
+    "13f6137": {
+      "plan_exit": 0,
+      "apply_exit": 8,
+      "status_exit": 8,
+      "error": "stage_effect_receipt_unplanned",
+      "adapter_effect_counts": {
+        "installCalls": 1,
+        "mergeCalls": 1,
+        "validateCalls": 1,
+        "restartCalls": 1,
+        "groupCalls": 1,
+        "probeCalls": 1,
+        "markManagedCalls": 1
+      }
+    },
+    "fixed": {
+      "plan_exit": 0,
+      "apply_exit": 0,
+      "status_exit": 0,
+      "error": null,
+      "adapter_effect_counts": {
+        "installCalls": 1,
+        "mergeCalls": 1,
+        "validateCalls": 1,
+        "restartCalls": 1,
+        "groupCalls": 1,
+        "probeCalls": 1,
+        "markManagedCalls": 1
+      }
+    }
+  },
+  "S05": {
+    "b0bc219": {
+      "plan_exit": 0,
+      "apply_exit": 2,
+      "status_exit": 5,
+      "error": "plan_capability_mismatch",
+      "adapter_effect_counts": {
+        "extractCalls": 0,
+        "materializeCalls": 0,
+        "probeCalls": 0
+      }
+    },
+    "13f6137": {
+      "plan_exit": 0,
+      "apply_exit": 2,
+      "status_exit": 5,
+      "error": "plan_capability_mismatch",
+      "adapter_effect_counts": {
+        "extractCalls": 0,
+        "materializeCalls": 0,
+        "probeCalls": 0
+      }
+    },
+    "fixed": {
+      "plan_exit": 0,
+      "apply_exit": 0,
+      "status_exit": 0,
+      "error": null,
+      "adapter_effect_counts": {
+        "extractCalls": 2,
+        "materializeCalls": 1,
+        "probeCalls": 0
+      }
+    }
+  },
+  "S07": {
+    "b0bc219": {
+      "plan_exit": 0,
+      "apply_exit": 0,
+      "status_exit": 0,
+      "error": null,
+      "adapter_effect_counts": null
+    },
+    "13f6137": {
+      "plan_exit": 0,
+      "apply_exit": 8,
+      "status_exit": 8,
+      "error": "stage_effect_receipt_resource_mismatch",
+      "adapter_effect_counts": null
+    },
+    "fixed": {
+      "plan_exit": 0,
+      "apply_exit": 0,
+      "status_exit": 0,
+      "error": null,
+      "adapter_effect_counts": null
+    }
+  }
+}

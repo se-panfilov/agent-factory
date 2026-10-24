@@ -199,11 +199,12 @@ test("S05 applies trusted synthetic M0 artifact and runs offline probes", async 
   const receipts = await stage.apply(makeCtx(config), plan);
 
   assert.equal(plan.requiredGates.includes("s05-dockerfile-build-reviewed"), true);
-  assert.equal(receipts.length, 1);
-  assert.equal(adapter.extractCalls, 1);
+  assert.equal(receipts.length, plan.operations.length);
+  assert.equal(adapter.extractCalls, 2);
   assert.equal(adapter.materializeCalls, 1);
   assert.equal(adapter.probeCalls, 1);
-  assert.equal(receipts[0]?.checks.content_hashes_verified, true);
+  const hashVerified = receipts.some((receipt) => receipt.checks.content_hashes_verified === true);
+  assert.equal(hashVerified, true);
 });
 
 test("S05 returns explicit blocker when valid M0 release is missing", async () => {
