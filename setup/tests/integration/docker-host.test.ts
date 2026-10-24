@@ -182,6 +182,8 @@ class FakeDockerAdapter implements DockerAdapter {
     if (this.changeGroupMembership) {
       this.observation.dockerGroup.currentUserInGroup = false;
       this.observation.reloginRequired = true;
+      this.observation.dockerGroup.exists = true;
+      this.observation.dockerGroup.accountUserInGroup = true;
       return { changed: true };
     }
     return { changed: false };
@@ -360,4 +362,55 @@ test("S04 is idempotent when already verified and managed", async () => {
   assert.equal(plan.operations.length, 0);
   const receipts = await stage.apply(ctx(), plan);
   assert.equal(receipts.length, 0);
+});
+
+import { r14Fixture, r14Noop } from "../helpers/r14-engine";
+import fs from "node:fs/promises";
+import path from "node:path";
+test("U06 clean S04 engine installs, checkpoints group, pauses, observes new session, resumes and repeats", async () => {
+  const x = await r14Fixture("S04"), a = new FakeDockerAdapter(baseObservation());
+  a.observation.dockerGroup = { exists: false, currentUserInGroup: false, accountUserInGroup: false };
+  a.observation.reloginRequired = false;
+  a.changeGroupMembership = true;
+  const makeEngine = () => x.engine([r14Noop("S03"), createDockerStage(a)]);
+  let e = makeEngine();
+  const planned = await x.planAndApprove(e);
+  assert.equal(planned.stages.flatMap(s => s.required_gates).includes("s04-docker-group-relogin-required"), false);
+  const first = await e.run("apply", x.applyOptions);
+  assert.equal(first.exitCode, 4, JSON.stringify(first));
+  assert.equal(first.envelope.error?.code, "operation_manual_pause");
+  assert.equal(a.installCalls, 1); assert.equal(a.groupCalls, 1); assert.equal(a.probeCalls, 0);
+  let state = await x.state();
+  assert.equal(state.in_flight_operation, null, "known group effect is checkpointed, never unknown retry");
+  assert.equal(state.stages.find(s => s.id === "S04")?.status, "awaiting_manual");
+  const journal = (await fs.readFile(path.join(x.config.paths.setup_state_dir, "events.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line) as { operation_id: string; code: string });
+  assert.ok(journal.some(r => r.operation_id.includes("docker-group-membership") && r.code === "checkpoint"));
+  e = makeEngine(); // discard all process-local stage data
+  const stillOldSession = await e.run("resume", { configPath: x.configPath });
+  assert.equal(stillOldSession.exitCode, 4, JSON.stringify(stillOldSession));
+  assert.equal(a.installCalls, 1); assert.equal(a.groupCalls, 1); assert.equal(a.probeCalls, 0);
+  // An admission refusal before resource probe must not create an unknown effect intent.
+  state = await x.state();
+  assert.equal(state.in_flight_operation, null);
+  a.observation.dockerGroup.currentUserInGroup = true;
+  a.observation.reloginRequired = false;
+  e = makeEngine();
+  const resumed = await e.run("resume", { configPath: x.configPath });
+  assert.equal(resumed.exitCode, 0, JSON.stringify(resumed));
+  assert.equal(a.installCalls, 1); assert.equal(a.groupCalls, 1); assert.equal(a.probeCalls, 1); assert.equal(a.markManagedCalls, 1);
+  assert.equal((await x.state()).stages.find(s => s.id === "S04")?.status, "verified");
+  const again = await e.run("resume", { configPath: x.configPath });
+  assert.equal(again.exitCode, 0, JSON.stringify(again));
+  assert.equal(a.installCalls, 1); assert.equal(a.probeCalls, 1);
+});
+
+test("U06 engine never adopts unmanaged matching Docker without durable install progress", async () => {
+  const x = await r14Fixture("S04"), a = new FakeDockerAdapter(baseObservation());
+  a.observation.dockerInstalled = true;
+  for (const p of a.observation.packages) p.installedVersion = p.candidateVersion;
+  const e = x.engine([r14Noop("S03"), createDockerStage(a)]);
+  await x.planAndApprove(e);
+  const result = await e.run("apply", x.applyOptions);
+  assert.equal(result.exitCode, 5, JSON.stringify(result)); assert.equal(result.envelope.error?.code, "s04_existing_docker_requires_inspection");
+  assert.equal(a.installCalls + a.mergeCalls + a.groupCalls + a.probeCalls + a.markManagedCalls, 0);
 });

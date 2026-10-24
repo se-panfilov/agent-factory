@@ -306,6 +306,13 @@ function releaseRootFromManifestPath(stagingRoot: string, manifestPath: string |
   return path.join(stagingRoot, ...segments.slice(0, -1));
 }
 
+function hasDeployedReleaseProof(ctx: StageContext): boolean {
+  return (ctx.completedOperationReceipts ?? []).some(r => r.stageId === "S05"
+    && ["application-checkout", "application-release"].includes(r.resourceId)
+    && (r.versions.archive_sha256 ?? r.versions.release_archive_sha256_expected) === ctx.config.release.sha256
+    && (r.versions.source_commit ?? r.versions.release_expected_source_commit) === ctx.config.release.source_commit);
+}
+
 export function createApplicationStage(adapter: ApplicationReleaseAdapter): StageModule {
   let lastObservation: StageObservation | null = null;
 
@@ -329,10 +336,16 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
     requiredCapabilities: [],
     async observe(ctx: StageContext): Promise<StageObservation> {
       const observedSnapshot = await snapshot(ctx.config);
+      let runnable = false;
+      if (inferStatus(observedSnapshot) === "verified" && observedSnapshot.release.manifest !== null && hasDeployedReleaseProof(ctx)) {
+        const mismatches = await adapter.verifyContentHashes(ctx.config.paths.application_dir, observedSnapshot.release.manifest.content_hashes);
+        const probes = await adapter.probeCommands(ctx.config.paths.application_dir, observedSnapshot.release.manifest, ctx.config);
+        runnable = mismatches.length === 0 && probes.runnerVerifyHelpOk && probes.runnerStopHelpOk;
+      }
       const observation: StageObservation = {
         stageId: "S05",
-        status: inferStatus(observedSnapshot),
-        checks: checksFromSnapshot(observedSnapshot),
+        status: inferStatus(observedSnapshot) === "verified" && !runnable ? (hasDeployedReleaseProof(ctx) ? "blocked" : "planned") : inferStatus(observedSnapshot),
+        checks: { ...checksFromSnapshot(observedSnapshot), deployed_content_and_commands_verified: runnable },
         versions: versionsFromSnapshot(observedSnapshot),
         observedAt: new Date().toISOString()
       };
@@ -360,6 +373,7 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
               ],
               sideEffects: [
                 "extract reviewed application release into isolated staging",
+                "extract and hash-verify reviewed archive again in operation-owned staging",
                 "materialize immutable application checkout without reset"
               ],
               timeoutSec: 300,
@@ -379,6 +393,7 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
                 `s05_setup_cache_dir:${config.paths.setup_cache_dir}`
               ],
               sideEffects: [
+                "extract and hash-verify reviewed archive again in operation-owned staging",
                 "materialize immutable application checkout without reset"
               ],
               timeoutSec: 300,
@@ -433,24 +448,6 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
       const observedSnapshot = await snapshot(config);
       validateBlockedSnapshot(observedSnapshot);
 
-      if (
-        observedSnapshot.checkout.exists
-        && observedSnapshot.checkout.deployedSourceCommit === config.release.source_commit
-      ) {
-        return approvedPlan.operations.map((operation) => ({
-          operationId: operation.id,
-          stageId: "S05",
-          resourceId: operation.resourceId,
-          observedAt: new Date().toISOString(),
-          checks: {
-            noop: true,
-            already_deployed: true
-          },
-          versions: versionsFromSnapshot(observedSnapshot),
-          artifacts: [config.paths.application_dir]
-        }));
-      }
-
       const manifest = observedSnapshot.release.manifest;
       if (manifest === null) {
         throw setupError({
@@ -501,6 +498,7 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
               content_hashes_verified: true
             },
             versions: {
+              archive_sha256: config.release.sha256,
               source_commit: config.release.source_commit,
               application_version: manifest.application_version
             },
@@ -510,6 +508,13 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
         }
 
         if (operation.id.includes("materialize-checkout")) {
+          if (observedSnapshot.checkout.exists && observedSnapshot.checkout.deployedSourceCommit === config.release.source_commit
+            && (await adapter.verifyContentHashes(parsed.applicationDir, manifest.content_hashes)).length === 0) {
+            receipts.push({ operationId: operation.id, stageId: "S05", resourceId: operation.resourceId,
+              observedAt: new Date().toISOString(), checks: { checkout_materialized: true, content_hashes_verified: true, noop: true },
+              versions: versionsFromSnapshot(observedSnapshot), artifacts: [parsed.applicationDir] });
+            continue;
+          }
           if (observedSnapshot.checkout.hasGitDir && observedSnapshot.checkout.headCommit !== null) {
             const commitExists = await adapter.commitExists(config.paths.application_dir, config.release.source_commit);
             if (!commitExists) {
@@ -535,6 +540,7 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
               checkout_materialized: true
             },
             versions: {
+              archive_sha256: config.release.sha256,
               source_commit: config.release.source_commit,
               application_version: manifest.application_version
             },
@@ -565,6 +571,7 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
               runner_stop_help_ok: probes.runnerStopHelpOk
             },
             versions: {
+              archive_sha256: config.release.sha256,
               source_commit: config.release.source_commit,
               application_version: manifest.application_version
             },
@@ -585,6 +592,22 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
 
       return receipts;
     },
+    async verifyOperation(ctx, receipt) {
+      const current = await snapshot(ctx.config); validateBlockedSnapshot(current);
+      const manifest = current.release.manifest;
+      let ok = manifest !== null;
+      if (receipt.resourceId === "application-release-staging") {
+        ok = ok && receipt.artifacts.length === 1 && (await adapter.verifyContentHashes(releaseRootFromManifestPath(receipt.artifacts[0]!, current.release.manifestPath), manifest!.content_hashes)).length === 0;
+      } else if (receipt.resourceId === "application-checkout") {
+        ok = ok && current.checkout.deployedSourceCommit === ctx.config.release.source_commit
+          && (await adapter.verifyContentHashes(ctx.config.paths.application_dir, manifest!.content_hashes)).length === 0;
+      } else if (receipt.resourceId === "application-release") {
+        ok = ok && receipt.checks.runner_verify_help_ok === true && receipt.checks.runner_stop_help_ok === true
+          && receipt.versions.archive_sha256 === ctx.config.release.sha256 && receipt.versions.source_commit === ctx.config.release.source_commit;
+      } else ok = false;
+      if (!ok) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s05_operation_postcondition_failed",
+        publicMessage: "Release operation postcondition could not be confirmed.", nextAction: "Preserve deployment evidence and repair the reviewed release.", stage: "S05" });
+    },
     async verify(ctx: StageContext): Promise<StageReceipt[]> {
       const observedSnapshot = await snapshot(ctx.config);
       validateBlockedSnapshot(observedSnapshot);
@@ -596,6 +619,17 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
           nextAction: "Inspect checkout and rerun S05 with a fresh clean target.",
           stage: "S05"
         });
+      }
+      if (!hasDeployedReleaseProof(ctx)) throw setupError({ exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence, code: "s05_release_trust_evidence_missing",
+        publicMessage: "Offline executable probes require a journal-bound reviewed deployment receipt.",
+        nextAction: "Review a fresh S05 plan and approve release gates before running probes.", stage: "S05" });
+      const manifest = observedSnapshot.release.manifest!;
+      const mismatches = await adapter.verifyContentHashes(ctx.config.paths.application_dir, manifest.content_hashes);
+      const probes = await adapter.probeCommands(ctx.config.paths.application_dir, manifest, ctx.config);
+      if (mismatches.length > 0 || !probes.runnerVerifyHelpOk || !probes.runnerStopHelpOk) {
+        throw setupError({ exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence, code: "s05_runner_probe_failed",
+          publicMessage: "Deployed release content or mandatory offline commands failed verification.",
+          nextAction: "Repair the reviewed release and rerun verification.", stage: "S05" });
       }
       return [
         {

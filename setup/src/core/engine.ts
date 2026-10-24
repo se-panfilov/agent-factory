@@ -25,19 +25,22 @@ import { createUpdateStage } from "../stages/update";
 import { createBackup, verifyBackup } from "../operations/backup";
 import { emergencyCancel } from "../operations/emergency";
 import { hashConfig, initConfig, loadConfig, systemClock, type Clock } from "./config";
-import { ExitCode, type InstallerPlan, type JsonEnvelope, type SetupConfig, type SetupState, type StageId, type StageModule, type StageReceipt, type StageStatus } from "./types";
+import { ExitCode, type InstallerPlan, type JsonEnvelope, type SetupConfig, type SetupState, type StageId, type StageModule, type StageReceipt, type StageContext, type StageStatus } from "./types";
 import { setupError, toSetupError } from "./errors";
 import { approveGate, ensureGateApproved, ensureNonInteractiveGates, expireGates, upsertPlanGates } from "./gates";
 import { acquireLock, consumeCancelRequest, recoverLockOnly, requestCancel, type LockOwner } from "./lock";
 import { buildStageClosure, createPlanFile, createRegistry, loadPlan, validatePlanConsistency, type StageRegistry } from "./plan";
 import {
   appendEvent,
+  assertEvidenceAdmission,
   buildStatePaths,
   clearRecoveryMarker,
   FALLBACK_MACHINE_ID_HASH,
   inspectStateEvidence,
   loadState,
   recordEffectCheckpoint,
+  readStateCommitManifest,
+  receiptHash,
   restorePrimaryState,
   saveState,
   stateHash,
@@ -411,7 +414,7 @@ export class SetupEngine {
     return updateObservedStage(state, observation, observation.status);
   }
 
-  private stageContext(config: SetupConfig, desiredHash: string, planHash: string) {
+  private stageContext(config: SetupConfig, desiredHash: string, planHash: string): StageContext {
     return {
       installationId: config.installation_id,
       contractVersion: "1.0.0" as const,
@@ -577,6 +580,7 @@ export class SetupEngine {
     candidateStateHash: string,
     unresolvedNextAction: string
   ): Promise<SetupState> {
+    await assertEvidenceAdmission(this.deps.fsAdapter, config, evidence);
     if (!evidence.stateExists) {
       throw setupError({
         exitCode: ExitCode.DriftOrRecoveryRequired,
@@ -992,7 +996,8 @@ export class SetupEngine {
         });
       }
       const stageId = options.stageId ?? null;
-      result = await createPlanFile(this.deps.fsAdapter, config, this.registry, stageId, this.deps.clock);
+      result = await createPlanFile(this.deps.fsAdapter, config, this.registry, stageId, this.deps.clock,
+        (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations?.filter(e => e.config_hash === hashConfig(config)).map(e => e.receipt) ?? []);
       state = expireGates(state, this.deps.clock);
       for (const stagePlan of result.plan.stages) {
         for (const gateId of stagePlan.required_gates) {
@@ -1071,6 +1076,7 @@ export class SetupEngine {
         }
         await this.consumeCancelOrThrow(config, lock.owner);
         const stageCtx = this.stageContext(config, plan.desired_hash, plan.plan_hash);
+        stageCtx.completedOperationReceipts = (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations?.filter(e => e.config_hash === hashConfig(config)).map(e => e.receipt) ?? [];
         const observation = await stage.observe(stageCtx);
         if (
           state.stages.some(
@@ -1102,6 +1108,9 @@ export class SetupEngine {
         if (executeWithApply) {
           this.assertOrdinaryOwner(config, stagePlan.stage_id);
           for (const operation of stagePlan.operations) {
+            for (const gateId of stagePlan.required_gates) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, `stage:${stagePlan.stage_id}`);
+            for (const gateId of operation.gate_ids) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, operation.id);
+            await stage.admitOperation?.(stageCtx, { id: operation.id, resourceId: operation.resource_id });
             const attemptId = randomUUID();
             state = withInFlightOperation(state, {
               id: `${stagePlan.stage_id}:${operation.id}:${attemptId}`,
@@ -1157,16 +1166,19 @@ export class SetupEngine {
               operation_id: operation.id,
               stage: stagePlan.stage_id,
               code: "effect",
-              message: `effect:${receipt.resourceId}`,
+              message: `effect:${receipt.resourceId}:${receiptHash(receipt)}`,
               attempt_id: attemptId
             });
+            await stage.verifyOperation?.(stageCtx, receipt);
             await appendEvent(this.deps.fsAdapter, config, {
               operation_id: operation.id,
               stage: stagePlan.stage_id,
               code: "verify",
-              message: `verify:${receipt.resourceId}`,
+              message: `verify:postconditions:${receipt.resourceId}:${receiptHash(receipt)}`,
               attempt_id: attemptId
             });
+            state = withInFlightOperation(state, null);
+            await saveState(this.deps.fsAdapter, config, state);
             const committedStateHash = stateHash(state);
             const checkpointRecord = await appendEvent(this.deps.fsAdapter, config, {
               operation_id: operation.id,
@@ -1181,8 +1193,19 @@ export class SetupEngine {
               operationId: operation.id,
               stage: stagePlan.stage_id,
               sequence: checkpointRecord.sequence,
-              stateHash: committedStateHash
+              stateHash: committedStateHash,
+              receipt
             });
+            stageCtx.previousOperationReceipt = receipt;
+            stageCtx.completedOperationReceipts = [...(stageCtx.completedOperationReceipts ?? []), receipt];
+            if (receipt.checks.manual_pause_required === true) {
+              state = updateObservedStage(state, { stageId: stagePlan.stage_id, status: "awaiting_manual", checks: receipt.checks,
+                versions: receipt.versions, observedAt: receipt.observedAt }, "awaiting_manual");
+              await saveState(this.deps.fsAdapter, config, state);
+              throw setupError({ exitCode: ExitCode.ManualActionRequired, code: "operation_manual_pause",
+                publicMessage: "Operation completed; a new owner login session is required before continuing.",
+                nextAction: "Log out and back in, run plan, review remaining operations and approve the new plan, then resume.", stage: stagePlan.stage_id });
+            }
             await this.consumeCancelOrThrow(config, lock.owner);
           }
         }
@@ -1213,7 +1236,7 @@ export class SetupEngine {
         }
         state = withInFlightOperation(state, null);
         state = updateObservedStage(state, observedAfter, optionalSkipAccepted ? "skipped" : "verified");
-        await saveState(this.deps.fsAdapter, config, state);
+        await saveState(this.deps.fsAdapter, config, state, { finalVerified: true });
         await this.consumeCancelOrThrow(config, lock.owner);
       }
 
@@ -1292,7 +1315,8 @@ export class SetupEngine {
             continue;
           }
           const observation = await stage.observe({
-            ...this.stageContext(config, hashConfig(config), "status-refresh")
+            ...this.stageContext(config, hashConfig(config), "status-refresh"),
+            completedOperationReceipts: (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations?.filter(e => e.config_hash === hashConfig(config)).map(e => e.receipt) ?? []
           });
           const persisted = state.stages.find((item) => item.id === stageId);
           if (persisted?.status === "verified" && observation.status !== "verified") {
@@ -1366,6 +1390,7 @@ export class SetupEngine {
       : buildStageClosure(this.registry, [options.stageId]);
     const lock = await acquireLock(this.deps.fsAdapter, this.deps.processAdapter, config);
     let state: SetupState | null = null;
+    let verifyingStage: StageId | null = null;
     try {
       state = await this.loadStateWithOptions(config, { initializeIfMissing: false });
       for (const stageId of closure) {
@@ -1373,11 +1398,24 @@ export class SetupEngine {
         if (stage === undefined) {
           continue;
         }
-        await stage.verify(this.stageContext(config, hashConfig(config), "verify"));
-        const observation = await stage.observe(this.stageContext(config, hashConfig(config), "verify"));
+        verifyingStage = stageId;
+        const ctx = { ...this.stageContext(config, hashConfig(config), "verify"),
+          completedOperationReceipts: (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations?.filter(e => e.config_hash === hashConfig(config)).map(e => e.receipt) ?? [] };
+        await stage.verify(ctx);
+        const observation = await stage.observe(ctx);
         state = updateObservedStage(state, observation, observation.status);
       }
       await saveState(this.deps.fsAdapter, config, state);
+    } catch (error) {
+      const failure = toSetupError(error);
+      if (state !== null && verifyingStage !== null) {
+        const id = verifyingStage;
+        state = { ...state, stages: state.stages.map(s => s.id === id ? { ...s,
+          status: failure.exitCode === ExitCode.ManualActionRequired ? "awaiting_manual" : failure.exitCode === ExitCode.DriftOrRecoveryRequired ? "drifted" : "blocked",
+          checks: { ...s.checks, current_verification_failed: true } } : s) };
+        await saveState(this.deps.fsAdapter, config, state);
+      }
+      throw error;
     } finally {
       await lock.release();
     }
@@ -1531,6 +1569,7 @@ export class SetupEngine {
     let state: SetupState | null = null;
     try {
       const evidence = await inspectStateEvidence(this.deps.fsAdapter, config);
+      await assertEvidenceAdmission(this.deps.fsAdapter, config, evidence);
 
       if (evidence.marker === null && evidence.stateExists) {
         state = await this.loadStateWithOptions(config, {
@@ -1659,6 +1698,11 @@ export class SetupEngine {
       }
 
       if (markerCommit?.phase === "prepared") {
+        if (commitManifest?.last_effect_checkpoint?.state_hash !== candidateHash
+          && !commitManifest?.clean_proof?.snapshot_hashes.includes(candidateHash)) {
+          throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "recovery_unresolved",
+            publicMessage: "Prepared candidate lacks clean completion proof.", nextAction: unresolvedNextAction });
+        }
         if (candidateHash !== markerCommit.candidate_state_hash) {
           throw setupError({
             exitCode: ExitCode.DriftOrRecoveryRequired,
@@ -1668,7 +1712,7 @@ export class SetupEngine {
             evidenceRef: previousPath
           });
         }
-        if (commitManifest?.last_state_hash !== candidateHash) {
+        if (commitManifest?.last_state_hash !== candidateHash && !commitManifest?.clean_proof?.snapshot_hashes.includes(candidateHash)) {
           throw setupError({
             exitCode: ExitCode.DriftOrRecoveryRequired,
             code: "recovery_unresolved",
@@ -1700,6 +1744,9 @@ export class SetupEngine {
               evidenceRef: paths.stateFile
             });
           }
+          if (commitManifest?.last_state_hash !== candidateHash) {
+            await restorePrimaryState(this.deps.fsAdapter, config, candidate);
+          }
         } else {
           await restorePrimaryState(this.deps.fsAdapter, config, candidate);
         }
@@ -1707,8 +1754,9 @@ export class SetupEngine {
         const canStartPreparedRecovery = (evidence.marker === null || evidence.marker.recovery_commit === undefined)
           && !evidence.stateExists
           && commitManifest !== null
-          && commitManifest.last_state_hash === candidateHash
+          && (commitManifest.last_state_hash === candidateHash || commitManifest.clean_proof?.snapshot_hashes.includes(candidateHash) === true)
           && commitManifest.last_effect_checkpoint !== undefined
+          && (commitManifest.last_effect_checkpoint.state_hash === candidateHash || commitManifest.clean_proof?.snapshot_hashes.includes(candidateHash) === true)
           && this.checkpointMatchesManifest(evidence)
           && evidence.journal.latestCheckpoint !== null;
 
@@ -1730,6 +1778,7 @@ export class SetupEngine {
             phase: "prepared",
             source: "previous",
             candidate_state_hash: candidateHash,
+            source_manifest: commitManifest,
             updated_at: nowIso
           }
         });
@@ -1744,6 +1793,7 @@ export class SetupEngine {
           phase: "primary_restored",
           source: "previous",
           candidate_state_hash: candidateHash,
+          ...(markerCommit?.source_manifest === undefined ? (commitManifest === null ? {} : { source_manifest: commitManifest }) : { source_manifest: markerCommit.source_manifest }),
           updated_at: this.deps.clock.now().toISOString()
         }
       });

@@ -172,12 +172,6 @@ function requiredGatesFromObserved(observed: StageObservation): string[] {
     "s04-docker-daemon-restart-approved",
     "s04-docker-group-root-equivalent-ack"
   ];
-  if (
-    observed.checks.docker_relogin_required === true
-    || observed.checks.docker_group_current_user_member !== true
-  ) {
-    gates.push("s04-docker-group-relogin-required");
-  }
   return gates;
 }
 
@@ -358,6 +352,10 @@ function validateBlockedPreconditions(
       stage: "S04"
     });
   }
+  if (observation.tcpApi.configured || observation.tcpApi.listening || observation.dockerSocket.worldWritable || observation.workloads.publicPublishedPortCount > 0) {
+    throw setupError({ exitCode: ExitCode.SecurityBoundaryViolation, code: observation.tcpApi.configured || observation.tcpApi.listening ? "s04_public_docker_api_detected" : observation.dockerSocket.worldWritable ? "s04_socket_world_writable" : "s04_public_ports_detected",
+      publicMessage: "Unsafe socket, TCP API or public workload exposure blocks Docker changes.", nextAction: "Review Docker boundaries before proceeding.", stage: "S04" });
+  }
   if (observation.workloads.foreignContainerCount > 0) {
     throw setupError({
       exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
@@ -411,6 +409,16 @@ function validateProbeResult(probe: DockerFixtureProbeResult): void {
   }
 }
 
+function completedResources(ctx: StageContext, observation: DockerRuntimeObservation): string[] {
+  const receipts = (ctx.completedOperationReceipts ?? []).filter(r => r.stageId === "S04");
+  const install = receipts.find(r => r.resourceId === "docker-package-set");
+  if (install === undefined || !observation.dockerInstalled || !pinsMatchInstalled(observation, plannedPinsFromObservation(observation))
+    || !observation.packages.every(p => install.versions[`docker_installed_${p.name}`] === p.installedVersion)) return [];
+  const merge = receipts.find(r => r.resourceId === "docker-daemon-log-config");
+  if (merge !== undefined && merge.versions.docker_daemon_config_hash !== observation.daemonConfig.contentHash) return [];
+  return receipts.map(r => r.resourceId);
+}
+
 export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
   return {
     id: "S04",
@@ -421,7 +429,9 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
     async observe(ctx: StageContext): Promise<StageObservation> {
       const observation = await dockerAdapter.observe(ctx);
       const plannedPins = plannedPinsFromObservation(observation);
-      const checks = checksFromObservation(observation, plannedPins);
+      const completed = completedResources(ctx, observation);
+      const checks: StageObservation["checks"] = { ...checksFromObservation(observation, plannedPins), s04_completed_resources: completed.join(",") };
+      const ownProgress = completed.includes("docker-package-set");
       if (missingCandidatePackages(observation).length > 0) {
         checks.docker_missing_candidates = missingCandidatePackages(observation).join(",");
       }
@@ -433,7 +443,9 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
       }
       return {
         stageId: "S04",
-        status: inferStatus(observation),
+        status: ownProgress && !observation.managedByInstaller
+          ? (observation.reloginRequired || !observation.dockerGroup.currentUserInGroup ? "awaiting_manual" : "planned")
+          : inferStatus(observation),
         checks,
         versions: versionsFromObservation(observation),
         observedAt: new Date().toISOString()
@@ -555,9 +567,18 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
         stageId: "S04",
         optional: false,
         requiredCapabilities: [],
-        operations,
-        requiredGates: requiredGatesFromObserved(observed)
+        operations: operations.filter(op => !String(observed.checks.s04_completed_resources ?? "").split(",").includes(op.resourceId)),
+        requiredGates: [...new Set(operations.filter(op => !String(observed.checks.s04_completed_resources ?? "").split(",").includes(op.resourceId)).flatMap(op => op.gateIds))]
       };
+    },
+    async admitOperation(ctx, operation) {
+      const observation = await dockerAdapter.observe(ctx);
+      validateBlockedPreconditions(observation, { allowUnmanagedInstalledTransition: completedResources(ctx, observation).includes("docker-package-set") });
+      if (operation.resourceId === "docker-fixture-probe" && (observation.reloginRequired || !observation.dockerGroup.currentUserInGroup)) {
+        throw setupError({ exitCode: ExitCode.ManualActionRequired, code: "s04_relogin_required",
+          publicMessage: "Docker group account membership is recorded but not active in this process.",
+          nextAction: "Open a new owner login session and resume.", stage: "S04" });
+      }
     },
     async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
       let observation = await dockerAdapter.observe(ctx);
@@ -569,11 +590,7 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
       const preconditions = parsePlanPreconditions(approvedPlan);
       const currentOperation = approvedPlan.operations[0]!;
       const currentOperationId = currentOperation.id;
-      const allowUnmanagedInstalledTransition = !currentOperationId.startsWith("s04-install-packages-")
-        && preconditions.observedDockerInstalled === false
-        && preconditions.observedManagedByInstaller === false
-        && observation.dockerInstalled
-        && !observation.managedByInstaller;
+      const allowUnmanagedInstalledTransition = completedResources(ctx, observation).includes("docker-package-set");
       validateBlockedPreconditions(observation, { allowUnmanagedInstalledTransition });
 
       const plannedPins = plannedPinsFromObservation(observation);
@@ -601,7 +618,7 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
           });
         }
         const observedHash = stableHash({
-          checks: checksFromObservation(observation, plannedPins),
+          checks: { ...checksFromObservation(observation, plannedPins), s04_completed_resources: completedResources(ctx, observation).join(",") },
           versions: versionsFromObservation(observation)
         });
         if (preconditions.observationHash !== observedHash) {
@@ -616,6 +633,7 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
         }
       }
 
+      ctx = { ...ctx, completedOperationReceipts: [...(ctx.completedOperationReceipts ?? [])] };
       const receipts: StageReceipt[] = [];
       for (const operation of approvedPlan.operations) {
         if (operation.id.includes("install-packages")) {
@@ -628,16 +646,18 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
         } else if (operation.id.includes("docker-group-membership")) {
           const membership = await dockerAdapter.ensureDockerGroupMembership(ctx);
           observation = await dockerAdapter.observe(ctx);
-          if (membership.changed || observation.reloginRequired || !observation.dockerGroup.currentUserInGroup) {
-            throw setupError({
-              exitCode: ExitCode.ManualActionRequired,
-              code: "s04_relogin_required",
-              publicMessage: "Docker group membership changed or not active in current session; relogin is required.",
-              nextAction: "Log out and log back in, then rerun verify/status --refresh.",
-              stage: "S04"
-            });
+          if (!observation.dockerGroup.exists || !observation.dockerGroup.currentUserInGroup) {
+            // Effect is complete in the account database; session activation is checked independently.
+            if (observation.dockerGroup.accountUserInGroup !== true) {
+              throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s04_group_postcondition_missing",
+                publicMessage: "Docker group account membership was not confirmed after update.", nextAction: "Inspect group database and preserve evidence.", stage: "S04" });
+            }
           }
         } else if (operation.id.includes("resource-probe")) {
+          if (observation.reloginRequired || !observation.dockerGroup.currentUserInGroup) {
+            throw setupError({ exitCode: ExitCode.ManualActionRequired, code: "s04_relogin_required",
+              publicMessage: "Docker group is not active in this process session.", nextAction: "Open a new login session, then resume.", stage: "S04" });
+          }
           const probe = await dockerAdapter.runPinnedResourceProbe(ctx, operation.id, preconditions.fixtureRef);
           validateProbeResult(probe);
         } else if (operation.id.includes("mark-managed-installation")) {
@@ -680,12 +700,28 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
           stageId: "S04",
           resourceId: operation.resourceId,
           observedAt: new Date().toISOString(),
-          checks: checksFromObservation(observation, observedPins),
+          checks: { ...checksFromObservation(observation, observedPins),
+            s04_probe_verified: operation.resourceId === "docker-fixture-probe",
+            manual_pause_required: operation.resourceId === "docker-group-membership" && (observation.reloginRequired || !observation.dockerGroup.currentUserInGroup) },
           versions: versionsFromObservation(observation),
           artifacts: ["/etc/docker/daemon.json"]
         });
+        ctx.completedOperationReceipts!.push(receipts[receipts.length - 1]!);
       }
       return receipts;
+    },
+    async verifyOperation(ctx, receipt) {
+      const observed = await dockerAdapter.observe(ctx);
+      validateBlockedPreconditions(observed, { allowUnmanagedInstalledTransition: receipt.resourceId === "docker-package-set" || completedResources(ctx, observed).includes("docker-package-set") });
+      let ok = false;
+      if (receipt.resourceId === "docker-package-set") ok = pinsMatchInstalled(observed, plannedPinsFromObservation(observed));
+      if (receipt.resourceId === "docker-daemon-log-config") ok = observed.daemonConfig.contentHash === receipt.versions.docker_daemon_config_hash;
+      if (receipt.resourceId === "docker-daemon-service") ok = observed.daemonReachable && observed.apiCompatible;
+      if (receipt.resourceId === "docker-group-membership") ok = observed.dockerGroup.currentUserInGroup || observed.dockerGroup.accountUserInGroup === true;
+      if (receipt.resourceId === "docker-fixture-probe") ok = receipt.checks.s04_probe_verified === true && observed.dockerGroup.currentUserInGroup;
+      if (receipt.resourceId === "docker-managed-installation") ok = observed.managedByInstaller;
+      if (!ok) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s04_operation_postcondition_failed",
+        publicMessage: "Docker operation postcondition could not be confirmed.", nextAction: "Preserve Docker operation evidence and reconcile resources.", stage: "S04" });
     },
     async verify(ctx: StageContext): Promise<StageReceipt[]> {
       const observation = await dockerAdapter.observe(ctx);
@@ -771,7 +807,7 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
           stageId: "S04",
           resourceId: "docker-host",
           observedAt: new Date().toISOString(),
-          checks: checksFromObservation(observation, plannedPins),
+          checks: { ...checksFromObservation(observation, plannedPins), s04_completed_resources: completedResources(ctx, observation).join(",") },
           versions: versionsFromObservation(observation),
           artifacts: ["/etc/docker/daemon.json", "/var/run/docker.sock"]
         }

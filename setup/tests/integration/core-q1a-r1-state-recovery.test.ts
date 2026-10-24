@@ -956,31 +956,6 @@ test("R1-03 marker/quarantine failure windows preserve uncertainty and never res
 });
 
 test("R1-04 save/journal fault boundaries keep deterministic old/new or recovery outcome", async () => {
-  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-04-"));
-  const config = makeConfig(root);
-  const fsAdapter = new InstrumentedFilesystemAdapter();
-  const processAdapter = new CountingProcessAdapter(
-    2004,
-    "f324dcd7-4035-4430-ab39-ce31f9e396bf",
-    "1".repeat(64),
-    100
-  );
-  await fs.promises.mkdir(config.paths.setup_state_dir, { recursive: true, mode: 0o700 });
-  const base = await initState(fsAdapter, processAdapter, { now: () => new Date("2026-10-23T12:00:00.000Z") }, config, "0.0.1");
-  await saveState(fsAdapter, config, base);
-
-  const upgraded: SetupState = {
-    ...base,
-    in_flight_operation: {
-      id: "s01-op",
-      stage_id: "S01",
-      kind: "mutate",
-      started_at: "2026-10-23T12:01:00.000Z"
-    }
-  };
-  const baseHash = stateHash(base);
-  const upgradedHash = stateHash(upgraded);
-
   const boundaries: FailureRule[] = [
     { method: "writeText", atCall: 1, pathIncludes: "state.json.tmp-", code: "ENOSPC" },
     { method: "fsyncFile", atCall: 1, pathIncludes: "state.json.tmp-", code: "EIO" },
@@ -993,6 +968,13 @@ test("R1-04 save/journal fault boundaries keep deterministic old/new or recovery
   ];
 
   for (const failure of boundaries) {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r1-04-independent-"));
+    const config = makeConfig(root), fsAdapter = new InstrumentedFilesystemAdapter();
+    const processAdapter = new CountingProcessAdapter(2004, "f324dcd7-4035-4430-ab39-ce31f9e396bf", "1".repeat(64), 100);
+    const base = await initState(fsAdapter, processAdapter, { now: () => new Date("2026-10-23T12:00:00Z") }, config, "0.0.1");
+    await saveState(fsAdapter, config, base);
+    const upgraded: SetupState = { ...base, in_flight_operation: { id: "s01-op", stage_id: "S01", kind: "mutate", started_at: "2026-10-23T12:01:00Z" } };
+    const baseHash = stateHash(base), upgradedHash = stateHash(upgraded);
     fsAdapter.setFailureRules([failure]);
     await assert.rejects(
       () => saveState(fsAdapter, config, upgraded),
@@ -3427,3 +3409,301 @@ test("K09 empty or verify-only plan does not call stage.apply (trap stage)", asy
   assert.equal(applyCalls, 0);
   assert.equal(fs.existsSync(effectPath), false);
 });
+
+async function r14CoreFixture(fsAdapter: FilesystemAdapter = new NodeFilesystemAdapter()) {
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "q1a-r14-core-"));
+  const config = makeConfig(root), configPath = path.join(root, "config.json"), effectPath = path.join(root, "effect");
+  await writeConfig(configPath, config);
+  const processAdapter = new CountingProcessAdapter(3301, "f324dcd7-4035-4430-ab39-ce31f9e396bf", "1".repeat(64), 100);
+  let effects = 0;
+  const stage = makeMutatingStage(effectPath), apply = stage.apply.bind(stage);
+  stage.apply = async (ctx, plan) => { effects++; return apply(ctx, plan); };
+  const engine = new SetupEngine({ fsAdapter, processAdapter, clock: { now: () => new Date("2026-10-24T10:00:00Z") } }, createRegistry([makeS00(), stage]));
+  const plan = () => engine.run("plan", { configPath });
+  const runApply = () => engine.run("apply", { configPath, planPath: path.join(config.paths.setup_state_dir, "plan.json") });
+  return { root, config, configPath, effectPath, engine, stage, plan, runApply, effects: () => effects };
+}
+async function r14EvidenceBytes(config: SetupConfig) {
+  const result: Record<string, string | null> = {};
+  for (const file of ["state.json", "state.json.previous", "state-commit.json", "events.jsonl", "recovery-required.json"]) {
+    try { result[file] = await fs.promises.readFile(path.join(config.paths.setup_state_dir, file), "utf8"); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; result[file] = null; }
+  }
+  return result;
+}
+for (const mode of ["direct", "plan-first"] as const) {
+  test(`U03 C01 engine-generated plan-apply-plan recovery ${mode} retains final proof without replay`, async () => {
+    const x = await r14CoreFixture();
+    assert.equal((await x.plan()).exitCode, 0); assert.equal((await x.runApply()).exitCode, 0);
+    const manifestBefore = await readStateCommitManifest(new NodeFilesystemAdapter(), x.config);
+    assert.ok(manifestBefore?.clean_proof);
+    await x.plan();
+    const primary = path.join(x.config.paths.setup_state_dir, "state.json");
+    const expected = await fs.promises.readFile(`${primary}.previous`, "utf8");
+    await fs.promises.unlink(primary);
+    if (mode === "plan-first") assert.equal((await x.plan()).exitCode, 8);
+    assert.equal((await x.engine.run("recover", { configPath: x.configPath })).exitCode, 0);
+    assert.equal(await fs.promises.readFile(primary, "utf8"), expected);
+    const recovered = await readStateCommitManifest(new NodeFilesystemAdapter(), x.config);
+    assert.deepEqual(recovered?.last_effect_checkpoint, manifestBefore?.last_effect_checkpoint);
+    assert.ok(recovered?.clean_proof?.snapshot_hashes.includes(stateHash(JSON.parse(expected) as SetupState)));
+    const beforeRepeat = await r14EvidenceBytes(x.config);
+    assert.equal((await x.engine.run("recover", { configPath: x.configPath })).exitCode, 0);
+    assert.deepEqual(await r14EvidenceBytes(x.config), beforeRepeat);
+    assert.equal((await x.plan()).exitCode, 0); assert.equal((await x.runApply()).exitCode, 0);
+    assert.equal(x.effects(), 1, "resource observe prevents effect replay after proven restore");
+  });
+}
+for (const phase of ["current", "missing", "prepared", "primary_restored"] as const) {
+  for (const contradiction of ["quarantine", "attempt", "operation", "stage", "sequence", "hash", "previous", "journal", "generation", "manifest-missing", "manifest-malformed", "manifest-foreign", "manifest-unsupported", "decision"] as const) {
+    test(`U05 admission ${phase}/${contradiction} refuses before state-evidence writes`, async () => {
+      const instrumented = new InstrumentedFilesystemAdapter(), x = await r14CoreFixture(instrumented);
+      assert.equal((await x.plan()).exitCode, 0); assert.equal((await x.runApply()).exitCode, 0); assert.equal((await x.plan()).exitCode, 0);
+      const primary = path.join(x.config.paths.setup_state_dir, "state.json"), marker = path.join(x.config.paths.setup_state_dir, "recovery-required.json");
+      if (phase !== "current") await fs.promises.unlink(primary);
+      if (phase === "prepared" || phase === "primary_restored") {
+        instrumented.setFailureRules([{ method: phase === "prepared" ? "writeText" : "remove", pathIncludes: phase === "prepared" ? "state.json.tmp-" : "recovery-required.json", code: "EIO" }]);
+        const first = await x.engine.run("recover", { configPath: x.configPath });
+        assert.equal(first.exitCode, 8, JSON.stringify(first)); assert.equal(instrumented.getTriggeredFailures(), 1);
+        instrumented.setFailureRules([]);
+        const decision = JSON.parse(await fs.promises.readFile(marker, "utf8")) as RecoveryMarkerRecord;
+        assert.equal(decision.recovery_commit?.phase, phase);
+      }
+      const mPath = commitManifestPath(x.config);
+      if (["attempt", "operation", "stage", "sequence", "hash", "generation"].includes(contradiction)) {
+        const m = JSON.parse(await fs.promises.readFile(mPath, "utf8")) as StateCommitManifest;
+        const cp = m.last_effect_checkpoint!;
+        if (contradiction === "attempt") cp.attempt_id = "different-attempt";
+        if (contradiction === "operation") cp.operation_id = "different-operation";
+        if (contradiction === "stage") cp.stage = "S02";
+        if (contradiction === "sequence") cp.sequence++;
+        if (contradiction === "hash") cp.state_hash = "f".repeat(64);
+        if (contradiction === "generation") { m.generation++; m.last_state_hash = "e".repeat(64); }
+        await fs.promises.writeFile(mPath, JSON.stringify(m));
+      }
+      if (contradiction === "manifest-missing") await fs.promises.unlink(mPath);
+      if (contradiction === "manifest-malformed") await fs.promises.writeFile(mPath, "{partial");
+      if (contradiction === "manifest-foreign" || contradiction === "manifest-unsupported") {
+        const m = JSON.parse(await fs.promises.readFile(mPath, "utf8")) as Record<string, unknown>;
+        if (contradiction === "manifest-foreign") m.installation_id = "11111111-1111-4111-8111-111111111111";
+        else m.schema_version = 2;
+        await fs.promises.writeFile(mPath, JSON.stringify(m));
+      }
+      if (contradiction === "decision") {
+        const original = phase === "prepared" || phase === "primary_restored" ? JSON.parse(await fs.promises.readFile(marker, "utf8")) as RecoveryMarkerRecord : recoveryMarkerBody(x.config, { recovery_commit: {
+          phase: "prepared", source: "previous", candidate_state_hash: "f".repeat(64), updated_at: "2026-10-24T10:00:00Z",
+          source_manifest: (await readStateCommitManifest(instrumented, x.config))! } });
+        original.recovery_commit!.candidate_state_hash = "f".repeat(64);
+        await fs.promises.writeFile(marker, JSON.stringify(original));
+      }
+      if (contradiction === "quarantine") await fs.promises.writeFile(`${primary}.corrupt-unknown`, "unknown-effect");
+      if (contradiction === "previous") await fs.promises.writeFile(`${primary}.previous`, "{}");
+      if (contradiction === "journal") await fs.promises.appendFile(path.join(x.config.paths.setup_state_dir, "events.jsonl"), "partial-unknown");
+      const before = await r14EvidenceBytes(x.config);
+      const result = await x.engine.run("recover", { configPath: x.configPath });
+      assert.equal(result.exitCode, 8, JSON.stringify(result));
+      assert.deepEqual(await r14EvidenceBytes(x.config), before, "immutable refusal including decision and manifest");
+      if (phase === "current") {
+        assert.equal((await x.plan()).exitCode, 8); assert.deepEqual(await r14EvidenceBytes(x.config), before);
+        assert.equal((await x.runApply()).exitCode, 8); assert.deepEqual(await r14EvidenceBytes(x.config), before);
+      }
+      if (contradiction === "quarantine") assert.equal(await fs.promises.readFile(`${primary}.corrupt-unknown`, "utf8"), "unknown-effect");
+      assert.equal(x.effects(), 1);
+    });
+  }
+}
+
+function r14Digests(bytes: Record<string, string | null>): Record<string, string | null> {
+  return Object.fromEntries(Object.entries(bytes).map(([p, body]) => [p, body === null ? null : createHash("sha256").update(body).digest("hex")]));
+}
+for (const phase of ["initial", "operation-binding", "final-commit"] as const) {
+  for (const boundary of ["writeText", "fsyncFile", "rename", "fsyncDir"] as const) {
+    for (const timing of ["before", "after", "control"] as const) {
+      test(`U07 manifest ${phase}/${boundary}/${timing}: fresh fixture and fault-off control`, async () => {
+        const delegate = new NodeFilesystemAdapter();
+        let active: { temp: string; target?: string; phase: string } | undefined;
+        let hits = 0, lastPath = "";
+        async function around<T>(method: string, exactPath: string, action: () => Promise<T>): Promise<T> {
+          const match = method === boundary && active?.phase === phase && timing !== "control" && hits === 0;
+          if (match && timing === "before") { hits++; lastPath = exactPath; throw Object.assign(new Error("R14 injected manifest fault"), { code: method === "writeText" ? "ENOSPC" : "EIO" }); }
+          const result = await action();
+          if (match && timing === "after") { hits++; lastPath = exactPath; throw Object.assign(new Error("R14 injected manifest fault after artifact"), { code: method === "writeText" ? "ENOSPC" : "EIO" }); }
+          return result;
+        }
+        const adapter = new Proxy(delegate, { get(target, key, receiver) {
+          if (key === "writeText") return async (p: string, body: string, mode?: number) => {
+            if (p.includes("state-commit.json.tmp-")) {
+              const m = JSON.parse(body) as StateCommitManifest;
+              active = { temp: p, phase: m.clean_proof !== undefined ? "final-commit" : m.last_effect_checkpoint !== undefined ? "operation-binding" : m.generation === 1 ? "initial" : "state-metadata" };
+              return around("writeText", p, () => target.writeText(p, body, mode));
+            }
+            return target.writeText(p, body, mode);
+          };
+          if (key === "fsyncFile") return async (p: string) => active?.temp === p ? around("fsyncFile", p, () => target.fsyncFile(p)) : target.fsyncFile(p);
+          if (key === "rename") return async (a: string, b: string) => {
+            if (active?.temp === a) { active.target = b; return around("rename", `${a}->${b}`, () => target.rename(a, b)); }
+            return target.rename(a, b);
+          };
+          if (key === "fsyncDir") return async (p: string) => {
+            if (active?.target !== undefined && path.dirname(active.target) === p) {
+              try { return await around("fsyncDir", `${active.target}:parent:${p}`, () => target.fsyncDir(p)); } finally { active = undefined; }
+            }
+            return target.fsyncDir(p);
+          };
+          const value: unknown = Reflect.get(target, key, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        } });
+        const x = await r14CoreFixture(adapter);
+        const before = r14Digests(await r14EvidenceBytes(x.config));
+        const planned = await x.plan();
+        const applied = planned.exitCode === 0 ? await x.runApply() : planned;
+        const after = r14Digests(await r14EvidenceBytes(x.config));
+        if (timing === "control") {
+          assert.equal(hits, 0); assert.equal(applied.exitCode, 0, JSON.stringify(applied)); assert.equal(x.effects(), 1);
+        } else {
+          assert.equal(hits, 1, `${phase}/${boundary} reached precisely once`);
+          assert.equal(applied.exitCode, 8, JSON.stringify(applied));
+          assert.equal(applied.envelope.error?.code, "state_commit_manifest_write_failed");
+          assert.equal(x.effects(), phase === "initial" ? 0 : 1);
+          assert.ok(lastPath.includes("state-commit.json"), lastPath);
+        }
+        const effectsAtFailure = x.effects();
+        const recovered = await x.engine.run("recover", { configPath: x.configPath });
+        const replanned = await x.plan();
+        const retried = replanned.exitCode === 0 ? await x.runApply() : replanned;
+        assert.ok([0, 8].includes(recovered.exitCode), JSON.stringify(recovered));
+        assert.ok([0, 8].includes(retried.exitCode), JSON.stringify(retried));
+        assert.ok(x.effects() <= 1, "no unknown effect replay");
+        console.log("R14_FAULT " + JSON.stringify({ phase, boundary, timing, path: lastPath, hits, before, after,
+          effects_at_failure: effectsAtFailure, effects: x.effects(), result: applied.exitCode, next_recover: recovered.exitCode, next_apply: retried.exitCode }));
+      });
+    }
+  }
+}
+
+import { r14Clock, r14Noop, r14Process } from "../helpers/r14-engine";
+for (const phase of ["between-operations", "checkpoint-before-binding", "before-install", "install-after-effect", "final-primary", "final-manifest", "recovery-prepared", "recovery-restored", "cleanup-before-remove", "cleanup-after-remove"]) {
+  test(`U04 U08 separate S02 child writer ${phase}: IPC barrier, reader, foreign lock, SIGKILL and restart`, async () => {
+    const childScript = path.resolve(__dirname, "../../../tests/helpers/r14-child.cjs");
+    const dist = path.resolve(__dirname, "../..");
+    const child = spawn(process.execPath, [childScript, dist, phase], { stdio: ["ignore", "pipe", "pipe", "ipc"] });
+    let stderr = ""; child.stderr!.on("data", data => { stderr += String(data); });
+    type Barrier = { type: string; phase: string; path: string; configPath: string; config: SetupConfig; effectsFile: string };
+    let deadline: NodeJS.Timeout | undefined;
+    const barrier = await new Promise<Barrier>((resolve, reject) => {
+      deadline = setTimeout(() => reject(new Error(`IPC barrier deadline: ${phase}: ${stderr}`)), 20_000);
+      child.once("error", reject);
+      child.once("exit", code => reject(new Error(`Writer exited before barrier (${code}): ${stderr}`)));
+      child.on("message", (value: Barrier) => { if (value.type === "barrier") { clearTimeout(deadline); resolve(value); } });
+    }).catch(error => { child.kill("SIGKILL"); throw error; });
+    try {
+      assert.equal(barrier.phase, phase); assert.ok(path.isAbsolute(barrier.path));
+      const realPidProcess: ProcessAdapter = { ...r14Process, isPidAlive: pid => { try { process.kill(pid, 0); return true; } catch { return false; } } };
+      const e = new SetupEngine({ fsAdapter: new NodeFilesystemAdapter(), processAdapter: realPidProcess, clock: r14Clock }, createRegistry([r14Noop("S01"), r14Noop("S02")]));
+      const before = await r14EvidenceBytes(barrier.config);
+      await e.run("status", { configPath: barrier.configPath });
+      assert.deepEqual(await r14EvidenceBytes(barrier.config), before, "reader never writes marker/migration/repair");
+      const foreign = await e.run("recover", { configPath: barrier.configPath });
+      assert.equal(foreign.exitCode, 7, JSON.stringify(foreign));
+      assert.deepEqual(await r14EvidenceBytes(barrier.config), before);
+      const effectsBefore = await fs.promises.readFile(barrier.effectsFile, "utf8");
+      const exit = once(child, "exit"); child.kill("SIGKILL");
+      const [code, signal] = await exit; assert.equal(code, null); assert.equal(signal, "SIGKILL");
+      const unlocked = await e.run("recover", { configPath: barrier.configPath, lockOnly: true });
+      assert.equal(unlocked.exitCode, 0, JSON.stringify(unlocked));
+      assert.deepEqual(await r14EvidenceBytes(barrier.config), before, "lock-only reconciliation never rewrites state evidence");
+      const result = await e.run("recover", { configPath: barrier.configPath });
+      const expected = ["checkpoint-before-binding", "before-install", "install-after-effect", "final-primary"].includes(phase) ? 8 : 0;
+      assert.equal(result.exitCode, expected, JSON.stringify(result));
+      assert.equal(await fs.promises.readFile(barrier.effectsFile, "utf8"), effectsBefore, "restart does not replay effects");
+      const effects: string[] = JSON.parse(effectsBefore) as string[];
+      if (["between-operations", "checkpoint-before-binding"].includes(phase)) assert.deepEqual(effects, ["refresh"]);
+      else if (phase === "before-install") assert.deepEqual(effects, ["refresh", "simulate"]);
+      else assert.deepEqual(effects, ["refresh", "simulate", "install"]);
+      const stateBody = await fs.promises.readFile(path.join(barrier.config.paths.setup_state_dir, "state.json"), "utf8");
+      const state = JSON.parse(stateBody) as SetupState;
+      if (["between-operations", "checkpoint-before-binding", "before-install", "install-after-effect"].includes(phase)) assert.notEqual(state.stages.find(s => s.id === "S02")?.status, "verified");
+      // Restart with the real S02 producer and fake persistent host state, not a no-op executor.
+      const hostEffects = [...effects];
+      const persistentApt: AptAdapter = {
+        observe: async names => ({ metadataFresh: hostEffects.includes("refresh"), metadataUpdatedAt: r14Clock.now().toISOString(), sudoAvailable: true, dpkgAuditClean: true, dpkgAuditOutput: "", rebootRequired: false,
+          packages: names.map(name => ({ name, installedVersion: hostEffects.includes("install") ? "1.0" : null, candidateVersion: "1.0" })) }),
+        refreshMetadata: async () => { hostEffects.push("refresh"); },
+        simulateInstall: async () => { hostEffects.push("simulate"); },
+        installPinned: async () => { hostEffects.push("install"); }
+      };
+      const realRestart = new SetupEngine({ fsAdapter: new NodeFilesystemAdapter(), processAdapter: realPidProcess, clock: r14Clock }, createRegistry([r14Noop("S01"), createSystemStage(persistentApt)]));
+      const restartPlan = await realRestart.run("plan", { configPath: barrier.configPath });
+      if (expected === 8) {
+        assert.equal(restartPlan.exitCode, 8, JSON.stringify(restartPlan));
+        assert.deepEqual(hostEffects, effects, "actual S02 restart refuses unknown replay before calling apt");
+      } else {
+        assert.equal(restartPlan.exitCode, 0, JSON.stringify(restartPlan));
+        await approveRequiredGates(realRestart, barrier.configPath, restartPlan);
+        const resumed = await realRestart.run("resume", { configPath: barrier.configPath });
+        assert.equal(resumed.exitCode, 0, JSON.stringify(resumed));
+        assert.equal(hostEffects.filter(v => v === "refresh").length, 1, "known refresh is not repeated");
+        assert.equal(hostEffects.filter(v => v === "install").length, 1, "installation executes at most once");
+      }
+      console.log("R14_CRASH " + JSON.stringify({ phase, path: barrier.path, effects, resumed_effects: hostEffects, restart_plan_exit: restartPlan.exitCode, before: r14Digests(before), after: r14Digests(await r14EvidenceBytes(barrier.config)), reader_unchanged: true, foreign_lock_exit: foreign.exitCode, recover_exit: result.exitCode, child_signal: signal }));
+    } finally { clearTimeout(deadline); if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL"); }
+  });
+}
+
+test("U04 S02 late exception preserves real refresh/simulate checkpoints and unknown install", async () => {
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "af-r14-late-apt-")), config = makeConfig(root), configPath = path.join(root, "config.json");
+  config.selected_stages = ["S02"]; await writeConfig(configPath, config);
+  const f = new NodeFilesystemAdapter(), apt = new StageFakeAptAdapter(aptObservationWithMissingInstall());
+  apt.installPinned = async () => {
+    const evidence = await inspectStateEvidence(f, config);
+    assert.equal(evidence.journal.unresolvedOperationIds.length, 1, "only current install remains unknown");
+    assert.ok(evidence.commitManifest?.completed_operations?.some(p => p.receipt.resourceId === "apt-metadata"));
+    assert.ok(evidence.commitManifest?.completed_operations?.some(p => p.receipt.resourceId === "apt-simulation"));
+    assert.equal(evidence.commitManifest?.last_effect_checkpoint?.operation_id.startsWith("s02-apt-simulate-"), true);
+    throw new Error("injected late install failure");
+  };
+  const e = new SetupEngine({ fsAdapter: f, processAdapter: new CountingProcessAdapter(3401, "f324dcd7-4035-4430-ab39-ce31f9e396bf", "1".repeat(64), 100), clock: r14Clock }, createRegistry([r14Noop("S01"), createSystemStage(apt)]));
+  const planned = await e.run("plan", { configPath });
+  assert.equal(planned.exitCode, 0);
+  await approveRequiredGates(e, configPath, planned);
+  const result = await e.run("apply", { configPath, planPath: path.join(config.paths.setup_state_dir, "plan.json") });
+  assert.equal(result.exitCode, 6, JSON.stringify(result)); assert.equal(apt.refreshed, 1); assert.equal(apt.simulated, 1);
+  const state = JSON.parse(await f.readText(path.join(config.paths.setup_state_dir, "state.json"))) as SetupState;
+  assert.ok(state.in_flight_operation?.id.includes("s02-apt-install-")); assert.notEqual(state.stages.find(s => s.id === "S02")?.status, "verified");
+  const before = await r14EvidenceBytes(config);
+  assert.equal((await e.run("recover", { configPath })).exitCode, 8);
+  assert.deepEqual(await r14EvidenceBytes(config), before);
+});
+
+for (const fault of ["restore-manifest-write", "restore-manifest-rename", "cleanup-remove", "control"] as const) {
+  test(`U08 engine clean proof survives metadata-only generation and recovery ${fault}`, async () => {
+    const f = new InstrumentedFilesystemAdapter(), x = await r14CoreFixture(f);
+    assert.equal((await x.plan()).exitCode, 0); assert.equal((await x.runApply()).exitCode, 0);
+    const originalPlan = x.stage.plan.bind(x.stage);
+    x.stage.plan = (desired, observed) => ({ ...originalPlan(desired, observed), requiredGates: ["r14-metadata-review"] });
+    const planned = await x.plan(); assert.equal(planned.exitCode, 0);
+    const approved = await x.engine.run("gate-approve", { configPath: x.configPath, gateId: "r14-metadata-review", planHash: planned.envelope.plan_hash! });
+    assert.equal(approved.exitCode, 0);
+    const primary = path.join(x.config.paths.setup_state_dir, "state.json");
+    const previous = JSON.parse(await f.readText(`${primary}.previous`)) as SetupState;
+    const m = await readStateCommitManifest(f, x.config);
+    assert.notEqual(m?.last_state_hash, stateHash(previous), "actual gate metadata creates distinct generation");
+    assert.ok(m?.clean_proof?.snapshot_hashes.includes(stateHash(previous)));
+    await fs.promises.unlink(primary);
+    if (fault === "restore-manifest-write") f.setFailureRules([{ method: "writeText", pathIncludes: "state-commit.json.tmp-", code: "ENOSPC" }]);
+    if (fault === "restore-manifest-rename") f.setFailureRules([{ method: "rename", pathIncludes: "state-commit.json.tmp-", code: "EIO" }]);
+    if (fault === "cleanup-remove") f.setFailureRules([{ method: "remove", pathIncludes: "recovery-required.json", code: "EIO" }]);
+    const beforeRecovery = r14Digests(await r14EvidenceBytes(x.config));
+    const first = await x.engine.run("recover", { configPath: x.configPath });
+    const afterFault = r14Digests(await r14EvidenceBytes(x.config));
+    const hitCount = f.getTriggeredFailures();
+    assert.equal(first.exitCode, fault === "control" ? 0 : 8, JSON.stringify(first));
+    assert.equal(f.getTriggeredFailures(), fault === "control" ? 0 : 1);
+    f.setFailureRules([]);
+    assert.equal((await x.engine.run("recover", { configPath: x.configPath })).exitCode, 0);
+    assert.equal(stateHash(JSON.parse(await f.readText(primary)) as SetupState), stateHash(previous));
+    assert.deepEqual((await readStateCommitManifest(f, x.config))?.last_effect_checkpoint, m?.last_effect_checkpoint);
+    assert.equal(x.effects(), 1);
+    console.log("R14_RECOVERY_FAULT " + JSON.stringify({ fault, before: beforeRecovery, after_fault: afterFault, after_retry: r14Digests(await r14EvidenceBytes(x.config)), hits: hitCount, first_exit: first.exitCode, next_recover: 0, effects: x.effects() }));
+  });
+}

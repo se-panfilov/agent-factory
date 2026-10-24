@@ -321,3 +321,71 @@ test("S05 verifies hash mismatches as security violation", async () => {
     )
   );
 });
+
+import { r14Fixture, r14Noop } from "../helpers/r14-engine";
+import fs from "node:fs/promises";
+for (const mode of ["success", "negative", "timeout", "missing"] as const) {
+  test(`U02 S05 engine ${mode}: materialization cannot substitute mandatory probes`, async () => {
+    const x = await r14Fixture("S05"), a = new FakeApplicationAdapter(makeCheckout(x.config), makeRelease(x.config));
+    if (mode === "negative") a.probe.runnerVerifyHelpOk = false;
+    if (mode === "missing") a.release.manifest!.commands.runner_verify = [];
+    const originalProbe = a.probeCommands.bind(a);
+    a.probeCommands = async (root, manifest, config) => {
+      if (mode === "timeout") { a.probeCalls++; throw new Error("injected command timeout"); }
+      if ((manifest.commands.runner_verify?.length ?? 0) === 0) { a.probeCalls++; return { runnerVerifyHelpOk: false, runnerStopHelpOk: true, details: ["missing command"] }; }
+      return originalProbe(root, manifest, config);
+    };
+    const e = x.engine([r14Noop("S04"), createApplicationStage(a)]);
+    await x.planAndApprove(e);
+    const applied = await e.run("apply", x.applyOptions);
+    assert.ok(a.probeCalls >= 1, "required probe actually called");
+    assert.equal(a.extractCalls, 2, "both extractions are explicitly planned"); assert.equal(a.materializeCalls, 1);
+    const state = await x.state();
+    if (mode === "success") {
+      assert.equal(applied.exitCode, 0, JSON.stringify(applied));
+      assert.equal(state.stages.find(s => s.id === "S05")?.status, "verified");
+      const count = a.probeCalls;
+      a.probe.runnerVerifyHelpOk = false;
+      const verified = await e.run("verify", { configPath: x.configPath });
+      assert.notEqual(verified.exitCode, 0); assert.ok(a.probeCalls > count);
+      assert.notEqual((await x.state()).stages.find(s => s.id === "S05")?.status, "verified");
+      const refreshed = await e.run("status", { configPath: x.configPath, refresh: true });
+      assert.notEqual(refreshed.exitCode, 0);
+      const before = a.probeCalls;
+      await e.run("status", { configPath: x.configPath });
+      assert.equal(a.probeCalls, before, "recorded status does not spawn command probes");
+    } else {
+      assert.notEqual(applied.exitCode, 0, JSON.stringify(applied));
+      assert.notEqual(state.stages.find(s => s.id === "S05")?.status, "verified");
+      const journal = (await fs.readFile(path.join(x.config.paths.setup_state_dir, "events.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line) as { operation_id: string; code: string });
+      assert.equal(journal.some(r => r.operation_id.includes("probe-release") && ["verify", "checkpoint"].includes(r.code)), false);
+    }
+  });
+}
+
+test("U02 existing commit without journal-bound deployment trust cannot spawn probes during plan", async () => {
+  const x = await r14Fixture("S05"), checkout = makeCheckout(x.config);
+  checkout.exists = true; checkout.deployedSourceCommit = x.config.release.source_commit;
+  const a = new FakeApplicationAdapter(checkout, makeRelease(x.config));
+  const e = x.engine([r14Noop("S04"), createApplicationStage(a)]);
+  const plan = await x.planAndApprove(e);
+  assert.equal(a.probeCalls, 0, "preexisting checkout is not executable trust evidence");
+  assert.ok(plan.stages.find(s => s.stage_id === "S05")!.operations.some(o => o.id.includes("probe-release")));
+  const result = await e.run("apply", x.applyOptions);
+  assert.equal(result.exitCode, 0, JSON.stringify(result)); assert.ok(a.probeCalls >= 1);
+});
+
+test("U02 failing mandatory S05 probe prevents dependent S06 effects", async () => {
+  const x = await r14Fixture("S06"), a = new FakeApplicationAdapter(makeCheckout(x.config), makeRelease(x.config));
+  a.probe.runnerVerifyHelpOk = false;
+  let dependentEffects = 0;
+  const dependent = r14Noop("S06"); dependent.dependencies = ["S05"];
+  dependent.plan = () => ({ stageId: "S06", optional: false, requiredCapabilities: [], requiredGates: [], operations: [{
+    id: "s06-effect-trap", stageId: "S06", kind: "mutate", resourceId: "dependent-fixture", risk: "low", gateIds: [], preconditions: [], sideEffects: ["fixture only"], timeoutSec: 1, retryable: false }] });
+  dependent.apply = async () => { dependentEffects++; throw new Error("Dependent stage must never execute"); };
+  const e = x.engine([r14Noop("S04"), createApplicationStage(a), dependent]);
+  await x.planAndApprove(e);
+  const result = await e.run("apply", x.applyOptions);
+  assert.notEqual(result.exitCode, 0); assert.ok(a.probeCalls >= 1); assert.equal(dependentEffects, 0);
+  assert.notEqual((await x.state()).stages.find(s => s.id === "S05")?.status, "verified");
+});

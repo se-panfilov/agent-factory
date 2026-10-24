@@ -105,7 +105,8 @@ function checksFromObservation(observation: AccessRuntimeObservation): Record<st
     rollback_timer_template_present: observation.rollback.timerTemplatePresent,
     rollback_service_template_present: observation.rollback.serviceTemplatePresent,
     sshd_diff_preview: observation.diff.sshd.slice(0, 256),
-    firewall_diff_preview: observation.diff.firewall.slice(0, 256)
+    firewall_diff_preview: observation.diff.firewall.slice(0, 256),
+    reviewed_inputs_hash: stableHash({ ssh: observation.ssh, firewall: observation.firewall, diff: observation.diff, manual: observation.manual, templates: [observation.rollback.timerTemplatePresent, observation.rollback.serviceTemplatePresent] })
   };
 }
 
@@ -464,11 +465,19 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
         });
       }
 
+      const observedHash = stableHash({ checks: checksFromObservation(observation), versions: versionsFromObservation(observation) });
+      const expectedHash = ctx.previousOperationReceipt?.checks.s03_postcondition_hash ?? planPreconditions.observationHash;
+      if (observedHash !== expectedHash) {
+        throw setupError({ exitCode: ExitCode.ManualActionRequired, code: "s03_observation_drifted",
+          publicMessage: "Reviewed access inputs changed since approval or the preceding confirmed operation.",
+          nextAction: "Review current SSH/firewall inputs and approve a new plan.", stage: "S03" });
+      }
       const receipts: StageReceipt[] = [];
       let rollbackPrepared = observation.rollback.armed;
       let cutoverApplied = false;
       try {
         for (const operation of approvedPlan.operations) {
+          const beforeInputs = checksFromObservation(observation).reviewed_inputs_hash;
           if (operation.id.startsWith("s03-install-tailscale-")) {
             await accessAdapter.installPinnedTailscale(planPreconditions.tailscalePin);
           } else if (operation.id.startsWith("s03-stage-sshd-firewall-")) {
@@ -527,12 +536,17 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
           }
 
           observation = await accessAdapter.observe(ctx);
+          if (!operation.id.startsWith("s03-cutover-") && checksFromObservation(observation).reviewed_inputs_hash !== beforeInputs) {
+            throw setupError({ exitCode: ExitCode.ManualActionRequired, code: "s03_observation_drifted",
+              publicMessage: "SSH/firewall review inputs changed during an operation that cannot change them.",
+              nextAction: "Review inputs and approve a new access plan.", stage: "S03" });
+          }
           receipts.push({
             operationId: operation.id,
             stageId: "S03",
             resourceId: operation.resourceId,
             observedAt: new Date().toISOString(),
-            checks: checksFromObservation(observation),
+            checks: { ...checksFromObservation(observation), s03_postcondition_hash: stableHash({ checks: checksFromObservation(observation), versions: versionsFromObservation(observation) }) },
             versions: versionsFromObservation(observation),
             artifacts: []
           });
@@ -553,6 +567,13 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
           }
         }
         throw error;
+      }
+    },
+    async verifyOperation(ctx, receipt) {
+      const observation = await accessAdapter.observe(ctx);
+      if (receipt.checks.s03_postcondition_hash !== stableHash({ checks: checksFromObservation(observation), versions: versionsFromObservation(observation) })) {
+        throw setupError({ exitCode: ExitCode.ManualActionRequired, code: "s03_observation_drifted",
+          publicMessage: "Access operation postconditions changed before checkpoint.", nextAction: "Review the current access inputs and rollback state before proceeding.", stage: "S03" });
       }
     },
     async verify(ctx: StageContext): Promise<StageReceipt[]> {

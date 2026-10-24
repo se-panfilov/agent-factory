@@ -62,3 +62,5 @@ Run on a disposable Ubuntu 24.04 host only:
    - fixture probe constraints and cleanup pass;
    - no world-writable docker socket.
 
+
+R1.4 clean-host resume: the plan reviews package/config/restart/group actions separately from the fixture that requires active Docker group access. Account membership is observed using `id -nG USER`; current process membership uses `id -nG` without a username. A confirmed group database change returns a receipt, then core checkpoints it and records `awaiting_manual` (exit 4). Open a new owner login session and run `resume`; it replans remaining operations from config/journal-bound receipts and fresh package/config/session observations. Approvals are required again if the new plan includes gated effects. An unchanged session is refused before a new effect intent. Neither a relogin gate nor running installer as root can satisfy the session check. No unmanaged Docker adoption is inferred from an operation ID or old planned flags.

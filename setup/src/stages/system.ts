@@ -348,7 +348,7 @@ export function createSystemStage(aptAdapter: AptAdapter): StageModule {
           stageId: "S02",
           resourceId: updateOperation.resourceId,
           observedAt: new Date().toISOString(),
-          checks: checksFromObservation(afterUpdate, updatedPins, profile),
+          checks: { ...checksFromObservation(afterUpdate, updatedPins, profile), apt_update_completed: true },
           versions: versionsFromObservation(afterUpdate),
           artifacts: []
         });
@@ -362,7 +362,7 @@ export function createSystemStage(aptAdapter: AptAdapter): StageModule {
           stageId: "S02",
           resourceId: simulateOperation.resourceId,
           observedAt: new Date().toISOString(),
-          checks: checksFromObservation(afterSimulate, simulatedPins, profile),
+          checks: { ...checksFromObservation(afterSimulate, simulatedPins, profile), apt_simulation_completed: true },
           versions: versionsFromObservation(afterSimulate),
           artifacts: []
         });
@@ -376,7 +376,7 @@ export function createSystemStage(aptAdapter: AptAdapter): StageModule {
           stageId: "S02",
           resourceId: installOperation.resourceId,
           observedAt: new Date().toISOString(),
-          checks: checksFromObservation(afterInstall, installedPins, profile),
+          checks: { ...checksFromObservation(afterInstall, installedPins, profile), apt_install_completed: true },
           versions: versionsFromObservation(afterInstall),
           artifacts: []
         });
@@ -403,6 +403,14 @@ export function createSystemStage(aptAdapter: AptAdapter): StageModule {
         });
       }
       return receipts;
+    },
+    async verifyOperation(ctx, receipt) {
+      const observed = await aptAdapter.observe(requiredPackageNames(ctx.profile));
+      const ok = observed.dpkgAuditClean && (receipt.resourceId === "apt-metadata" ? observed.metadataFresh && receipt.checks.apt_update_completed === true
+        : receipt.resourceId === "apt-simulation" ? receipt.checks.apt_simulation_completed === true
+        : receipt.resourceId === "system-packages" ? receipt.checks.apt_install_completed === true && allPinsInstalled(observed) : false);
+      if (!ok) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s02_operation_postcondition_failed",
+        publicMessage: "S02 operation postcondition could not be confirmed.", nextAction: "Preserve apt evidence and reconcile installed packages.", stage: "S02" });
     },
     async verify(ctx: StageContext): Promise<StageReceipt[]> {
       const profile = ctx.profile;

@@ -100,6 +100,8 @@ export interface DockerRuntimeObservation {
   dockerGroup: {
     exists: boolean;
     currentUserInGroup: boolean;
+    /** Account database membership, distinct from this running process group set. */
+    accountUserInGroup?: boolean;
   };
   reloginRequired: boolean;
 }
@@ -553,7 +555,8 @@ export class NodeDockerAdapter implements DockerAdapter {
       && (ssResult.stdout.includes(":2375") || ssResult.stdout.includes(":2376"));
     const tcpConfigured = daemonConfig.hosts.some((host) => host.startsWith("tcp://"));
 
-    const groupsResult = await this.run("/usr/bin/id", ["-nG", this.processAdapter.username()]);
+    const groupsResult = await this.run("/usr/bin/id", ["-nG"]);
+    const accountGroups = await this.run("/usr/bin/id", ["-nG", this.processAdapter.username()]);
     const currentGroups = groupsResult.exitCode === 0
       ? groupsResult.stdout.trim().split(/\s+/).filter((item) => item.length > 0)
       : [];
@@ -602,6 +605,7 @@ export class NodeDockerAdapter implements DockerAdapter {
       },
       dockerGroup: {
         exists: dockerGroupExists,
+        accountUserInGroup: accountGroups.exitCode === 0 && accountGroups.stdout.trim().split(/\s+/).includes("docker"),
         currentUserInGroup: currentUserInGroup
       },
       reloginRequired

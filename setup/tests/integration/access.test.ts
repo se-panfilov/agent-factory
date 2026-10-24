@@ -190,3 +190,41 @@ test("S03 verify fails when IPv6 public SSH remains reachable", async () => {
     }
   );
 });
+
+// Production composition: the engine passes a single operation per call.
+import { r14Fixture, r14Noop } from "../helpers/r14-engine";
+for (const mode of ["normal", "before", "between", "during-install", "tailnet-failure"] as const) {
+  test(`U01 S03 engine ${mode}: reviewed inputs and own transitions`, async () => {
+    const x = await r14Fixture("S03"), adapter = new FakeAccessAdapter(baseObservation());
+    if (mode === "tailnet-failure") adapter.verifyPrivateResult = false;
+    const originalInstall = adapter.installPinnedTailscale.bind(adapter);
+    adapter.installPinnedTailscale = async version => {
+      await originalInstall(version);
+      if (mode === "during-install") adapter.observation.ssh.configHash = "foreign-during-install";
+    };
+    // Change after the first operation's confirmed receipt, at the next adapter admission observation.
+    const originalObserve = adapter.observe.bind(adapter);
+    let postInstallObservations = 0;
+    adapter.observe = async () => {
+      if (adapter.installCalls > 0 && ++postInstallObservations === 2 && mode === "between") {
+        adapter.observation.firewall.rulesHash = "foreign-between-operations";
+      }
+      return originalObserve();
+    };
+    const e = x.engine([r14Noop("S02"), createAccessStage(adapter)]);
+    await x.planAndApprove(e);
+    if (mode === "before") adapter.observation.ssh.configHash = "foreign-before-first-effect";
+    const result = await e.run("apply", x.applyOptions);
+    if (mode === "normal") {
+      assert.equal(result.exitCode, 0, JSON.stringify(result));
+      assert.equal(adapter.cutoverCalls, 1); assert.equal(adapter.disarmCalls, 1);
+      assert.equal((await x.state()).stages.find(s => s.id === "S03")?.status, "verified");
+    } else if (mode === "tailnet-failure") {
+      assert.equal(result.exitCode, 4, JSON.stringify(result)); assert.equal(adapter.rollbackCalls, 1); assert.equal(adapter.disarmCalls, 0);
+    } else {
+      assert.equal(result.exitCode, 4, JSON.stringify(result)); assert.equal(result.envelope.error?.code, "s03_observation_drifted");
+      assert.equal(adapter.cutoverCalls, 0); assert.equal(adapter.stageCalls, 0);
+      assert.equal(adapter.installCalls, mode === "before" ? 0 : 1);
+    }
+  });
+}

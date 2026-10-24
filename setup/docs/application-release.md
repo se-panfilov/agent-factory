@@ -38,3 +38,5 @@ The third gate is mandatory for this release to ensure explicit review of Docker
 5. Run offline `--help` probes for `runner_verify` and `runner_stop`.
 
 Any hash/probe mismatch fails closed with explicit stage error and next action.
+
+R1.4 execution detail: production engine supplies one operation per apply call. Extraction and materialization each use their own operation-owned staging and each declare extraction/hash verification in the plan (two extractions on a fresh deploy). No unverified process-local staging cache is reused. A matching deployed commit can only support the materialization operation's no-op after deployed content verification; it cannot prove offline probes. The probe receipt records the exact archive SHA and commit. Apply, stage-wide verify, and observation of an existing deployment execute current bounded offline probes. Plain recorded status/gate diagnostics do not spawn commands and retain their recorded age. A failed explicit verify invalidates the recorded verified stage.

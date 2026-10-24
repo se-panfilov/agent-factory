@@ -95,7 +95,8 @@ export async function createPlanFile(
   config: SetupConfig,
   registry: StageRegistry,
   stageTarget: StageId | null,
-  clock: Clock
+  clock: Clock,
+  completedOperationReceipts: import("./types").StageReceipt[] = []
 ): Promise<{ plan: InstallerPlan; planPath: string; stageClosure: StageId[] }> {
   const stageIds = stageTarget === null ? config.selected_stages : [stageTarget];
   const closure = buildStageClosure(registry, stageIds);
@@ -118,6 +119,7 @@ export async function createPlanFile(
       profile: config.profile,
       desiredHash: hashConfig(config),
       planHash: "pending",
+      completedOperationReceipts,
       config
     });
     const stagePlan: StagePlan = stage.plan(config, observation);

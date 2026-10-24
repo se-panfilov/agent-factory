@@ -133,6 +133,9 @@ export interface StageContext {
   desiredHash: string;
   planHash: string;
   config: SetupConfig;
+  /** Core supplies only the previous durably checkpointed operation in this stage. */
+  previousOperationReceipt?: StageReceipt;
+  completedOperationReceipts?: StageReceipt[];
 }
 
 export interface StageModule {
@@ -143,7 +146,11 @@ export interface StageModule {
   requiredCapabilities: CapabilityName[];
   observe(ctx: StageContext): Promise<StageObservation>;
   plan(desired: unknown, observed: StageObservation): StagePlan;
+  /** Read-only prerequisite check before in-flight/intent publication. */
+  admitOperation?(ctx: StageContext, operation: Pick<StageOperation, "id" | "resourceId">): Promise<void>;
   apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]>;
+  /** Confirm operation-specific postconditions after effect evidence and before checkpoint. */
+  verifyOperation?(ctx: StageContext, receipt: StageReceipt): Promise<void>;
   verify(ctx: StageContext): Promise<StageReceipt[]>;
   recover(ctx: StageContext, interruptedOperation: StageOperation): Promise<StageReceipt[]>;
 }

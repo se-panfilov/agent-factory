@@ -73,3 +73,7 @@ Recovery admission is now evaluated from one evidence set (`primary`, `previous`
 | `recovery-required.json` | Recovery phase/decision marker | Prepared decision is immutable; `primary_restored` cleanup performs full admission before marker deletion. |
 
 Read-only diagnostics (`status`, `gate list`, read-only load paths) do not mutate this evidence set.
+
+## Q1A-R1.4 protocol correction
+
+The R1.3 description of operation checkpoints as final recovery proof was incomplete. See [lifecycle-r14.md](lifecycle-r14.md) for the transaction/crash table and typed internal clean/progress proof. Ordinary load and every recovery phase now call the same contradictory-evidence evaluator before mutation. Quarantine is not ignored by a valid primary. A prepared decision contains the exact source manifest and candidate hash; continuation accepts only that source or its defined restore transition. Restoring a proven clean metadata predecessor preserves checkpoint/progress proof and can finish manifest publication after a partial restore. Legacy prepared decisions without the immutable source binding remain blocked and preserved.

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { type FilesystemAdapter } from "../adapters/filesystem";
 import { type ProcessAdapter } from "../adapters/process";
-import { ExitCode, STAGE_IDS, type SetupConfig, type SetupState, type StageId, type StageObservation, type StageStatus } from "./types";
+import { ExitCode, STAGE_IDS, type SetupConfig, type SetupState, type StageId, type StageObservation, type StageStatus, type StageReceipt } from "./types";
 import { setupError } from "./errors";
 import { hashConfig, stableStringify, type Clock } from "./config";
 import { validateContractSchema } from "./validators";
@@ -81,6 +81,7 @@ export interface RecoveryMarkerRecord {
     source: "previous";
     candidate_state_hash: string;
     updated_at: string;
+    source_manifest?: StateCommitManifest;
   };
   [key: string]: unknown;
 }
@@ -100,6 +101,7 @@ export interface JournalInspection {
     sequence: number;
   } | null;
   evidenceRef: string;
+  receiptBindings?: Array<{ sequence: number; attemptId: string; stage: StageId; operationId: string; stateHash: string; receiptHash: string }>;
 }
 
 export interface StateCommitCheckpointRecord {
@@ -111,6 +113,19 @@ export interface StateCommitCheckpointRecord {
   updated_at: string;
 }
 
+export interface CleanStateProof {
+  version: 1;
+  checkpoint_sequence: number;
+  snapshot_hashes: string[];
+}
+
+export interface CompletedOperation {
+  version: 1;
+  config_hash: string;
+  checkpoint: StateCommitCheckpointRecord;
+  receipt: StageReceipt;
+}
+
 export interface StateCommitManifest {
   schema_version: 1;
   installation_id: string;
@@ -118,6 +133,9 @@ export interface StateCommitManifest {
   last_state_hash: string;
   updated_at: string;
   last_effect_checkpoint?: StateCommitCheckpointRecord;
+  clean_proof?: CleanStateProof;
+  completed_operations?: CompletedOperation[];
+  previous_state_hash?: string;
 }
 
 export interface StateEvidenceSummary {
@@ -149,6 +167,7 @@ export function buildStatePaths(config: SetupConfig): StatePaths {
 }
 
 export interface SaveStateOptions {
+  finalVerified?: boolean;
   checkpoint?: {
     attemptId: string;
     operationId: string;
@@ -259,10 +278,29 @@ async function readTextStrict(
   }
 }
 
+function parseReceipt(value: unknown): StageReceipt {
+  if (!isRecord(value) || typeof value.operationId !== "string" || typeof value.stageId !== "string"
+    || !STAGE_ID_SET.has(value.stageId as StageId) || typeof value.resourceId !== "string"
+    || typeof value.observedAt !== "string" || !isRecord(value.checks) || !isRecord(value.versions)
+    || !Object.values(value.checks).every(v => typeof v === "string" || typeof v === "boolean" || (typeof v === "number" && Number.isFinite(v)))
+    || !Object.values(value.versions).every(v => typeof v === "string")
+    || !Array.isArray(value.artifacts) || !value.artifacts.every(v => typeof v === "string")
+    || Object.keys(value).some(k => !["operationId", "stageId", "resourceId", "observedAt", "checks", "versions", "artifacts"].includes(k))) {
+    throw new Error("invalid completed operation receipt");
+  }
+  return { operationId: value.operationId, stageId: value.stageId as StageId, resourceId: value.resourceId,
+    observedAt: value.observedAt, checks: value.checks as StageReceipt["checks"], versions: value.versions as StageReceipt["versions"], artifacts: value.artifacts as string[] };
+}
+
+export function receiptHash(receipt: StageReceipt): string {
+  return createHash("sha256").update(stableStringify(receipt)).digest("hex");
+}
+
 function parseCommitManifest(parsed: unknown): StateCommitManifest {
   if (!isRecord(parsed)) {
     throw new Error("commit manifest is not an object");
   }
+  if (Object.keys(parsed).some(k => !["schema_version", "installation_id", "generation", "last_state_hash", "updated_at", "last_effect_checkpoint", "clean_proof", "completed_operations", "previous_state_hash"].includes(k))) throw new Error("unknown commit metadata field");
   const schemaVersion = parsed.schema_version;
   const installationId = parsed.installation_id;
   const generation = toSequence(parsed.generation);
@@ -316,13 +354,42 @@ function parseCommitManifest(parsed: unknown): StateCommitManifest {
     };
   }
 
+  let completedOperations: CompletedOperation[] | undefined;
+  if (parsed.completed_operations !== undefined) {
+    if (!Array.isArray(parsed.completed_operations) || parsed.completed_operations.length > 128) throw new Error("invalid completed operations");
+    completedOperations = parsed.completed_operations.map((entry: unknown): CompletedOperation => {
+      if (!isRecord(entry) || entry.version !== 1 || typeof entry.config_hash !== "string" || !SHA256_HEX_PATTERN.test(entry.config_hash)) throw new Error("invalid operation progress");
+      const receipt = parseReceipt(entry.receipt);
+      const cp = parseCommitManifest({ schema_version: 1, installation_id: installationId, generation: 1,
+        last_state_hash: lastStateHash, updated_at: updatedAt, last_effect_checkpoint: entry.checkpoint }).last_effect_checkpoint;
+      if (cp === undefined || cp.stage !== receipt.stageId || cp.operation_id !== receipt.operationId) throw new Error("invalid receipt checkpoint");
+      return { version: 1, config_hash: entry.config_hash, checkpoint: cp, receipt };
+    });
+  }
+  let cleanProof: CleanStateProof | undefined;
+  if (parsed.clean_proof !== undefined) {
+    const proof = parsed.clean_proof;
+    if (!isRecord(proof) || proof.version !== 1 || toSequence(proof.checkpoint_sequence) === null
+      || !Array.isArray(proof.snapshot_hashes) || proof.snapshot_hashes.length < 1 || proof.snapshot_hashes.length > 2
+      || !proof.snapshot_hashes.every((h: unknown) => typeof h === "string" && SHA256_HEX_PATTERN.test(h))
+      || checkpoint === undefined || proof.checkpoint_sequence !== checkpoint.sequence || !proof.snapshot_hashes.includes(lastStateHash)) {
+      throw new Error("invalid clean state proof");
+    }
+    cleanProof = { version: 1, checkpoint_sequence: proof.checkpoint_sequence as number, snapshot_hashes: proof.snapshot_hashes as string[] };
+  }
+  if (parsed.previous_state_hash !== undefined && (typeof parsed.previous_state_hash !== "string" || !SHA256_HEX_PATTERN.test(parsed.previous_state_hash))) {
+    throw new Error("invalid predecessor hash");
+  }
   return {
     schema_version: COMMIT_MANIFEST_SCHEMA_VERSION,
     installation_id: installationId,
     generation,
     last_state_hash: lastStateHash,
     updated_at: updatedAt,
-    ...(checkpoint === undefined ? {} : { last_effect_checkpoint: checkpoint })
+    ...(checkpoint === undefined ? {} : { last_effect_checkpoint: checkpoint }),
+    ...(cleanProof === undefined ? {} : { clean_proof: cleanProof }),
+    ...(completedOperations === undefined ? {} : { completed_operations: completedOperations }),
+    ...(parsed.previous_state_hash === undefined ? {} : { previous_state_hash: parsed.previous_state_hash as string })
   };
 }
 
@@ -576,6 +643,22 @@ export async function saveState(
       throw error;
     }
   }
+  let cleanProof: CleanStateProof | undefined;
+  const priorHash = priorContent === null ? undefined : stateHash(JSON.parse(priorContent) as SetupState);
+  if (state.in_flight_operation === null && existingManifest?.last_effect_checkpoint !== undefined) {
+    const priorProof = existingManifest.clean_proof;
+    if (options?.finalVerified === true) {
+      const journal = await inspectJournalEvidence(fsAdapter, config);
+      const cp = existingManifest.last_effect_checkpoint;
+      if (journalUncertainty(journal) || journal.latestCheckpoint === null || !checkpointBindingMatches(existingManifest, journal)) {
+        throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "final_commit_proof_missing",
+          publicMessage: "Final state cannot be published without bound completed attempts.", nextAction: "Preserve evidence and reconcile recovery." });
+      }
+      cleanProof = { version: 1, checkpoint_sequence: cp.sequence, snapshot_hashes: [committedStateHash] };
+    } else if (priorProof !== undefined && priorHash === existingManifest.last_state_hash && priorProof.snapshot_hashes.includes(priorHash)) {
+      cleanProof = { ...priorProof, snapshot_hashes: [...new Set([committedStateHash, priorHash])] };
+    }
+  }
   await writeAtomicJson(fsAdapter, paths.stateFile, serialized);
   if (priorContent !== null) {
     const normalizedPrior = priorContent.endsWith("\n") ? priorContent : `${priorContent}\n`;
@@ -586,6 +669,9 @@ export async function saveState(
     installation_id: config.installation_id,
     generation: (existingManifest?.generation ?? 0) + 1,
     last_state_hash: committedStateHash,
+    ...(priorHash === undefined ? {} : { previous_state_hash: priorHash }),
+    ...(cleanProof === undefined ? {} : { clean_proof: cleanProof }),
+    ...(existingManifest?.completed_operations === undefined ? {} : { completed_operations: existingManifest.completed_operations }),
     updated_at: new Date().toISOString(),
     ...(() => {
       if (checkpoint !== undefined) {
@@ -620,6 +706,7 @@ export async function recordEffectCheckpoint(
     stage: StageId;
     sequence: number;
     stateHash: string;
+    receipt?: StageReceipt;
   }
 ): Promise<void> {
   const paths = buildStatePaths(config);
@@ -655,6 +742,11 @@ export async function recordEffectCheckpoint(
       updated_at: new Date().toISOString()
     }
   };
+  if (checkpoint.receipt !== undefined) {
+    const receipt = parseReceipt(checkpoint.receipt);
+    const retained = (manifest.completed_operations ?? []).filter(entry => !(entry.receipt.stageId === receipt.stageId && entry.receipt.resourceId === receipt.resourceId));
+    nextManifest.completed_operations = [...retained, { version: 1, config_hash: hashConfig(config), checkpoint: nextManifest.last_effect_checkpoint!, receipt }];
+  }
   await persistStateCommitManifest(fsAdapter, paths.commitManifestFile, nextManifest);
 }
 
@@ -667,23 +759,18 @@ export async function restorePrimaryState(
   const serialized = `${JSON.stringify(state, null, 2)}\n`;
   const committedStateHash = stateHash(state);
   try {
-    await writeAtomicJson(fsAdapter, paths.stateFile, serialized);
     const existingManifest = await readStateCommitManifest(fsAdapter, config);
-    const manifest: StateCommitManifest = {
-      schema_version: COMMIT_MANIFEST_SCHEMA_VERSION,
-      installation_id: config.installation_id,
-      generation: (existingManifest?.generation ?? 0) + 1,
-      last_state_hash: committedStateHash,
-      updated_at: new Date().toISOString(),
-      ...(() => {
-        const checkpoint = existingManifest?.last_effect_checkpoint;
-        if (checkpoint !== undefined && checkpoint.state_hash === committedStateHash) {
-          return { last_effect_checkpoint: checkpoint };
-        }
-        return {};
-      })()
-    };
-    await persistStateCommitManifest(fsAdapter, paths.commitManifestFile, manifest);
+    if (existingManifest === null || (existingManifest.last_state_hash !== committedStateHash
+      && !existingManifest.clean_proof?.snapshot_hashes.includes(committedStateHash))) {
+      throw new Error("recovery candidate is not bound to committed proof");
+    }
+    await writeAtomicJson(fsAdapter, paths.stateFile, serialized);
+    if (existingManifest.last_state_hash !== committedStateHash) {
+      await persistStateCommitManifest(fsAdapter, paths.commitManifestFile, {
+        ...existingManifest, generation: existingManifest.generation + 1, last_state_hash: committedStateHash,
+        updated_at: new Date().toISOString()
+      });
+    }
   } catch (error) {
     const code = errorCode(error);
     throw setupError({
@@ -1013,6 +1100,11 @@ export async function readRecoveryMarker(
       });
     }
   }
+  if (isRecord(recoveryCommit) && recoveryCommit.source_manifest !== undefined) {
+    try { parseCommitManifest(recoveryCommit.source_manifest); }
+    catch { throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "recovery_marker_invalid",
+      publicMessage: "Recovery decision manifest binding is invalid.", nextAction: "Preserve and reconcile recovery decision." }); }
+  }
   return objectParsed as RecoveryMarkerRecord;
 }
 
@@ -1076,6 +1168,13 @@ export async function inspectJournalEvidence(
     oversized: false,
     legacyFormat: parsed.legacyFormat,
     latestCheckpoint: parsed.latestCheckpoint,
+    receiptBindings: parsed.records.flatMap((event) => {
+      if (event.format !== "v2" || event.record.code !== "checkpoint") return [];
+      const record = event.record;
+      const effect = parsed.records.find(e => e.format === "v2" && e.record.attempt_id === record.attempt_id && e.record.code === "effect");
+      const digest = effect?.record.message.split(":").at(-1) ?? "";
+      return [{ sequence: record.sequence, attemptId: record.attempt_id, stage: record.stage, operationId: record.operation_id, stateHash: record.state_hash!, receiptHash: digest }];
+    }),
     evidenceRef: eventsFile
   };
 }
@@ -1203,6 +1302,87 @@ export async function appendEvent(
   };
 }
 
+export function checkpointBindingMatches(manifest: StateCommitManifest | null, journal: JournalInspection): boolean {
+  const cp = manifest?.last_effect_checkpoint, j = journal.latestCheckpoint;
+  if (cp === undefined) return j === null;
+  return j !== null && cp.attempt_id === j.attemptId && cp.operation_id === j.operationId
+    && cp.stage === j.stage && cp.sequence === j.sequence && cp.state_hash === j.stateHash;
+}
+
+/** Common contradictory-evidence admission, evaluated before any recovery mutation. */
+export async function assertEvidenceAdmission(fsAdapter: FilesystemAdapter, config: SetupConfig, evidence: StateEvidenceSummary): Promise<void> {
+  if (evidence.quarantineEntries.length > 0) {
+    throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "recovery_unresolved",
+      publicMessage: "Quarantined state requires reconciliation even when primary is valid.",
+      nextAction: "Preserve all artifacts and reconcile quarantine before continuing." });
+  }
+  if (evidence.commitManifest !== null && evidence.commitManifest.installation_id !== config.installation_id) {
+    throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "state_commit_manifest_foreign",
+      publicMessage: "Commit manifest belongs to another installation.", nextAction: "Use matching installation evidence." });
+  }
+  if (journalUncertainty(evidence.journal)) {
+    throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "journal_recovery_required",
+      publicMessage: "Journal contains unknown or incomplete attempts.", nextAction: "Preserve evidence and reconcile recovery." });
+  }
+  for (const completed of evidence.commitManifest?.completed_operations ?? []) {
+    const cp = completed.checkpoint;
+    if (!(evidence.journal.receiptBindings ?? []).some(b => b.sequence === cp.sequence && b.attemptId === cp.attempt_id
+      && b.stage === cp.stage && b.operationId === cp.operation_id && b.stateHash === cp.state_hash && b.receiptHash === receiptHash(completed.receipt))) {
+      throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "operation_progress_proof_mismatch",
+        publicMessage: "Completed operation receipt is not bound to journal evidence.", nextAction: "Preserve artifacts and reconcile recovery." });
+    }
+  }
+  const manifest = evidence.commitManifest;
+  if (evidence.previousExists && manifest?.previous_state_hash !== undefined) {
+    let previousHash: string;
+    try {
+      const previous = JSON.parse(await readTextStrict(fsAdapter, `${buildStatePaths(config).stateFile}.previous`, "previous state")) as unknown;
+      if (!validateContractSchema("state", previous).ok) throw new Error("invalid previous schema");
+      previousHash = stateHash(previous as SetupState);
+    } catch {
+      throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "recovery_unresolved",
+        publicMessage: "Previous snapshot is invalid or inaccessible.", nextAction: "Preserve state evidence and reconcile recovery." });
+    }
+    if (previousHash !== manifest.previous_state_hash) {
+      throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "recovery_unresolved",
+        publicMessage: "Previous snapshot is not the committed writer predecessor.", nextAction: "Preserve state evidence and reconcile recovery." });
+    }
+  }
+  if (evidence.stateExists && manifest !== null) {
+    let current: unknown;
+    try { current = JSON.parse(await readTextStrict(fsAdapter, buildStatePaths(config).stateFile, "primary state")); } catch { current = null; }
+    if (validateContractSchema("state", current).ok && stateHash(current as SetupState) !== manifest.last_state_hash) {
+      const candidateHash = evidence.marker?.recovery_commit?.candidate_state_hash;
+      if (candidateHash === undefined || stateHash(current as SetupState) !== candidateHash || !manifest.clean_proof?.snapshot_hashes.includes(candidateHash)) {
+        throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: evidence.marker?.recovery_commit === undefined ? "state_generation_mismatch" : "recovery_unresolved",
+          publicMessage: "Primary snapshot conflicts with committed generation.", nextAction: "Preserve evidence and reconcile recovery." });
+      }
+    }
+  }
+  const decision = evidence.marker?.recovery_commit;
+  if (decision !== undefined && decision.source_manifest === undefined) {
+    throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "recovery_unresolved",
+      publicMessage: "Legacy recovery decision lacks immutable generation/proof binding.",
+      nextAction: "Preserve legacy decision and perform owner-reviewed reconciliation; do not delete metadata." });
+  }
+  if (decision?.source_manifest !== undefined && manifest !== null) {
+    const source = decision.source_manifest;
+    const exactSource = stableStringify(source) === stableStringify(manifest);
+    const restoredTransition = manifest.generation === source.generation + 1
+      && manifest.last_state_hash === decision.candidate_state_hash
+      && source.clean_proof?.snapshot_hashes.includes(decision.candidate_state_hash) === true
+      && stableStringify({ ...manifest, generation: source.generation, last_state_hash: source.last_state_hash, updated_at: source.updated_at }) === stableStringify(source);
+    if (!exactSource && !restoredTransition) {
+      throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "recovery_unresolved",
+        publicMessage: "Committed generation differs from immutable recovery decision.", nextAction: "Preserve decision and reconcile evidence." });
+    }
+  }
+  if (!checkpointBindingMatches(evidence.commitManifest, evidence.journal)) {
+    throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "state_checkpoint_proof_mismatch",
+      publicMessage: "Journal and committed checkpoint binding disagree.", nextAction: "Preserve evidence and reconcile recovery." });
+  }
+}
+
 export async function loadState(
   fsAdapter: FilesystemAdapter,
   processAdapter: ProcessAdapter,
@@ -1219,6 +1399,7 @@ export async function loadState(
   const paths = buildStatePaths(config);
   const previousPath = `${paths.stateFile}.previous`;
   const evidence = await inspectStateEvidence(fsAdapter, config);
+  await assertEvidenceAdmission(fsAdapter, config, evidence);
 
   if (evidence.marker !== null) {
     throw setupError({
