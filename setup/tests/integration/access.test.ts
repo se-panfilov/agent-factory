@@ -230,6 +230,9 @@ for (const mode of ["normal", "before", "between", "during-install", "tailnet-fa
       assert.equal(result.exitCode, 4, JSON.stringify(result)); assert.equal(result.envelope.error?.code, "s03_observation_drifted");
       assert.equal(adapter.cutoverCalls, 0); assert.equal(adapter.stageCalls, 0);
       assert.equal(adapter.installCalls, ["before", "ownership-before", "diff-before", "manual-before"].includes(mode) ? 0 : 1);
+      if (["before", "ownership-before", "diff-before", "manual-before"].includes(mode)) {
+        assert.equal((await x.state()).in_flight_operation, null, "pre-effect admission refusal permits a new reviewed plan without inventing unknown effect");
+      }
     }
   });
 }

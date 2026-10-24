@@ -429,6 +429,17 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
         requiredGates: [...new Set(operations.flatMap((operation) => operation.gateIds))]
       };
     },
+    async admitOperation(ctx, operation) {
+      const observation = await accessAdapter.observe(ctx);
+      verifyRollbackReadiness(observation); verifyManualReadiness(observation);
+      const prefix = "s03_observation_hash:";
+      const plannedHash = operation.preconditions.find(value => value.startsWith(prefix))?.slice(prefix.length);
+      const expected = ctx.previousOperationReceipt?.checks.s03_postcondition_hash ?? plannedHash;
+      if (expected === undefined || expected !== stableHash({ checks: checksFromObservation(observation), versions: versionsFromObservation(observation) })) {
+        throw setupError({ exitCode: ExitCode.ManualActionRequired, code: "s03_observation_drifted",
+          publicMessage: "Reviewed access inputs changed before operation admission.", nextAction: "Review a new access plan before any further effect.", stage: "S03" });
+      }
+    },
     async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
       let observation = await accessAdapter.observe(ctx);
       verifyRollbackReadiness(observation);

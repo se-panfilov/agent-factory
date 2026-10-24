@@ -147,7 +147,7 @@ export interface StageModule {
   observe(ctx: StageContext): Promise<StageObservation>;
   plan(desired: unknown, observed: StageObservation): StagePlan;
   /** Read-only prerequisite check before in-flight/intent publication. */
-  admitOperation?(ctx: StageContext, operation: Pick<StageOperation, "id" | "resourceId">): Promise<void>;
+  admitOperation?(ctx: StageContext, operation: Pick<StageOperation, "id" | "resourceId" | "preconditions">): Promise<void>;
   apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]>;
   /** Confirm operation-specific postconditions after effect evidence and before checkpoint. */
   verifyOperation?(ctx: StageContext, receipt: StageReceipt): Promise<void>;

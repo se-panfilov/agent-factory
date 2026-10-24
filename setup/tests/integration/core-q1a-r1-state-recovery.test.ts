@@ -3567,6 +3567,11 @@ for (const phase of ["initial", "operation-binding", "final-commit"] as const) {
           assert.equal(x.effects(), phase === "initial" ? 0 : 1);
           assert.ok(lastPath.includes("state-commit.json"), lastPath);
         }
+        if (timing !== "control" && phase === "final-commit") {
+          const persisted = JSON.parse((await r14EvidenceBytes(x.config))["state.json"]!) as SetupState;
+          assert.notEqual(persisted.stages.find(s => s.id === "S01")?.status, "verified", "failed final publication cannot leave stage verified");
+          assert.notEqual((await x.engine.run("status", { configPath: x.configPath })).exitCode, 0, "recorded status cannot report success after failed publication");
+        }
         const effectsAtFailure = x.effects();
         const recovered = await x.engine.run("recover", { configPath: x.configPath });
         const replanned = await x.plan();

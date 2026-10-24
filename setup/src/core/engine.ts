@@ -1056,6 +1056,7 @@ export class SetupEngine {
 
     const lock = await acquireLock(this.deps.fsAdapter, this.deps.processAdapter, config);
     let state: SetupState | null = null;
+    let activeStage: StageId | null = null;
     try {
       state = await this.loadStateWithOptions(config, { initializeIfMissing: true });
       state = expireGates(state, this.deps.clock);
@@ -1064,6 +1065,7 @@ export class SetupEngine {
       await this.consumeCancelOrThrow(config, lock.owner);
 
       for (const stagePlan of plan.stages) {
+        activeStage = stagePlan.stage_id;
         const stage = this.registry.byId.get(stagePlan.stage_id);
         if (stage === undefined) {
           throw setupError({
@@ -1110,7 +1112,7 @@ export class SetupEngine {
           for (const operation of stagePlan.operations) {
             for (const gateId of stagePlan.required_gates) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, `stage:${stagePlan.stage_id}`);
             for (const gateId of operation.gate_ids) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, operation.id);
-            await stage.admitOperation?.(stageCtx, { id: operation.id, resourceId: operation.resource_id });
+            await stage.admitOperation?.(stageCtx, { id: operation.id, resourceId: operation.resource_id, preconditions: operation.preconditions });
             const attemptId = randomUUID();
             state = withInFlightOperation(state, {
               id: `${stagePlan.stage_id}:${operation.id}:${attemptId}`,
@@ -1259,7 +1261,11 @@ export class SetupEngine {
       return { envelope, exitCode: aggregate.exitCode };
     } catch (error) {
       let setup = toSetupError(error);
-      const failedStage = setup.stage;
+      const failedStage = setup.stage ?? activeStage;
+      if (setup.stage === null && failedStage !== null) {
+        setup = setupError({ exitCode: setup.exitCode, code: setup.code, publicMessage: setup.message,
+          nextAction: setup.nextAction, stage: failedStage, operationId: setup.operationId, retryable: setup.retryable, evidenceRef: setup.evidenceRef });
+      }
       const failedStagePlan = failedStage === null ? null : plan.stages.find((entry) => entry.stage_id === failedStage);
       if (
         failedStagePlan?.optional === true
@@ -1279,6 +1285,12 @@ export class SetupEngine {
         });
       }
       if (state !== null) {
+        if (failedStage !== null) {
+          const failureStatus: StageStatus = state.in_flight_operation?.stage_id === failedStage ? "interrupted"
+            : setup.exitCode === ExitCode.ManualActionRequired ? "awaiting_manual"
+            : setup.exitCode === ExitCode.OperationOrVerificationFailed ? "failed" : "blocked";
+          state = { ...state, stages: state.stages.map(s => s.id === failedStage ? { ...s, status: failureStatus } : s) };
+        }
         state = withLastError(state, {
           code: setup.code,
           stage: (setup.stage ?? "S01") as StageId,
