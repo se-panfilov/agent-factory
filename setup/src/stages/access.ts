@@ -26,6 +26,7 @@ const MANUAL_EVIDENCE_FILES = {
 } as const;
 
 export interface AccessRuntimeObservation {
+  securityInputs: { contentHash: string; ownershipHash: string };
   tailscale: {
     installedVersion: string | null;
     candidateVersion: string | null;
@@ -106,7 +107,9 @@ function checksFromObservation(observation: AccessRuntimeObservation): Record<st
     rollback_service_template_present: observation.rollback.serviceTemplatePresent,
     sshd_diff_preview: observation.diff.sshd.slice(0, 256),
     firewall_diff_preview: observation.diff.firewall.slice(0, 256),
-    reviewed_inputs_hash: stableHash({ ssh: observation.ssh, firewall: observation.firewall, diff: observation.diff, manual: observation.manual, templates: [observation.rollback.timerTemplatePresent, observation.rollback.serviceTemplatePresent] })
+    security_input_content_hash: observation.securityInputs.contentHash,
+    security_input_ownership_hash: observation.securityInputs.ownershipHash,
+    reviewed_inputs_hash: stableHash({ securityInputs: observation.securityInputs, ssh: observation.ssh, firewall: observation.firewall, diff: observation.diff, manual: observation.manual, templates: [observation.rollback.timerTemplatePresent, observation.rollback.serviceTemplatePresent] })
   };
 }
 
@@ -287,6 +290,7 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
       });
       const preconditions = operationPreconditions(
         {
+          securityInputs: { contentHash: String(observed.checks.security_input_content_hash ?? "missing"), ownershipHash: String(observed.checks.security_input_ownership_hash ?? "missing") },
           tailscale: {
             installedVersion: observed.versions.tailscale_installed === undefined || observed.versions.tailscale_installed === "absent"
               ? null
@@ -665,6 +669,47 @@ async function readBooleanMarker(fsAdapter: FilesystemAdapter, filePath: string)
   return value === "1" || value === "true" || value === "yes" || value === "ok";
 }
 
+/** Bounded raw inputs plus ownership proof; injected FS only, no privileged commands. */
+export async function observeAccessInputProof(fsAdapter: FilesystemAdapter, ownerUid: number, manualRoot: string): Promise<AccessRuntimeObservation["securityInputs"]> {
+  const content: Array<[string, string]> = [], ownership: Array<[string, number, number, number, string]> = [];
+  let totalBytes = 0;
+  async function inspect(file: string, expectedUid: number, required = false, expectedType: "file" | "directory" = "file"): Promise<boolean> {
+    let stat: Awaited<ReturnType<FilesystemAdapter["lstat"]>>;
+    try { stat = await fsAdapter.lstat(file); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT" && !required) { content.push([file, "absent"]); return false; }
+      throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s03_security_input_unreadable",
+        publicMessage: "Reviewed access input cannot be inspected.", nextAction: "Restore bounded read access to SSH/firewall/manual evidence before planning.", stage: "S03", evidenceRef: file });
+    }
+    if (stat.isSymbolicLink() || (expectedType === "file" ? !stat.isFile() : !stat.isDirectory()) || Number(stat.uid) !== expectedUid || (Number(stat.mode) & 0o022) !== 0) {
+      throw setupError({ exitCode: ExitCode.SecurityBoundaryViolation, code: "s03_security_input_ownership_unsafe",
+        publicMessage: "Access input ownership, permissions or file type is unsafe.", nextAction: "Review access input ownership without following symlinks.", stage: "S03", evidenceRef: file });
+    }
+    ownership.push([file, Number(stat.uid), Number(stat.gid), Number(stat.mode) & 0o7777, stat.isDirectory() ? "directory" : "file"]);
+    if (stat.isFile()) {
+      let read: Awaited<ReturnType<FilesystemAdapter["readTextBounded"]>>;
+      try { read = await fsAdapter.readTextBounded(file, 256 * 1024); }
+      catch { throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s03_security_input_unreadable",
+        publicMessage: "Reviewed access input cannot be read.", nextAction: "Provide a reviewed read-only input probe before applying access changes.", stage: "S03", evidenceRef: file }); }
+      totalBytes += read.bytesRead;
+      if (read.truncated || totalBytes > 2 * 1024 * 1024) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s03_security_input_oversized",
+        publicMessage: "Access inputs exceed the bounded review limit.", nextAction: "Review access input inventory and regenerate a bounded plan.", stage: "S03", evidenceRef: file });
+      content.push([file, stableHash(read.text)]);
+    }
+    return stat.isDirectory();
+  }
+  await inspect("/etc/ssh/sshd_config", 0, true);
+  if (await inspect("/etc/ssh/sshd_config.d", 0, false, "directory")) {
+    const entries = (await fsAdapter.readdir("/etc/ssh/sshd_config.d")).sort();
+    if (entries.length > 64 || entries.some(name => name !== path.basename(name) || name === "." || name === "..")) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s03_security_input_inventory_unsafe",
+      publicMessage: "SSH include inventory is outside review bounds.", nextAction: "Review SSH includes before planning cutover.", stage: "S03" });
+    for (const name of entries) await inspect(path.join("/etc/ssh/sshd_config.d", name), 0, true);
+  }
+  for (const file of ["/etc/default/ufw", "/etc/ufw/ufw.conf", "/etc/ufw/user.rules", "/etc/ufw/user6.rules", "/etc/ufw/before.rules", "/etc/ufw/before6.rules", "/etc/ufw/after.rules", "/etc/ufw/after6.rules", "/etc/systemd/system/access-rollback.timer", "/etc/systemd/system/access-rollback.service"]) await inspect(file, 0);
+  if (await inspect(manualRoot, ownerUid, false, "directory")) for (const name of Object.values(MANUAL_EVIDENCE_FILES)) await inspect(path.join(manualRoot, name), ownerUid);
+  return { contentHash: stableHash(content), ownershipHash: stableHash(ownership) };
+}
+
 export class NodeAccessAdapter implements AccessAdapter {
   private readonly allowMutations: boolean;
 
@@ -765,6 +810,7 @@ export class NodeAccessAdapter implements AccessAdapter {
     const rollbackArmed = await readBooleanMarker(this.fsAdapter, rollbackArmedMarker);
 
     return {
+      securityInputs: await observeAccessInputProof(this.fsAdapter, this.processAdapter.uid(), this.manualEvidenceDir(ctx)),
       tailscale: {
         installedVersion: tailscalePolicy.installed,
         candidateVersion: tailscalePolicy.candidate,

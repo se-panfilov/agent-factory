@@ -16,6 +16,7 @@ function ctx(): StageContext {
 
 function baseObservation(): AccessRuntimeObservation {
   return {
+    securityInputs: { contentHash: "synthetic-config-content", ownershipHash: "synthetic-root-owner-modes" },
     tailscale: {
       installedVersion: null,
       candidateVersion: "1.84.0",
@@ -193,7 +194,7 @@ test("S03 verify fails when IPv6 public SSH remains reachable", async () => {
 
 // Production composition: the engine passes a single operation per call.
 import { r14Fixture, r14Noop } from "../helpers/r14-engine";
-for (const mode of ["normal", "before", "between", "during-install", "tailnet-failure"] as const) {
+for (const mode of ["normal", "before", "between", "during-install", "tailnet-failure", "ownership-before", "ownership-between", "diff-before", "manual-before"] as const) {
   test(`U01 S03 engine ${mode}: reviewed inputs and own transitions`, async () => {
     const x = await r14Fixture("S03"), adapter = new FakeAccessAdapter(baseObservation());
     if (mode === "tailnet-failure") adapter.verifyPrivateResult = false;
@@ -206,14 +207,18 @@ for (const mode of ["normal", "before", "between", "during-install", "tailnet-fa
     const originalObserve = adapter.observe.bind(adapter);
     let postInstallObservations = 0;
     adapter.observe = async () => {
-      if (adapter.installCalls > 0 && ++postInstallObservations === 2 && mode === "between") {
-        adapter.observation.firewall.rulesHash = "foreign-between-operations";
+      if (adapter.installCalls > 0 && ++postInstallObservations === 2) {
+        if (mode === "between") adapter.observation.firewall.rulesHash = "foreign-between-operations";
+        if (mode === "ownership-between") adapter.observation.securityInputs.ownershipHash = "changed-owner-between";
       }
       return originalObserve();
     };
     const e = x.engine([r14Noop("S02"), createAccessStage(adapter)]);
     await x.planAndApprove(e);
     if (mode === "before") adapter.observation.ssh.configHash = "foreign-before-first-effect";
+    if (mode === "ownership-before") adapter.observation.securityInputs.ownershipHash = "changed-owner-before";
+    if (mode === "diff-before") adapter.observation.diff.sshd = "unapproved complete SSH diff";
+    if (mode === "manual-before") adapter.observation.manual.cutoverAckConfirmed = false;
     const result = await e.run("apply", x.applyOptions);
     if (mode === "normal") {
       assert.equal(result.exitCode, 0, JSON.stringify(result));
@@ -224,7 +229,40 @@ for (const mode of ["normal", "before", "between", "during-install", "tailnet-fa
     } else {
       assert.equal(result.exitCode, 4, JSON.stringify(result)); assert.equal(result.envelope.error?.code, "s03_observation_drifted");
       assert.equal(adapter.cutoverCalls, 0); assert.equal(adapter.stageCalls, 0);
-      assert.equal(adapter.installCalls, mode === "before" ? 0 : 1);
+      assert.equal(adapter.installCalls, ["before", "ownership-before", "diff-before", "manual-before"].includes(mode) ? 0 : 1);
     }
   });
 }
+
+import { observeAccessInputProof } from "../../src/stages/access";
+import { NodeFilesystemAdapter } from "../../src/adapters/filesystem";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+test("U01 real input proof hashes raw config and ownership and refuses unsafe/unbounded input", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "af-r14-access-inputs-"));
+  const target = new NodeFilesystemAdapter();
+  const mapped = (p: string) => path.join(root, p.replace(/^\/+/, ""));
+  await fs.mkdir(mapped("/etc/ssh/sshd_config.d"), { recursive: true, mode: 0o700 });
+  await fs.writeFile(mapped("/etc/ssh/sshd_config"), "Port 22\n", { mode: 0o600 });
+  let owner = 0, bounds: number[] = [];
+  const adapter = new Proxy(target, { get(t, key, receiver) {
+    if (key === "lstat") return async (p: string) => Object.assign(await t.lstat(mapped(p)), { uid: owner, gid: 0 });
+    if (key === "readdir") return (p: string) => t.readdir(mapped(p));
+    if (key === "readTextBounded") return (p: string, max: number) => { bounds.push(max); return t.readTextBounded(mapped(p), max); };
+    const value: unknown = Reflect.get(t, key, receiver); return typeof value === "function" ? value.bind(t) : value;
+  } });
+  const first = await observeAccessInputProof(adapter, 1000, "/manual");
+  await fs.writeFile(mapped("/etc/ssh/sshd_config"), "Port 22\n# changed raw input\n");
+  const second = await observeAccessInputProof(adapter, 1000, "/manual");
+  assert.notEqual(first.contentHash, second.contentHash); assert.equal(first.ownershipHash, second.ownershipHash);
+  owner = 1;
+  await assert.rejects(() => observeAccessInputProof(adapter, 1000, "/manual"), { code: "s03_security_input_ownership_unsafe" });
+  owner = 0;
+  await fs.writeFile(mapped("/etc/ssh/sshd_config"), "x".repeat(256 * 1024 + 1));
+  await assert.rejects(() => observeAccessInputProof(adapter, 1000, "/manual"), { code: "s03_security_input_oversized" });
+  assert.ok(bounds.length >= 3 && bounds.every(n => n === 256 * 1024));
+  await fs.unlink(mapped("/etc/ssh/sshd_config"));
+  await fs.symlink("/foreign", mapped("/etc/ssh/sshd_config"));
+  await assert.rejects(() => observeAccessInputProof(adapter, 1000, "/manual"), { code: "s03_security_input_ownership_unsafe" });
+});
