@@ -1,0 +1,148 @@
+{
+  "base_commit": "420e5456d3e05b1c4f9b7202cacebb82baaf61eb",
+  "base_tree": "2dd3d1a1557e9687482b308eff16c0a0da399cd2",
+  "audited_base_commit": "b888082167b5edc50977a6dcda997b40e962da8d",
+  "audited_base_tree": "9ed7b7e09eed8e80e099dc38578a9265ef634963",
+  "branch": "master",
+  "owner_layer": {
+    "status": "",
+    "changes": [],
+    "staged_patch": "logs/staged.patch",
+    "unstaged_patch": "logs/unstaged.patch"
+  },
+  "tested_commit": null,
+  "tested_tree_identity": "sha256-manifest:a95c623dde5996cf6abf4f93d9b03e76fdaef9fe0fc5ca6b6ced11fe0a9de5cb",
+  "tested_manifest_sha256": "a95c623dde5996cf6abf4f93d9b03e76fdaef9fe0fc5ca6b6ced11fe0a9de5cb",
+  "tested_files": 138,
+  "patch_sha256": "067c9c23c2b0120b271b26f59f4d9ffa0db7d1421a134566166cc52faab8ced6",
+  "new_files_tar_sha256": "574a5d90c2826e0167947d7575919dfcb656d93ca4e4d26625ae37ad2ab31049",
+  "report_sha256": "a7e0e702aa4daddaba889cce54a3b027b6165c92663d9235a67f38e2d8a7273d",
+  "node": "v24.12.0",
+  "npm": "11.6.2",
+  "os": "macOS-15.5-arm64-arm-64bit-Mach-O",
+  "arch": "arm64",
+  "uid": 501,
+  "initial_index_sha256": "fe15a533b203cd4d00b71aedfea1b287367d842745ae22615e1c0613e2c4cab6",
+  "validation_commands": [
+    {
+      "argv": [
+        "node",
+        "--version"
+      ],
+      "cwd": "/private/tmp/af-r16/fixed",
+      "exit_code": 0,
+      "log": "node.log",
+      "elapsed_seconds": 0.065
+    },
+    {
+      "argv": [
+        "npm",
+        "--version"
+      ],
+      "cwd": "/private/tmp/af-r16/fixed",
+      "exit_code": 0,
+      "log": "npm.log",
+      "elapsed_seconds": 0.241
+    },
+    {
+      "argv": [
+        "npm",
+        "--prefix",
+        "setup",
+        "ci",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "/private/tmp/af-r16/fixed",
+      "exit_code": 0,
+      "log": "ci.log",
+      "elapsed_seconds": 0.632
+    },
+    {
+      "argv": [
+        "npm",
+        "--prefix",
+        "setup",
+        "run",
+        "typecheck",
+        "--silent"
+      ],
+      "cwd": "/private/tmp/af-r16/fixed",
+      "exit_code": 0,
+      "log": "typecheck.log",
+      "elapsed_seconds": 1.186
+    },
+    {
+      "argv": [
+        "npm",
+        "--prefix",
+        "setup",
+        "run",
+        "test",
+        "--silent"
+      ],
+      "cwd": "/private/tmp/af-r16/fixed",
+      "exit_code": 0,
+      "log": "tests.log",
+      "elapsed_seconds": 87.553
+    }
+  ],
+  "audit_harness_commands": [
+    {
+      "argv": [
+        "node",
+        "/private/tmp/af-r16/input/evidence/command-identity-probes.cjs",
+        "/private/tmp/af-r16/base",
+        "adapter"
+      ],
+      "exit_code": 0,
+      "log": "baseline-adapter-final.jsonl",
+      "elapsed_seconds": 0.345
+    },
+    {
+      "argv": [
+        "node",
+        "/private/tmp/af-r16/input/evidence/command-identity-probes.cjs",
+        "/private/tmp/af-r16/base",
+        "stage"
+      ],
+      "exit_code": 0,
+      "log": "baseline-stage-final.jsonl",
+      "elapsed_seconds": 0.349
+    },
+    {
+      "argv": [
+        "node",
+        "/private/tmp/af-r16/input/evidence/command-identity-probes.cjs",
+        "/private/tmp/af-r16/fixed",
+        "adapter"
+      ],
+      "exit_code": 0,
+      "log": "fixed-adapter-final.jsonl",
+      "elapsed_seconds": 0.278
+    },
+    {
+      "argv": [
+        "node",
+        "/private/tmp/af-r16/input/evidence/command-identity-probes.cjs",
+        "/private/tmp/af-r16/fixed",
+        "stage"
+      ],
+      "exit_code": 0,
+      "log": "fixed-stage-final.jsonl",
+      "elapsed_seconds": 0.294
+    }
+  ],
+  "reconstruction": "git archive actual base; empty owner layer; git apply full-local.patch without index; verify tested-file/new-file hashes and deletions. New files already in full patch; tar is redundant. Packaging is separate from tested-code manifest.",
+  "exclusions": [
+    "node_modules",
+    "dist",
+    ".git",
+    "audit/report/packaging",
+    "temporary outputs/secrets"
+  ],
+  "production_status": "OPEN",
+  "real_host_qualification": "NOT RUN",
+  "agent_commits_push_branches_worktrees_pr_release_deploy": false
+}

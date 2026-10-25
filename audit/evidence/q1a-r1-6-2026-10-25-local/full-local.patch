@@ -1,0 +1,598 @@
+diff --git a/setup/docs/application-release.md b/setup/docs/application-release.md
+index f4e73d3..7cb35c2 100644
+--- a/setup/docs/application-release.md
++++ b/setup/docs/application-release.md
+@@ -47,3 +47,17 @@ R1.4 execution detail: production engine supplies one operation per apply call.
+ Every application command path (observe/replan, explicit verify, probe operation, repeat apply/resume) checks release/config-bound materialization evidence, command entries and current deployed bytes **before** entering the probe adapter. Required command entry files must be canonical relative paths present in `content_hashes`; only the installed Node interpreter/`node` plus a bound script, or a bound relative executable, is supported. Shell/sudo/external/unbound entries are refused. The actual adapter repeats the content check before each command. Root and every content path component must have the expected owner, safe write permissions, regular file/directory type and no symlink. Missing/unreadable/unsafe or mismatched content returns exit 9 `s05_deployed_integrity_failed`, with zero application commands. Missing required commands returns exit 5; false probe returns exit 5; a thrown operational probe error returns exit 6. Integrity refusal is not a runner failure.
+ 
+ A successful materialization receipt binds the application directory, archive SHA, source commit and (new receipts) canonical release manifest SHA. Legacy R1.4 receipts lacking the manifest SHA are accepted only with the same journal/config binding, exact directory/archive/commit, archive manifest reinspection and current content validation. A source commit marker alone never authorizes execution. Plain `status` does not refresh, execute or change evidence. Fresh successful probes remain mandatory; receipt identity does not replace them. A discovered failure cannot publish probe success or permit downstream effects. These checks do not claim to eliminate OS-level races between reading a file and executing it.
++
++## R1.6 command identity and argv grammar
++
++The R1.5 V03 claim was too broad: hashed `.cjs`/extensionless entries could still run a CWD decoy, and a hashed `--eval` filename could authorize Node options. R1.6 fixes that distinct admission/execution defect; the historical R1.5 report is retained.
++
++`prepareOfflineCommands` is the single source of grammar and executable identity for both stage admission and the actual probe adapter. It prepares both required command keys before either invocation. Each immutable prepared command contains its kind, reviewed content entry, absolute executable and exact final argv:
++
++- Node: `["node" | exact-installed-pinned-node-path, canonical-relative-file, ...applicationArgs]`. No manifest runtime options are supported before the entry. A leading `-`, stdin `-`, delimiter `--` or any option-shaped entry is refused with exit 9 even when that filename exists in the content map. The file must be bound to `content_hashes` and pass current ownership/type/content checks.
++- The Node executable is the installed pin, outside the application content map. Its entry is always made absolute under the deployment root, independent of suffix (`.js`, `.mjs`, `.cjs`, `.ts`, extensionless). A nested name such as `bin/-runner.cjs` is allowed. No global CWD change or suffix-dependent fallback is used.
++- Direct executable: `[canonical-relative-file, ...applicationArgs]`. The executable itself must be a content-map entry and is invoked by its absolute deployment path. No PATH lookup or external shell/sudo/env binary is admitted. Direct arguments are not rewritten as Node entries.
++
++Application arguments after the file retain their order, values and array boundaries, including spaces, quotes, relative filenames and strings such as `--eval`. The adapter appends one `--help` after them. No Node delimiter is needed: the first argument is the absolute file path, so subsequent strings are application arguments. This placement is tested with actual Node 24 processes. These tests do not establish M0/service qualification or implement arbitrary loaders/runtime flags.
++
++Both prepared commands are validated before the first child, and the existing current content/metadata check runs again before **each** help command. Drift between verify-help and stop-help refuses the second command. Missing mandatory commands, negative/timeout results and operational errors retain their typed failures. Trust receipts, manifest/config/archive binding, bounded process behavior and plain read-only status remain unchanged. This deterministic identity fix does not claim to eliminate OS-level hash-read/exec TOCTOU.
+diff --git a/setup/src/adapters/git.ts b/setup/src/adapters/git.ts
+index 225369f..55939a7 100644
+--- a/setup/src/adapters/git.ts
++++ b/setup/src/adapters/git.ts
+@@ -143,65 +143,54 @@ function parseVerboseTarLine(rawLine: string): { type: string; entryPath: string
+   };
+ }
+ 
+-function supportsCommand(manifest: ApplicationManifestData, commandKey: string): string[] | null {
+-  const command = manifest.commands[commandKey];
+-  if (!Array.isArray(command) || command.length === 0) {
+-    return null;
+-  }
+-  return command;
+-}
+-
+-function resolveBinary(binary: string, config: SetupConfig, rootDir: string): string {
+-  if (binary === "node") {
+-    return path.join(config.paths.setup_node_dir, "bin", "node");
+-  }
+-  if (binary.startsWith("/")) {
+-    return binary;
+-  }
+-  if (binary.includes("/")) {
+-    return path.join(rootDir, binary);
+-  }
+-  throw setupError({
+-    exitCode: ExitCode.SecurityBoundaryViolation,
+-    code: "s05_untrusted_command_binary",
+-    publicMessage: `Release command '${binary}' is not allowed.`,
+-    nextAction: "Use absolute binaries or node-based argv in deployment-manifest.json.",
+-    stage: "S05"
+-  });
+-}
+-
+-function resolveCommandArgs(args: string[], rootDir: string): string[] {
+-  if (args.length === 0) {
+-    return [];
+-  }
+-  return args.map((value, index) => {
+-    if (index === 0 && (value.endsWith(".js") || value.endsWith(".mjs") || value.endsWith(".ts"))) {
+-      return path.join(rootDir, value);
+-    }
+-    return value;
+-  });
+-}
+-
+ function canonicalContentPath(value: string): boolean {
+   return value.length > 0 && !path.isAbsolute(value) && !value.includes("\\") && !value.includes("\0")
+     && value.split("/").every(part => part.length > 0 && part !== "." && part !== "..");
+ }
+ 
+-/** Executable entries must be covered by the reviewed deployment content map. */
+-export function assertOfflineCommands(manifest: ApplicationManifestData, config: SetupConfig): void {
+-  for (const key of ["runner_verify", "runner_stop"]) {
++/** Internal execution identity: validation and invocation consume this same preparation. */
++export interface PreparedOfflineCommand {
++  readonly kind: "node" | "direct";
++  readonly contentEntry: string;
++  readonly executable: string;
++  readonly args: readonly string[];
++}
++
++export function prepareOfflineCommands(
++  rootDir: string, manifest: ApplicationManifestData, config: SetupConfig
++): Record<"runner_verify" | "runner_stop", PreparedOfflineCommand> {
++  const pinnedNode = path.join(config.paths.setup_node_dir, "bin", "node");
++  const prepare = (key: "runner_verify" | "runner_stop"): PreparedOfflineCommand => {
+     const argv = manifest.commands[key];
+-    if (!Array.isArray(argv) || argv.length === 0 || argv.some(value => typeof value !== "string" || value.includes("\0"))) {
++    if (!Array.isArray(argv) || argv.length === 0) {
+       throw setupError({ exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence, code: "s05_required_command_missing",
+         publicMessage: "A mandatory offline command is missing.", nextAction: "Provide a reviewed release with both required commands.", stage: "S05" });
+     }
+-    const binary = argv[0]!;
+-    const entry = binary === "node" || binary === path.join(config.paths.setup_node_dir, "bin", "node") ? argv[1] : binary;
+-    if (entry === undefined || !canonicalContentPath(entry) || !Object.hasOwn(manifest.content_hashes, entry)) {
++    if (argv.some(value => typeof value !== "string" || value.includes("\0"))) {
+       throw setupError({ exitCode: ExitCode.SecurityBoundaryViolation, code: "s05_command_content_unbound",
+-        publicMessage: "Offline command entry is outside the reviewed deployment content map.", nextAction: "Bind a confined executable or Node entry file to reviewed content hashes; sudo/external executables are forbidden.", stage: "S05" });
++        publicMessage: "Offline argv contains an invalid value or NUL byte.", nextAction: "Use reviewed string argv without NUL bytes.", stage: "S05" });
+     }
+-  }
++    const isNode = argv[0] === "node" || argv[0] === pinnedNode;
++    const entry = isNode ? argv[1] : argv[0];
++    // No manifest Node runtime options: argv[1] is strictly a file, never stdin/flags.
++    // Nested names such as bin/-runner.cjs are safe: execution uses the absolute path.
++    if (!path.isAbsolute(rootDir) || !path.isAbsolute(pinnedNode) || entry === undefined || entry.startsWith("-")
++      || !canonicalContentPath(entry) || !Object.hasOwn(manifest.content_hashes, entry)) {
++      throw setupError({ exitCode: ExitCode.SecurityBoundaryViolation, code: "s05_command_content_unbound",
++        publicMessage: "Offline command requires a canonical reviewed file entry, without runtime options.",
++        nextAction: "Bind a deployment file to content hashes; use node plus the file or a confined direct executable, followed by application arguments.", stage: "S05" });
++    }
++    const absoluteEntry = path.join(rootDir, entry);
++    return Object.freeze({ kind: isNode ? "node" : "direct", contentEntry: entry,
++      executable: isNode ? pinnedNode : absoluteEntry,
++      args: Object.freeze(isNode ? [absoluteEntry, ...argv.slice(2), "--help"] : [...argv.slice(1), "--help"]) });
++  };
++  // Prepare both before either executable can run. A bad stop command cannot follow a good verify command.
++  return { runner_verify: prepare("runner_verify"), runner_stop: prepare("runner_stop") };
++}
++
++export function assertOfflineCommands(manifest: ApplicationManifestData, config: SetupConfig): void {
++  prepareOfflineCommands(config.paths.application_dir, manifest, config);
+ }
+ 
+ export class NodeApplicationReleaseAdapter implements ApplicationReleaseAdapter {
+@@ -508,36 +497,19 @@ export class NodeApplicationReleaseAdapter implements ApplicationReleaseAdapter
+   }
+ 
+   async probeCommands(rootDir: string, manifest: ApplicationManifestData, config: SetupConfig): Promise<ProbeResult> {
+-    assertOfflineCommands(manifest, config);
++    const prepared = prepareOfflineCommands(rootDir, manifest, config);
+     const details: string[] = [];
+-    const verifyArgv = supportsCommand(manifest, "runner_verify");
+-    const stopArgv = supportsCommand(manifest, "runner_stop");
+-    if (verifyArgv === null || stopArgv === null) {
+-      return {
+-        runnerVerifyHelpOk: false,
+-        runnerStopHelpOk: false,
+-        details: ["missing_required_commands"]
+-      };
+-    }
+-
+-    const runHelp = async (argv: string[], commandName: string): Promise<boolean> => {
+-      const [binaryRaw, ...argsRaw] = argv;
+-      if (binaryRaw === undefined) {
+-        details.push(`${commandName}:empty`);
+-        return false;
+-      }
++    const runHelp = async (command: PreparedOfflineCommand, commandName: string): Promise<boolean> => {
+       const mismatches = await this.verifyContentHashes(rootDir, manifest.content_hashes);
+       if (mismatches.length > 0) throw setupError({ exitCode: ExitCode.SecurityBoundaryViolation, code: "s05_deployed_integrity_failed",
+         publicMessage: "Current deployment integrity failed before offline command invocation.", nextAction: "Restore reviewed deployment bytes before any executable probe.", stage: "S05", evidenceRef: rootDir });
+-      const binary = resolveBinary(binaryRaw, config, rootDir);
+-      const args = [...resolveCommandArgs(argsRaw, rootDir), "--help"];
+-      const result = await this.run(binary, args, OBSERVE_TIMEOUT_MS);
++      const result = await this.run(command.executable, [...command.args], OBSERVE_TIMEOUT_MS);
+       details.push(`${commandName}:exit=${result.exitCode}:timeout=${result.timedOut}`);
+       return result.exitCode === 0 && !result.timedOut;
+     };
+ 
+-    const runnerVerifyHelpOk = await runHelp(verifyArgv, "runner_verify");
+-    const runnerStopHelpOk = await runHelp(stopArgv, "runner_stop");
++    const runnerVerifyHelpOk = await runHelp(prepared.runner_verify, "runner_verify");
++    const runnerStopHelpOk = await runHelp(prepared.runner_stop, "runner_stop");
+     return {
+       runnerVerifyHelpOk,
+       runnerStopHelpOk,
+diff --git a/docs/audits/remediation-q1a-r1-6-2026-10-25.md b/docs/audits/remediation-q1a-r1-6-2026-10-25.md
+new file mode 100644
+index 0000000..2adc83c
+--- /dev/null
++++ b/docs/audits/remediation-q1a-r1-6-2026-10-25.md
+@@ -0,0 +1,99 @@
++# Q1A-R1.6 — S05 checked entry → executed entry
++
++2026-10-25, Europe/Amsterdam. **R1.6 local scope PASS; production OPEN; real-host qualification NOT RUN.** R15-F01 исправлен в ограниченном scope. Q1A, AF-05/06, AF-08/09/31 и общий AF backlog не объявляются закрытыми. Коммиты/push/ветки/worktree/PR/merge/tag/release/deploy агентом не выполнялись; index для packaging не использовался.
++
++## База и ownership
++
++Фактический initial HEAD: `420e5456d3e05b1c4f9b7202cacebb82baaf61eb`; tree `2dd3d1a1557e9687482b308eff16c0a0da399cd2`; branch `master`. Read-only status пуст, staged/unstaged/untracked owner layer **пустой**. Начальный SHA-256 `.git/index`: `fe15a533b203cd4d00b71aedfea1b287367d842745ae22615e1c0613e2c4cab6`. Snapshot, пустые initial diffs и итоговое сравнение входят в evidence.
++
++От проверенного master `b888082167b5edc50977a6dcda997b40e962da8d` отличаются только четыре committed audit-входа: `audit/copilot-r16-task.ru.md`, `audit/evidence/agent-factory-r15-review-evidence-b888082.zip`, его `.sha256`, `audit/reviews/agent-factory-r15-audit-b888082.ru.md`. Их hashes сохранены в `base-delta.json`. Production baseline не менялся; все 135 файлов R1.5 manifest (`2d70f17d321a92acdabe9baa832e30adeab63b3ec9b6fc93b4481d06e8941f01`) совпали с base archive. Замечание применимо.
++
++Прочитаны root `AGENTS.md`, audit R1.5, текущий R1.5 report, CONTRACT 1.0.0, application-release docs, execution-plan и соответствующие source/tests. Запрошенного `../AGENTS.md` на диске нет; использован repository `AGENTS.md` и инструкции владельца. Нормативного конфликта не выявлено: C10 требует absolute trusted argv/shell=false; C13 связывает команды с release и установленным Node pin. Новая public schema/contract version не требуется. Runtime flags до entry документацией application-release не требовались; поддержки arbitrary loaders/eval не добавлено.
++
++## Дефект, исправление и production diff
++
++R15-F01: validator связывал `argv[1]` с content hash, но execution делал entry абсолютным только по отдельным suffix. `.cjs`/extensionless запускались из CWD; hashed filename `--eval` превращался в Node option. Это детерминированная identity ошибка, не TOCTOU.
++
++**Единственный production-файл:** `setup/src/adapters/git.ts`. Удалены раздельные `resolveBinary`, `resolveCommandArgs`, `supportsCommand`. Общий `prepareOfflineCommands` используется и `assertOfflineCommands` (stage admission), и `probeCommands`. Он заранее подготавливает оба required command keys и возвращает явно представленные immutable commands: kind, contentEntry, absolute executable, exact final argv. Фактический spawn использует именно эту подготовку.
++
++Grammar:
++
++- `node` либо точный `paths.setup_node_dir/bin/node`; затем обязательный canonical relative file, затем application args. Никаких Node runtime options до entry. Entry с ведущим `-`, включая `-`, `--`, `--eval=…`, отвергается exit 9 `s05_command_content_unbound` даже с hashed file.
++- Entry обязан быть content-map key; absolute/traversal/backslash/NUL/empty/dot segments запрещены. Node entry всегда абсолютный внутри deployment независимо от suffix. `.js/.mjs/.cjs/.ts` и extensionless сохраняют работоспособность. Nested `bin/-runner.cjs` безопасен, потому что Node получает абсолютный путь.
++- Node executable — ранее выбранный installed pin, он не переносится в application content map. Direct relative executable, например `bin/check`, сам обязан быть hashed content entry; исполняется его абсолютный deployment path без PATH search/external shell/sudo/env обхода.
++- Application arguments после entry не переписываются: порядок, spaces, quotes, `--eval`, относительный `.js` аргумент сохраняются. В конец добавляется один `--help`. Node delimiter не добавлен: абсолютный file entry первым аргументом уже отделяет application args; это проверено настоящим Node 24.
++- Оба command keys валидируются до первого child. Перед **каждым** help сохранены настоящие current metadata/content checks. Между help-пробами drift блокирует вторую, без общего успешного результата. Missing command — exit 5; invalid/security argv — exit 9; false/timeout — прежний failure exit 5; unexpected probe throw — прежний exit 6.
++
++`stages/application.ts`, ProcessAdapter, core/state, S03/S04, application/M0, schemas/locks/contract не менялись. Дополнительного production scope нет. Prepared argv не устанавливает глобальный CWD. В тестах CWD задаётся при fork отдельного owned worker; production NodeProcessAdapter остаётся настоящим и без изменения cwd API.
++
++Остальные файлы: `setup/tests/integration/q1a-r16-commands.test.ts`, `helpers/r16-commands.ts`, `helpers/r16-command-child.cjs`, `setup/docs/application-release.md`, этот report и local evidence. Старые 364 tests не удалялись и не переименовывались.
++
++## Baseline и red evidence
++
++Исходный `command-identity-probes.cjs` сохранён без изменения oracle. Одинаковые исходные fixtures запускались на base и reconstructed fixed, отдельно `adapter` и `stage`. Stage mode имеет synthetic archive/checkout/receipt; реальные hashes, argv и Node child. Он **не** считается полной engine/archive qualification.
++
++| Case | Baseline, оба режима | Fixed, оба режима |
++|---|---|---|
++| W01 `.js` | 2 calls, `REVIEWED_ENTRY`, success / verified | 2 calls, тот же checked absolute entry, success / verified |
++| W02 `.cjs` | 2 calls, `UNREVIEWED_CWD_ENTRY`, ложный success / verified | 2 calls, absolute hashed path, `REVIEWED_ENTRY`, decoy не запущен |
++| W03 extensionless | 2 calls, `UNREVIEWED_CWD_ENTRY`, ложный success / verified | 2 calls, absolute hashed path, `REVIEWED_ENTRY`, decoy не запущен |
++| W04 hashed `--eval` | 2 calls, `UNBOUND_OPTION_EVAL`, ложный success / verified | typed `s05_command_content_unbound`, executable calls=0, result=null, verified не опубликован |
++
++Все восемь исходных fixtures schema-valid. Baseline: 1/4 безопасных исходов в каждом режиме; fixed: 4/4. `harness_ok` и exit 0 не считались product PASS. Полные hashed path, actual binary/argv/CWD/stdout/exit и schema result — `logs/baseline-*-final.jsonl`, `logs/fixed-*-final.jsonl`; machine assertions проверены отдельно `check-r16.py`.
++
++До production edits добавлены первые три regression tests: absolute `.cjs`, absolute extensionless, hashed eval refusal. Test/helper layer отдельно наложен на base: build exit 0; tests exit 1, **0 passed / 3 failed** по правильным assertions. `red-layer/`, `red-commands.json`, `red-tests.log` сохранены. В red tests опасные argv перехвачены, не исполняются. Реальное безопасное stdout-only eval в baseline запускалось только исходным разрешённым audit harness.
++
++Промежуточные expanded fixture ошибки сохранены: macOS `/var` ↔ `/private/var` CWD alias, отсутствие executable bit у добавленного direct fixture и schema-invalid пустой application arg. Исправлены только fixtures (realpath caller, mode700 для собственного shebang file, schema-valid args). Они не считаются продуктовым red или acceptance. Поздние расширенные tests не выдаются за выполненные до fix.
++
++## R15-F01 → W01…W12
++
++Все PASS ниже ограничены local scope. `acceptance-matrix.json` содержит полные test names, source и log; `real-commands.json` — реальные argv/CWD/stdout; `grammar-refusals.json` — typed zero-child controls. Assertion names приведены в итоговом `logs/final-validation/tests.log`.
++
++| ID | Конкретное evidence / assertion | Status |
++|---|---|---|
++| W01 | `W01 real Node checked …`: `.js/.mjs/.ts` × short/exact pinned; настоящий NodeProcessAdapter в owned child, schema=true, оба help реально exit0, stdout reviewed, actual args[0]=hashed absolute entry | PASS |
++| W02 | `W02 real Node cjs CWD decoy never runs …`, оба binary forms; дополнительно исходный adapter/stage harness; decoy marker отсутствует, правильный entry реально выполняется | PASS |
++| W03 | `W03 real Node extensionless …`: отдельный CWD с decoy и без него; обе help успешны, checked marker и absolute entry | PASS |
++| W04 | `W04 hashed --eval …`, baseline/fixed adapter/stage logs: исходная expression+`--` после fix даёт security refusal и 0 child; stage не verified | PASS |
++| W05 | `W05 every option-shaped entry …` для обоих keys: 12 явно перечисленных filename variants, включая -e/-p/eval/print/require/import/inspect/input-type/env-file/-/--; hashed файлы настоящие; schema=true, exit9, 0 executable calls. Опасные children не запускаются | PASS |
++| W06 | `W06 grammar …`, `W06 bound entry metadata …`: missing/unlisted/absolute/traversal/double-segment/dot/backslash/NUL/external/sudo/shell; missing file, symlink, unsafe mode/owner/special file — refusal до child; metadata owner/special моделируются injected FS, а не privileged chown/mknod | PASS |
++| W07 | `W07 real Node nested dash filename …` и `W07 prepared identity …`: nested dash file, spaces/quotes/--eval/--require/relative.js/-- в application args; сохранены реальные boundaries и order, frozen prepared representation | PASS |
++| W08 | `W08 bytes drift after first help …`: actual hash/content adapter; после первой подтверждённой invocation файл меняется, вторая не вызвана, exit9 без общего PASS | PASS |
++| W09 | `W09 real S05 engine-created evidence …`: actual processes + CWD decoy, полный plan/apply/plan/verify/status-refresh/apply/resume, plain status без записи/probes. `W09 engine-bound invalid …` для обоих keys: настоящие engine materialization checkpoint receipts, реальный grammar/hash/probe adapter; stage observe/verify с captured engine context отказывают; нет probe verify/checkpoint/new verified/downstream | PASS |
++| W10 | `W10 real confined native …` direct и mixed Node/direct; собственный stdout-only shebang executable, actual requested binary=deployment content entry; native relative.js/--eval/spaces args не переписываются | PASS |
++| W11 | `W11 real S05 producer preserves typed …`: false/timeout →5 с 2 actual intercepted calls, throw →6 с 1 boundary entry, missing →5 с 0. Repeat verify и no-trust/config/release/archive/path evidence guards также сохранены в исходных U02/V03 tests полного suite | PASS |
++| W12 | Полный suite 397/397, включая все прежние 364; прежние frozen comparisons/C01…C12 и 33 assertions; real S00…S07 composition; проверенная reconstruction и 138-file manifest до/после tests | PASS |
++
++Invalid engine lifecycle намеренно не чинит recovery protocol: после grammar refusal внутри уже admitted probe operation core консервативно сохраняет failed/unknown in-flight и последующие lifecycle commands блокируются. В tests это nonzero (как правило journal exit8), без replay/ложного proof. Прямые observe/verify с уже engine-generated trusted materialization context отдельно доказывают typed exit9. Никаких synthetic matching receipts для этого теста вручную не создавалось. Initial untrusted plan может подготовить reviewed plan, но executable authorization из marker не получает.
++
++**Correction note к R1.5:** V03 в историческом report был чрезмерно отмечен PASS. Независимый аудит правильно установил **PARTIAL из-за R15-F01**; этот вывод не переписывается задним числом. Новые W01…W12 закрывают воспроизведённый deterministic command-identity gap локально. Это не общий сертификат безопасности всех команд, M0/service или OS races. R11/R12/R13/K/T/U/V IDs не переименованы; их прежние смыслы и ограничения сохраняются.
++
++## Фактическая validation и identity
++
++Реальный runtime: **Node v24.12.0, npm 11.6.2, macOS 15.5 arm64, UID 501**. Это обычный локальный пользователь, не root-installer qualification. `process.versions` не подменялся. Runtime отличается от независимой Linux/Node v24.22.1 среды аудитора; major24 соблюдён. Package ci выполнялся только в собственных временных copies.
++
++Все команды ниже выполнены на свежей копии `/private/tmp/af-r16/fixed`, восстановленной через actual base archive + полный adding patch без index, после окончательных source/test/doc edits:
++
++| Command | Exit | Log |
++|---|---|---|
++| `node --version` | 0 | final-validation/node.log |
++| `npm --version` | 0 | final-validation/npm.log |
++| `npm --prefix setup ci --ignore-scripts --no-audit --no-fund` | 0 | final-validation/ci.log |
++| `npm --prefix setup run typecheck --silent` | 0 | final-validation/typecheck.log |
++| `npm --prefix setup run test --silent` | 0 | **397 passed / 0 failed / 0 skipped**, final-validation/tests.log |
++
++Exact argv/cwd/elapsed/exit — `final-validation/commands.json`, `audit-harness-commands.json`, `frozen-comparisons/independent-commands.json`. Frozen runner commands завершились 0; отдельно проверены все **33 product assertions**, а не только harness completion. Composition S00…S07 apply/status/resume=0, APT install=1, Docker install/probe=1, access cutover=1, application probes=7, image build=1, все external effects fake. Старые fault/crash cases полностью входят в итоговый suite; их final machine matrices приложены без повторной бесконечной suite.
++
++Tested identity: **нового commit нет**. Base `420e5456…` + local patch; manifest **138 файлов**, SHA-256 `a95c623dde5996cf6abf4f93d9b03e76fdaef9fe0fc5ca6b6ced11fe0a9de5cb`. Перед и после tests SHA каждого source/test/config/schema/lock/bootstrap/release/fixture/setup-doc файла совпал с current workspace и reconstructed copy. Deletions=[]; excludes: dependencies/dist/Git metadata, audit/report/packaging и временные runtime artifacts; секреты не читались и не включались. Report сформирован после code validation, отдельный packaging layer с собственным hash; self-reference отсутствует.
++
++## Выдаваемый пакет и remaining risks
++
++Папка `audit/evidence/q1a-r1-6-2026-10-25-local/`: report, identity, полный patch с additions, new-files.tar/json, deletions.json, tested-files.sha256, evidence.zip и внешний checksum. Новые файлы уже входят в patch; tar — отдельный альтернативный payload, не применять повторно. ZIP содержит неизменённый audit runner, старые frozen runners/fixtures и checkers, red test layer, actual final logs/counters/argv, acceptance matrix, reconstruction scripts и внутренний SHA256SUMS. Дополнительная личная session directory или неопубликованный внешний архив не нужны. Report/patch в папке и внутри ZIP сверены по bytes.
++
++Финальный adding patch с report повторно применён в пустой temporary copy; manifest/new-file hashes/deletions проверены. Initial HEAD/branch и index bytes сохранены (`final-repository-state.json`); owner layer был пуст и не потерян. Ни commit, push, новая ветка/worktree, PR, tag/release, deploy или следующий пакет не создавались.
++
++**OPEN вне R1.6:** OS-level hash/exec TOCTOU, process-tree supervisor/Q1B и privileged executor/Q2, пустой actual NodeAccessAdapter cutover и marker-only timer/rollback; M0/service/unattended и production qualification. SSH Include policy B и Docker session/unknown-workload/recovery guards сохранены, не объявлены реальными host tests.
++
++**NOT RUN:** VM/VPS/provisioning, sudo/apt/systemd/SSH/UFW/Docker daemon/cgroups, OAuth/credentials/provider/model/GitHub writes, host deployment/release и physical power loss. Новые реальные processes — только собственные local stdout/argv fixtures; inspector/preload/import negatives не исполнялись. Для review не нужны credentials, sudo, VPS или публикация.
++
++Единственное следующее действие владельца — передать локальные report/patch/new-file payload/identity/manifest/ZIP/checksum на review. На GitHub этих локальных правок нет; одной ссылки на master недостаточно. Будущие пакеты — отдельные задания, с тем же запретом агенту на commits/push/branches/PR без нового явного разрешения владельца.
+diff --git a/setup/tests/helpers/r16-command-child.cjs b/setup/tests/helpers/r16-command-child.cjs
+new file mode 100644
+index 0000000..6cf83cd
+--- /dev/null
++++ b/setup/tests/helpers/r16-command-child.cjs
+@@ -0,0 +1,49 @@
++'use strict';
++// Each worker is owned by one test. Its caller-supplied cwd is fixed before loading setup.
++// Only locally authored stdout/argv fixtures run; no network/privileged commands.
++const path = require('node:path');
++const fs = require('node:fs/promises');
++const assert = require('node:assert/strict');
++const { commandFixture, reviewedBody } = require(path.join(process.argv[2], 'tests/helpers/r16-commands.js'));
++const { r14Noop } = require(path.join(process.argv[2], 'tests/helpers/r14-engine.js'));
++(async () => {
++  const spec = JSON.parse(process.argv[3]);
++  const q = await commandFixture(spec.entry, {real: true, direct: spec.direct});
++  const manifest = q.a.release.manifest;
++  const argv = spec.direct ? [spec.entry] : [spec.pinned ? q.pinned : 'node', spec.entry];
++  argv.push(...(spec.args || []));
++  manifest.commands = {runner_verify: [...argv], runner_stop: [...argv]};
++  if (spec.mixed) {
++    const name = 'bin/check';
++    const body = `#!${process.execPath}\n${reviewedBody}`;
++    q.files[name] = body;
++    manifest.content_hashes[name] = require('node:crypto').createHash('sha256').update(body).digest('hex');
++    manifest.commands.runner_stop = [name, ...(spec.args || [])];
++  }
++  const schema = q.schema(); assert.equal(schema.ok, true);
++  if (spec.decoy) {
++    const decoy = path.join(process.cwd(), spec.entry);
++    await fs.mkdir(path.dirname(decoy), {recursive: true});
++    await fs.writeFile(decoy, 'process.stdout.write("CWD_DECOY\\n");\n');
++  }
++  if (spec.engine) {
++    const e = q.makeEngine(); await q.x.planAndApprove(e);
++    assert.equal((await e.run('apply', q.x.applyOptions)).exitCode, 0);
++    assert.equal((await e.run('plan', {configPath: q.x.configPath})).exitCode, 0);
++    assert.equal((await e.run('verify', {configPath: q.x.configPath})).exitCode, 0);
++    assert.equal((await e.run('status', {configPath: q.x.configPath, refresh: true})).exitCode, 0);
++    assert.equal((await e.run('apply', q.x.applyOptions)).exitCode, 0);
++    assert.equal((await e.run('resume', {configPath: q.x.configPath})).exitCode, 0);
++    const before = q.invocations.length;
++    const statePath = path.join(q.x.config.paths.setup_state_dir, 'state.json');
++    const state = await fs.readFile(statePath);
++    assert.equal((await e.run('status', {configPath: q.x.configPath})).exitCode, 0);
++    assert.equal(q.invocations.length, before);
++    assert.deepEqual(await fs.readFile(statePath), state);
++  } else {
++    await q.materialize(); const result = await q.probe();
++    assert.equal(result.runnerVerifyHelpOk && result.runnerStopHelpOk, true);
++  }
++  process.send({ok: true, schema_valid: schema.ok, entry: spec.entry, hashed_path: path.join(q.x.config.paths.application_dir, spec.entry),
++    pinned: q.pinned, spec, invocations: q.invocations});
++})().catch(error => { console.error(error.stack); process.exitCode = 1; });
+diff --git a/setup/tests/helpers/r16-commands.ts b/setup/tests/helpers/r16-commands.ts
+new file mode 100644
+index 0000000..4d0c2ae
+--- /dev/null
++++ b/setup/tests/helpers/r16-commands.ts
+@@ -0,0 +1,66 @@
++import fs from "node:fs/promises";
++import path from "node:path";
++import { createHash } from "node:crypto";
++import { NodeApplicationReleaseAdapter } from "../../src/adapters/git";
++import { NodeProcessAdapter, type CommandOptions, type CommandResult, type ProcessAdapter } from "../../src/adapters/process";
++import { createApplicationStage } from "../../src/stages/application";
++import { SetupEngine } from "../../src/core/engine";
++import { createRegistry } from "../../src/core/plan";
++import { validateContractSchema } from "../../src/core/validators";
++import { r14Fixture, r14Noop, r14Clock, r14Process } from "./r14-engine";
++import { FakeApplicationAdapter, makeCheckout, makeRelease } from "./r15-application";
++
++export const digest = (body: string | Buffer) => createHash("sha256").update(body).digest("hex");
++export const reviewedBody = 'process.stdout.write(JSON.stringify({marker:"REVIEWED_ENTRY",entry:process.argv[1],args:process.argv.slice(2)})+"\\n");\n';
++export const success = (): CommandResult => ({exitCode: 0, stdout: "help", stderr: "", timedOut: false, durationMs: 0});
++export interface Invocation { binary: string; args: string[]; cwd: string; result: CommandResult }
++
++/** Archive/extraction are synthetic; hashes, argv preparation and optional process execution are production methods. */
++export async function commandFixture(entry = "runner.cjs", options: { real?: boolean; downstream?: boolean; direct?: boolean } = {}) {
++  const x = await r14Fixture(options.downstream ? "S06" : "S05");
++  const a = new FakeApplicationAdapter(makeCheckout(x.config), makeRelease(x.config));
++  const pinned = path.join(x.config.paths.setup_node_dir, "bin", "node");
++  await fs.mkdir(path.dirname(pinned), {recursive: true});
++  await fs.symlink(process.execPath, pinned);
++  const body = options.direct ? `#!${process.execPath}\n${reviewedBody}` : reviewedBody;
++  const files: Record<string, string> = {[entry]: body};
++  a.release.manifest!.content_hashes = {[entry]: digest(body)};
++  const argv = options.direct ? [entry] : ["node", entry];
++  a.release.manifest!.commands = {runner_verify: [...argv], runner_stop: [...argv]};
++  const invocations: Invocation[] = [];
++  let downstream = 0, executableCalls = 0;
++  let onCommand: ((cmd: CommandOptions) => Promise<CommandResult>) | undefined;
++  const actual = new NodeProcessAdapter();
++  const proc: ProcessAdapter = {...r14Process, uid: () => process.getuid?.() ?? 1000,
++    runCommand: async cmd => {
++      if (cmd.binary === "/usr/bin/sha256sum") return {...success(), stdout: digest(await fs.readFile(cmd.args[0]!)) + "  fixture\n"};
++      executableCalls++;
++      // Never execute manifest options/foreign binaries in a negative fixture.
++      const result = onCommand ? await onCommand(cmd) : options.real ? await actual.runCommand({...cmd, timeoutMs: 3000, maxOutputBytes: 16384}) : success();
++      invocations.push({binary: cmd.binary, args: [...cmd.args], cwd: process.cwd(), result});
++      return result;
++    }};
++  const node = new NodeApplicationReleaseAdapter(proc, x.f);
++  a.verifyContentHashes = node.verifyContentHashes.bind(node);
++  a.probeCommands = node.probeCommands.bind(node);
++  async function writeFiles(root: string) {
++    await fs.mkdir(root, {recursive: true, mode: 0o700});
++    for (const [name, text] of Object.entries(files)) {
++      const target = path.join(root, name);
++      await fs.mkdir(path.dirname(target), {recursive: true, mode: 0o700});
++      await fs.writeFile(target, text, {mode: text.startsWith("#!") ? 0o700 : 0o600});
++    }
++  }
++  a.extractArchive = async (_config, target) => {a.extractCalls++; await writeFiles(path.join(target, "release"));};
++  a.materializeRelease = async () => {a.materializeCalls++; await writeFiles(x.config.paths.application_dir); a.checkout.exists = true; a.checkout.deployedSourceCommit = x.config.release.source_commit;};
++  const dependent = r14Noop("S06"); dependent.dependencies = ["S05"];
++  dependent.plan = () => ({stageId: "S06", optional: false, requiredCapabilities: [], requiredGates: [], operations: [{id:"r16-dependent",stageId:"S06",kind:"mutate",resourceId:"r16-downstream",risk:"low",gateIds:[],preconditions:[],sideEffects:["fixture trap"],timeoutSec:1,retryable:false}]});
++  dependent.apply = async () => {downstream++; throw Error("Forbidden downstream effect");};
++  const makeEngine = () => new SetupEngine({fsAdapter:x.f,processAdapter:r14Process,clock:r14Clock}, createRegistry([r14Noop("S04"),createApplicationStage(a),...(options.downstream ? [dependent] : [])]));
++  return {x, a, node, pinned, files, body, invocations, makeEngine, stage: () => createApplicationStage(a),
++    schema: () => validateContractSchema("application-manifest", a.release.manifest),
++    materialize: async () => a.materializeRelease("synthetic", x.config.paths.application_dir),
++    probe: () => node.probeCommands(x.config.paths.application_dir, a.release.manifest!, x.config),
++    onCommand: (callback: (cmd: CommandOptions) => Promise<CommandResult>) => {onCommand = callback;},
++    downstream: () => downstream, calls: () => executableCalls};
++}
+diff --git a/setup/tests/integration/q1a-r16-commands.test.ts b/setup/tests/integration/q1a-r16-commands.test.ts
+new file mode 100644
+index 0000000..a623797
+--- /dev/null
++++ b/setup/tests/integration/q1a-r16-commands.test.ts
+@@ -0,0 +1,189 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import path from "node:path";
++import { commandFixture } from "../helpers/r16-commands";
++
++for (const entry of ["runner.cjs", "runner"]) {
++  test(`W02/W03 prepared Node entry is the checked absolute deployment file: ${entry}`, async () => {
++    const q = await commandFixture(entry); await q.materialize();
++    assert.equal(q.schema().ok, true);
++    const result = await q.probe();
++    assert.equal(result.runnerVerifyHelpOk && result.runnerStopHelpOk, true);
++    assert.equal(q.invocations.length, 2);
++    for (const call of q.invocations) assert.equal(call.args[0], path.join(q.x.config.paths.application_dir, entry));
++  });
++}
++test("W04 hashed --eval filename is refused before executable child", async () => {
++  const q = await commandFixture("--eval"); await q.materialize();
++  q.a.release.manifest!.commands.runner_verify = ["node", "--eval", 'process.stdout.write("INLINE_TRAP")', "--"];
++  assert.equal(q.schema().ok, true);
++  await assert.rejects(q.probe(), {exitCode:9});
++  assert.equal(q.invocations.length, 0); assert.equal(q.calls(), 0);
++});
++
++import fs from "node:fs/promises";
++import os from "node:os";
++import { fork } from "node:child_process";
++import { type Invocation, digest, reviewedBody, success } from "../helpers/r16-commands";
++import { prepareOfflineCommands } from "../../src/adapters/git";
++import { r14Noop } from "../helpers/r14-engine";
++
++interface ChildSpec { entry: string; pinned?: boolean; decoy?: boolean; args?: string[]; direct?: boolean; mixed?: boolean; engine?: boolean }
++interface ChildResult { ok: boolean; schema_valid: boolean; entry: string; hashed_path: string; pinned: string; spec: ChildSpec; invocations: Invocation[] }
++async function realChild(spec: ChildSpec): Promise<ChildResult> {
++  const caller = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "r16-caller-")));
++  const dist = path.resolve(__dirname, "../..");
++  const child = fork(path.resolve(__dirname, "../../../tests/helpers/r16-command-child.cjs"), [dist, JSON.stringify(spec)],
++    {cwd: caller, env: {PATH: "/usr/bin:/bin", LC_ALL: "C"}, stdio: ["ignore", "pipe", "pipe", "ipc"]});
++  let stderr = "", result: ChildResult | undefined;
++  child.stderr!.on("data", b => {stderr += String(b);});
++  child.stdout!.on("data", b => {stderr += String(b);});
++  child.on("message", message => {result = message as ChildResult;});
++  await new Promise<void>((resolve, reject) => {
++    const timer = setTimeout(() => {child.kill("SIGKILL"); reject(Error("Owned Node fixture exceeded 20s deadline"));}, 20_000);
++    child.once("error", error => {clearTimeout(timer); reject(error);});
++    child.once("exit", code => {clearTimeout(timer); code === 0 ? resolve() : reject(Error(`Owned child exit ${code}: ${stderr}`));});
++  });
++  assert.ok(result?.ok, stderr); assert.equal(result.schema_valid, true);
++  assert.ok(result.invocations.length >= 2);
++  for (const call of result.invocations) {
++    assert.equal(call.result.exitCode, 0, call.result.stderr);
++    assert.equal(call.cwd, caller);
++    const output = JSON.parse(call.result.stdout) as {marker: string; entry: string; args: string[]};
++    assert.equal(output.marker, "REVIEWED_ENTRY");
++    assert.deepEqual(output.args, [...(spec.args ?? []), "--help"]);
++    if (call.binary === result.pinned) {
++      assert.equal(call.args[0], result.hashed_path);
++      assert.equal(output.entry, result.hashed_path);
++    } else {
++      assert.equal(call.binary, path.join(path.dirname(result.hashed_path), spec.mixed ? "bin/check" : path.basename(result.hashed_path)));
++      assert.deepEqual(call.args, [...(spec.args ?? []), "--help"]);
++    }
++    assert.notEqual(path.dirname(result.hashed_path), caller);
++  }
++  console.log("R16_REAL_COMMAND " + JSON.stringify(result));
++  return result;
++}
++for (const entry of ["runner.js", "runner.mjs", "runner.ts"]) for (const pinned of [false, true]) {
++  test(`W01 real Node checked ${entry}, ${pinned ? "exact pinned path" : "short node"}`, async () => {await realChild({entry, pinned, decoy: true});});
++}
++for (const pinned of [false, true]) test(`W02 real Node cjs CWD decoy never runs (${pinned ? "pinned" : "short"})`, async () => {await realChild({entry: "runner.cjs", pinned, decoy: true});});
++for (const decoy of [false, true]) test(`W03 real Node extensionless remains functional, CWD decoy=${decoy}`, async () => {await realChild({entry: "runner", decoy});});
++test("W07 real Node nested dash filename and application argv boundaries", async () => {
++  await realChild({entry: "bin/-runner.cjs", decoy: true, args: ["two words", 'literal"quote', "--eval", "--require", "x.js", "--"]});
++});
++for (const mixed of [false, true]) test(`W10 real confined native executable and preserved native args, mixed=${mixed}`, async () => {
++  await realChild({entry: mixed ? "runner.cjs" : "bin/check", direct: !mixed, mixed, args: ["relative.js", "--eval", "two words"]});
++});
++test("W09 real S05 engine-created evidence with cjs and CWD decoy supports full lifecycle", async () => {
++  const result = await realChild({entry: "runner.cjs", decoy: true, engine: true});
++  assert.ok(result.invocations.length > 2, "observe/verify/replan probes must remain mandatory");
++});
++
++const optionEntries = ["--eval", "-e", "-p", "--eval=1", "--print", "--require", "--import", "--inspect", "--input-type=module", "--env-file=fixture", "-", "--"];
++for (const key of ["runner_verify", "runner_stop"] as const) {
++  test(`W05 every option-shaped entry is rejected before any executable (${key})`, async () => {
++    for (const entry of optionEntries) {
++      const q = await commandFixture(entry); await q.materialize();
++      q.files["runner.js"] = reviewedBody; q.a.release.manifest!.content_hashes["runner.js"] = digest(reviewedBody);
++      await fs.writeFile(path.join(q.x.config.paths.application_dir, "runner.js"), reviewedBody, {mode:0o600});
++      q.a.release.manifest!.commands = {runner_verify: ["node", "runner.js"], runner_stop: ["node", "runner.js"]};
++      q.a.release.manifest!.commands[key] = ["node", entry, "harmless never executed", "--"];
++      assert.equal(q.schema().ok, true);
++      await assert.rejects(q.probe(), {exitCode: 9, code: "s05_command_content_unbound"});
++      assert.equal(q.invocations.length, 0, `${key}/${entry}`);
++      console.log("R16_REFUSAL " + JSON.stringify({key, entry, executable_calls: q.invocations.length, schema_valid: true, exit: 9}));
++    }
++  });
++}
++test("W06 grammar refuses unlisted, absolute, traversal, separators, NUL and external executables", async () => {
++  const q = await commandFixture(); await q.materialize();
++  for (const argv of [["node", "unlisted.cjs"], ["node", "/tmp/foreign"], ["node", "../runner.cjs"], ["node", "a//b"], ["node", "./runner.cjs"], ["node", "a/../b"], ["node", "a\\b"], ["node", "a\0b"], ["/usr/bin/env", "node", "runner.cjs"], ["sudo", "node", "runner.cjs"], ["/bin/sh", "runner.cjs"], ["node", ""]]) {
++    q.a.release.manifest!.commands = {runner_verify: argv, runner_stop: argv};
++    await assert.rejects(q.probe(), {exitCode:9,code:"s05_command_content_unbound"}); assert.equal(q.calls(), 0); assert.equal(q.invocations.length, 0, JSON.stringify(argv));
++  }
++});
++for (const fault of ["missing", "symlink", "unsafe-mode", "wrong-owner", "special"]) test(`W06 bound entry metadata ${fault} refuses before executable`, async () => {
++  const q = await commandFixture(); await q.materialize(); const target = path.join(q.x.config.paths.application_dir, "runner.cjs");
++  if (fault === "missing") await fs.unlink(target);
++  if (fault === "symlink") {await fs.rename(target, target + ".safe"); await fs.symlink(target + ".safe", target);}
++  if (fault === "unsafe-mode") await fs.chmod(target, 0o666);
++  if (fault === "wrong-owner" || fault === "special") {
++    const lstat = q.x.f.lstat.bind(q.x.f);
++    q.x.f.lstat = async file => {const stat = await lstat(file); if (file === target) Object.defineProperty(stat, fault === "wrong-owner" ? "uid" : "isFile", {value: fault === "wrong-owner" ? 99999 : () => false}); return stat;};
++  }
++  await assert.rejects(q.probe(), {exitCode: 9, code: "s05_deployed_integrity_failed"}); assert.equal(q.invocations.length, 0); assert.equal(q.calls(), 0);
++});
++test("W07 prepared identity has extension-independent absolute entry and immutable exact argv", async () => {
++  const q = await commandFixture("bin/-runner.cjs");
++  const args = ["space value", 'literal"quote', "--eval", "x.js"];
++  q.a.release.manifest!.commands.runner_verify = [q.pinned, "bin/-runner.cjs", ...args];
++  const prepared = prepareOfflineCommands(q.x.config.paths.application_dir, q.a.release.manifest!, q.x.config).runner_verify;
++  assert.equal(prepared.kind, "node"); assert.equal(prepared.contentEntry, "bin/-runner.cjs"); assert.equal(prepared.executable, q.pinned);
++  assert.deepEqual(prepared.args, [path.join(q.x.config.paths.application_dir, "bin/-runner.cjs"), ...args, "--help"]);
++  assert.equal(Object.isFrozen(prepared) && Object.isFrozen(prepared.args), true);
++});
++test("W08 bytes drift after first help refuses second help without overall success", async () => {
++  const q = await commandFixture(); await q.materialize();
++  q.onCommand(async () => {await fs.writeFile(path.join(q.x.config.paths.application_dir, "runner.cjs"), "tampered"); return success();});
++  await assert.rejects(q.probe(), {exitCode: 9, code: "s05_deployed_integrity_failed"});
++  assert.equal(q.invocations.length, 1);
++});
++
++import { createApplicationStage } from "../../src/stages/application";
++import { SetupEngine } from "../../src/core/engine";
++import { createRegistry } from "../../src/core/plan";
++import { r14Process, r14Clock } from "../helpers/r14-engine";
++import { type StageContext } from "../../src/core/types";
++for (const key of ["runner_verify", "runner_stop"] as const) test(`W09 engine-bound invalid ${key}: no command, successful probe proof or downstream`, async () => {
++  const q = await commandFixture("--eval", {downstream: true});
++  q.files["runner.js"] = reviewedBody; q.a.release.manifest!.content_hashes["runner.js"] = digest(reviewedBody);
++  q.a.release.manifest!.commands = {runner_verify:["node","runner.js"], runner_stop:["node","runner.js"]};
++  q.a.release.manifest!.commands[key] = ["node", "--eval", 'process.stdout.write("INLINE_TRAP")', "--"];
++  assert.equal(q.schema().ok, true);
++  const actualStage = createApplicationStage(q.a);
++  let boundContext: StageContext | undefined;
++  const apply = actualStage.apply.bind(actualStage);
++  actualStage.apply = async (ctx, plan) => {if (plan.operations.some(o => o.id.includes("probe-release"))) boundContext = ctx; return apply(ctx, plan);};
++  const trap = r14Noop("S06"); trap.dependencies = ["S05"];
++  let downstreamCalls = 0;
++  trap.plan = () => ({stageId:"S06",optional:false,requiredCapabilities:[],requiredGates:[],operations:[{id:"downstream",stageId:"S06",kind:"mutate",resourceId:"trap",risk:"low",gateIds:[],preconditions:[],sideEffects:["trap"],timeoutSec:1,retryable:false}]});
++  trap.apply = async () => {downstreamCalls++; throw Error("Forbidden downstream");};
++  const e = new SetupEngine({fsAdapter:q.x.f,processAdapter:r14Process,clock:r14Clock}, createRegistry([r14Noop("S04"), actualStage, trap]));
++  await q.x.planAndApprove(e);
++  const applied = await e.run("apply", q.x.applyOptions);
++  assert.equal(applied.exitCode, 9, JSON.stringify(applied));
++  assert.equal(applied.envelope.error?.code, "s05_command_content_unbound");
++  assert.ok(boundContext?.completedOperationReceipts?.some(r => r.resourceId === "application-checkout"), "must come from completed engine checkpoint, not a drawn receipt");
++  for (const call of [() => actualStage.observe(boundContext!), () => actualStage.verify(boundContext!)]) {
++    await assert.rejects(call(), {exitCode:9,code:"s05_command_content_unbound"});
++  }
++  const journal = (await fs.readFile(path.join(q.x.config.paths.setup_state_dir,"events.jsonl"),"utf8")).trim().split("\n").map(l => JSON.parse(l) as {operation_id?:string; code?:string});
++  assert.equal(journal.some(r => r.operation_id?.includes("materialize-checkout") && r.code === "checkpoint"), true);
++  assert.equal(journal.some(r => r.operation_id?.includes("probe-release") && r.code === "intent"), true);
++  assert.equal(journal.some(r => r.operation_id?.includes("probe-release") && ["verify","checkpoint"].includes(r.code ?? "")), false);
++  assert.notEqual((await q.x.state()).stages.find(s => s.id === "S05")?.status, "verified");
++  for (const command of ["plan", "verify", "status", "apply", "resume"] as const) {
++    const result = await e.run(command, command === "apply" ? q.x.applyOptions : {configPath:q.x.configPath,...(command === "status" ? {refresh:true} : {})});
++    assert.notEqual(result.exitCode, 0, `${command} cannot bypass failed probe/unknown journal`);
++  }
++  assert.equal(q.invocations.length, 0); assert.equal(q.calls(), 0); assert.equal(downstreamCalls, 0);
++  const statePath = path.join(q.x.config.paths.setup_state_dir,"state.json");
++  const before = await fs.readFile(statePath);
++  await e.run("status", {configPath:q.x.configPath});
++  assert.deepEqual(await fs.readFile(statePath), before); assert.equal(q.invocations.length, 0); assert.equal(q.calls(), 0);
++});
++for (const mode of ["false", "timeout", "throw", "missing"] as const) test(`W11 real S05 producer preserves typed ${mode} probe failure`, async () => {
++  const q = await commandFixture();
++  if (mode === "missing") delete q.a.release.manifest!.commands.runner_stop;
++  else q.onCommand(async () => {
++    if (mode === "throw") throw Error("owned synthetic process failure");
++    return {...success(), exitCode:mode === "false" ? 1 : 0, timedOut: mode === "timeout"};
++  });
++  const e = q.makeEngine(); await q.x.planAndApprove(e);
++  const result = await e.run("apply", q.x.applyOptions);
++  assert.equal(result.exitCode, mode === "throw" ? 6 : 5, JSON.stringify(result));
++  assert.equal(q.calls(), mode === "missing" ? 0 : mode === "throw" ? 1 : 2);
++  console.log("R16_PROBE_CONTROL " + JSON.stringify({mode, exit:result.exitCode, executable_calls:q.calls()}));
++  assert.notEqual((await q.x.state()).stages.find(s => s.id === "S05")?.status, "verified");
++});

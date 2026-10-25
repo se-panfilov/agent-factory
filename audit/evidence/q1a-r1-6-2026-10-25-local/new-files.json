@@ -1,0 +1,18 @@
+[
+  {
+    "path": "docs/audits/remediation-q1a-r1-6-2026-10-25.md",
+    "sha256": "a7e0e702aa4daddaba889cce54a3b027b6165c92663d9235a67f38e2d8a7273d"
+  },
+  {
+    "path": "setup/tests/helpers/r16-command-child.cjs",
+    "sha256": "d6da0fc55594905a4b0290f2c0c6c5d4590ae1a1666ddc5caf49db950566c199"
+  },
+  {
+    "path": "setup/tests/helpers/r16-commands.ts",
+    "sha256": "a6491fe0dcda98dd7b321382ca4b92e5e333023e32822283935484a622007934"
+  },
+  {
+    "path": "setup/tests/integration/q1a-r16-commands.test.ts",
+    "sha256": "4f6ac8f791b72fd9aac88cca9d763eb7ce8baf8f3278033fbe277177b070fccd"
+  }
+]

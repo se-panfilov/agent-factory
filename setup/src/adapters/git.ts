@@ -143,65 +143,54 @@ function parseVerboseTarLine(rawLine: string): { type: string; entryPath: string
   };
 }
 
-function supportsCommand(manifest: ApplicationManifestData, commandKey: string): string[] | null {
-  const command = manifest.commands[commandKey];
-  if (!Array.isArray(command) || command.length === 0) {
-    return null;
-  }
-  return command;
-}
-
-function resolveBinary(binary: string, config: SetupConfig, rootDir: string): string {
-  if (binary === "node") {
-    return path.join(config.paths.setup_node_dir, "bin", "node");
-  }
-  if (binary.startsWith("/")) {
-    return binary;
-  }
-  if (binary.includes("/")) {
-    return path.join(rootDir, binary);
-  }
-  throw setupError({
-    exitCode: ExitCode.SecurityBoundaryViolation,
-    code: "s05_untrusted_command_binary",
-    publicMessage: `Release command '${binary}' is not allowed.`,
-    nextAction: "Use absolute binaries or node-based argv in deployment-manifest.json.",
-    stage: "S05"
-  });
-}
-
-function resolveCommandArgs(args: string[], rootDir: string): string[] {
-  if (args.length === 0) {
-    return [];
-  }
-  return args.map((value, index) => {
-    if (index === 0 && (value.endsWith(".js") || value.endsWith(".mjs") || value.endsWith(".ts"))) {
-      return path.join(rootDir, value);
-    }
-    return value;
-  });
-}
-
 function canonicalContentPath(value: string): boolean {
   return value.length > 0 && !path.isAbsolute(value) && !value.includes("\\") && !value.includes("\0")
     && value.split("/").every(part => part.length > 0 && part !== "." && part !== "..");
 }
 
-/** Executable entries must be covered by the reviewed deployment content map. */
-export function assertOfflineCommands(manifest: ApplicationManifestData, config: SetupConfig): void {
-  for (const key of ["runner_verify", "runner_stop"]) {
+/** Internal execution identity: validation and invocation consume this same preparation. */
+export interface PreparedOfflineCommand {
+  readonly kind: "node" | "direct";
+  readonly contentEntry: string;
+  readonly executable: string;
+  readonly args: readonly string[];
+}
+
+export function prepareOfflineCommands(
+  rootDir: string, manifest: ApplicationManifestData, config: SetupConfig
+): Record<"runner_verify" | "runner_stop", PreparedOfflineCommand> {
+  const pinnedNode = path.join(config.paths.setup_node_dir, "bin", "node");
+  const prepare = (key: "runner_verify" | "runner_stop"): PreparedOfflineCommand => {
     const argv = manifest.commands[key];
-    if (!Array.isArray(argv) || argv.length === 0 || argv.some(value => typeof value !== "string" || value.includes("\0"))) {
+    if (!Array.isArray(argv) || argv.length === 0) {
       throw setupError({ exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence, code: "s05_required_command_missing",
         publicMessage: "A mandatory offline command is missing.", nextAction: "Provide a reviewed release with both required commands.", stage: "S05" });
     }
-    const binary = argv[0]!;
-    const entry = binary === "node" || binary === path.join(config.paths.setup_node_dir, "bin", "node") ? argv[1] : binary;
-    if (entry === undefined || !canonicalContentPath(entry) || !Object.hasOwn(manifest.content_hashes, entry)) {
+    if (argv.some(value => typeof value !== "string" || value.includes("\0"))) {
       throw setupError({ exitCode: ExitCode.SecurityBoundaryViolation, code: "s05_command_content_unbound",
-        publicMessage: "Offline command entry is outside the reviewed deployment content map.", nextAction: "Bind a confined executable or Node entry file to reviewed content hashes; sudo/external executables are forbidden.", stage: "S05" });
+        publicMessage: "Offline argv contains an invalid value or NUL byte.", nextAction: "Use reviewed string argv without NUL bytes.", stage: "S05" });
     }
-  }
+    const isNode = argv[0] === "node" || argv[0] === pinnedNode;
+    const entry = isNode ? argv[1] : argv[0];
+    // No manifest Node runtime options: argv[1] is strictly a file, never stdin/flags.
+    // Nested names such as bin/-runner.cjs are safe: execution uses the absolute path.
+    if (!path.isAbsolute(rootDir) || !path.isAbsolute(pinnedNode) || entry === undefined || entry.startsWith("-")
+      || !canonicalContentPath(entry) || !Object.hasOwn(manifest.content_hashes, entry)) {
+      throw setupError({ exitCode: ExitCode.SecurityBoundaryViolation, code: "s05_command_content_unbound",
+        publicMessage: "Offline command requires a canonical reviewed file entry, without runtime options.",
+        nextAction: "Bind a deployment file to content hashes; use node plus the file or a confined direct executable, followed by application arguments.", stage: "S05" });
+    }
+    const absoluteEntry = path.join(rootDir, entry);
+    return Object.freeze({ kind: isNode ? "node" : "direct", contentEntry: entry,
+      executable: isNode ? pinnedNode : absoluteEntry,
+      args: Object.freeze(isNode ? [absoluteEntry, ...argv.slice(2), "--help"] : [...argv.slice(1), "--help"]) });
+  };
+  // Prepare both before either executable can run. A bad stop command cannot follow a good verify command.
+  return { runner_verify: prepare("runner_verify"), runner_stop: prepare("runner_stop") };
+}
+
+export function assertOfflineCommands(manifest: ApplicationManifestData, config: SetupConfig): void {
+  prepareOfflineCommands(config.paths.application_dir, manifest, config);
 }
 
 export class NodeApplicationReleaseAdapter implements ApplicationReleaseAdapter {
@@ -508,36 +497,19 @@ export class NodeApplicationReleaseAdapter implements ApplicationReleaseAdapter 
   }
 
   async probeCommands(rootDir: string, manifest: ApplicationManifestData, config: SetupConfig): Promise<ProbeResult> {
-    assertOfflineCommands(manifest, config);
+    const prepared = prepareOfflineCommands(rootDir, manifest, config);
     const details: string[] = [];
-    const verifyArgv = supportsCommand(manifest, "runner_verify");
-    const stopArgv = supportsCommand(manifest, "runner_stop");
-    if (verifyArgv === null || stopArgv === null) {
-      return {
-        runnerVerifyHelpOk: false,
-        runnerStopHelpOk: false,
-        details: ["missing_required_commands"]
-      };
-    }
-
-    const runHelp = async (argv: string[], commandName: string): Promise<boolean> => {
-      const [binaryRaw, ...argsRaw] = argv;
-      if (binaryRaw === undefined) {
-        details.push(`${commandName}:empty`);
-        return false;
-      }
+    const runHelp = async (command: PreparedOfflineCommand, commandName: string): Promise<boolean> => {
       const mismatches = await this.verifyContentHashes(rootDir, manifest.content_hashes);
       if (mismatches.length > 0) throw setupError({ exitCode: ExitCode.SecurityBoundaryViolation, code: "s05_deployed_integrity_failed",
         publicMessage: "Current deployment integrity failed before offline command invocation.", nextAction: "Restore reviewed deployment bytes before any executable probe.", stage: "S05", evidenceRef: rootDir });
-      const binary = resolveBinary(binaryRaw, config, rootDir);
-      const args = [...resolveCommandArgs(argsRaw, rootDir), "--help"];
-      const result = await this.run(binary, args, OBSERVE_TIMEOUT_MS);
+      const result = await this.run(command.executable, [...command.args], OBSERVE_TIMEOUT_MS);
       details.push(`${commandName}:exit=${result.exitCode}:timeout=${result.timedOut}`);
       return result.exitCode === 0 && !result.timedOut;
     };
 
-    const runnerVerifyHelpOk = await runHelp(verifyArgv, "runner_verify");
-    const runnerStopHelpOk = await runHelp(stopArgv, "runner_stop");
+    const runnerVerifyHelpOk = await runHelp(prepared.runner_verify, "runner_verify");
+    const runnerStopHelpOk = await runHelp(prepared.runner_stop, "runner_stop");
     return {
       runnerVerifyHelpOk,
       runnerStopHelpOk,
