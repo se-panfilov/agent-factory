@@ -146,6 +146,12 @@ export interface StageModule {
   requiredCapabilities: CapabilityName[];
   observe(ctx: StageContext): Promise<StageObservation>;
   plan(desired: unknown, observed: StageObservation): StagePlan;
+  /** Non-executable policy observation, used before intent/checkpoint. Default: observe. */
+  observePolicy?(ctx: StageContext): Promise<StageObservation>;
+  /** Significant inputs beyond the canonical producer plan (no timestamps/volatile counters). */
+  policyInputs?(observed: StageObservation): {checks: StageObservation["checks"]; versions: StageObservation["versions"]};
+  /** Only rebase observation-derived identity/preconditions after core-proven own progress. Never gates/effects. */
+  reconcilePolicyOperation?(ctx: StageContext, reviewed: StagePlan, current: StageOperation): Pick<StageOperation,"id"|"preconditions">;
   /** Read-only prerequisite check before in-flight/intent publication. */
   admitOperation?(ctx: StageContext, operation: Pick<StageOperation, "id" | "resourceId" | "preconditions">): Promise<void>;
   apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]>;

@@ -1,0 +1,1148 @@
+diff --git a/setup/docs/docker.md b/setup/docs/docker.md
+index 6cd704e..52b53f4 100644
+--- a/setup/docs/docker.md
++++ b/setup/docs/docker.md
+@@ -71,3 +71,5 @@ R1.4 clean-host resume: the plan reviews package/config/restart/group actions se
+ Operation order is package install → account group update → durable manual pause if the current process lacks the group → owned config merge → config validation/restart → constrained resource probe → managed marker. The last four operations require a freshly observed active owner session and working compatible API; none runs before the pause. Service health, account membership, process membership and installer receipts are distinct evidence. Config/restart approvals must bind the newly generated remaining plan after login. Known successful group progress is checkpointed before pause, with no in-flight operation. An old-session repeat performs no new effects or intents. Unknown group effects remain blocked, never replayed.
+ 
+ Permission denied, daemon unavailable, malformed info/version/workload data and failed inspection are not an empty workload inventory. Counts are negative when unknown. Only proven own package/group preparation may proceed without owner API workload inspection; config/restart cannot. Active-session daemon/API/probe failures remain operational blockers, not relogin acknowledgements. Unsafe socket/TCP/foreign/unmanaged conditions retain their refusal. No `sudo docker`, `newgrp`, world-write socket or root installer workaround is introduced. Real privileged execution is still Q2 and NOT RUN.
++
++R2.1 correction to the earlier resume description: `resume` now reuses the current reviewed plan and never renews its 30-minute lifetime. After a new login, explicitly generate/review the remaining plan and approve its gates before resume. Confirmed package/group progress is retained. See [trusted admission protocol](plan-admission-r21.md).
+diff --git a/setup/src/core/engine.ts b/setup/src/core/engine.ts
+index cbca5f7..92ff6a7 100644
+--- a/setup/src/core/engine.ts
++++ b/setup/src/core/engine.ts
+@@ -24,12 +24,13 @@ import { createPlatformsStage } from "../stages/platforms";
+ import { createUpdateStage } from "../stages/update";
+ import { createBackup, verifyBackup } from "../operations/backup";
+ import { emergencyCancel } from "../operations/emergency";
+-import { hashConfig, initConfig, loadConfig, systemClock, type Clock } from "./config";
++import { hashConfig, initConfig, loadConfig, stableStringify, systemClock, type Clock } from "./config";
+ import { ExitCode, type InstallerPlan, type JsonEnvelope, type SetupConfig, type SetupState, type StageId, type StageModule, type StageReceipt, type StageContext, type StageStatus } from "./types";
+ import { setupError, toSetupError } from "./errors";
+ import { approveGate, ensureGateApproved, ensureNonInteractiveGates, expireGates, upsertPlanGates } from "./gates";
+ import { acquireLock, consumeCancelRequest, recoverLockOnly, requestCancel, type LockOwner } from "./lock";
+-import { buildStageClosure, createPlanFile, createRegistry, loadPlan, validatePlanConsistency, type StageRegistry } from "./plan";
++import { assertPlanTime, buildStageClosure, createPlanFile, createRegistry, loadPlan, validatePlanConsistency, type StageRegistry } from "./plan";
++import { assertCompletionPolicy, assertContinuingPolicy, assertProducerPolicy, policyFingerprint, readPolicyBasis, withPolicyBasis, type PolicyBasis } from "./policy";
+ import {
+   appendEvent,
+   assertEvidenceAdmission,
+@@ -699,6 +700,7 @@ export class SetupEngine {
+       });
+     }
+ 
++    const operationIds = new Set<string>();
+     for (const stage of plan.stages) {
+       if (GENERIC_APPLY_FORBIDDEN_STAGES.has(stage.stage_id)) {
+         throw setupError({
+@@ -756,6 +758,9 @@ export class SetupEngine {
+ 
+       const requiredSet = new Set(stage.required_gates);
+       for (const operation of stage.operations) {
++        if (operation.stage_id !== stage.stage_id || operationIds.has(operation.id)) throw setupError({exitCode:ExitCode.CliOrSchemaError,
++          code:"plan_operation_identity_invalid",publicMessage:"Operation parent or globally unique ID is inconsistent.",nextAction:"Generate a plan with canonical unique operation identities.",stage:stage.stage_id});
++        operationIds.add(operation.id);
+         for (const gateId of operation.gate_ids) {
+           if (!requiredSet.has(gateId)) {
+             throw setupError({
+@@ -978,12 +983,33 @@ export class SetupEngine {
+     };
+   }
+ 
++  private async requestHash(file: string): Promise<string> {
++    let raw: Awaited<ReturnType<FilesystemAdapter["readTextBounded"]>>;
++    try { raw = await this.deps.fsAdapter.readTextBounded(file, 1024 * 1024); }
++    catch { throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"request_input_unreadable",publicMessage:"Reviewed config/plan cannot be read for admission.",nextAction:"Restore bounded read access and review the request before retrying."}); }
++    if (raw.text.includes("\ufffd") || raw.text.includes("\0")) throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"request_input_encoding_invalid",publicMessage:"Config/plan requires unambiguous UTF-8 JSON text.",nextAction:"Regenerate the reviewed input without invalid encoding or NUL bytes."});
++    if (raw.truncated) throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"request_input_oversized",publicMessage:"Config/plan exceeds bounded admission input size.",nextAction:"Provide a bounded reviewed config/plan."});
++    return createHash("sha256").update(raw.text).digest("hex");
++  }
++
++  private async assertRequestUnchanged(options: CommandOptions, configHash: string, planHash?: string): Promise<void> {
++    if (await this.requestHash(options.configPath) !== configHash || (planHash !== undefined && options.planPath !== undefined && await this.requestHash(options.planPath) !== planHash)) {
++      throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"request_changed_after_read",publicMessage:"Config/plan bytes changed while waiting for admission.",nextAction:"Generate/review a new plan; the in-memory request was not executed."});
++    }
++  }
++
++  private async policyObservation(stage: StageModule, ctx: StageContext) {
++    return stage.observePolicy ? stage.observePolicy(ctx) : stage.observe(ctx);
++  }
++
+   private async runPlan(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
++    const configBytes = await this.requestHash(options.configPath);
+     const config = await loadConfig(this.deps.fsAdapter, options.configPath);
+     let state: SetupState;
+     const lock = await acquireLock(this.deps.fsAdapter, this.deps.processAdapter, config);
+     let result: Awaited<ReturnType<typeof createPlanFile>> | null = null;
+     try {
++      await this.assertRequestUnchanged(options, configBytes);
+       state = await this.loadStateWithOptions(config, { initializeIfMissing: true });
+       if (state.in_flight_operation !== null) {
+         throw setupError({
+@@ -996,10 +1022,38 @@ export class SetupEngine {
+         });
+       }
+       const stageId = options.stageId ?? null;
++      for (const id of buildStageClosure(this.registry,stageId===null?config.selected_stages:[stageId])) readPolicyBasis(state,this.registry.byId.get(id)!);
+       result = await createPlanFile(this.deps.fsAdapter, config, this.registry, stageId, this.deps.clock,
+         (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations?.filter(e => e.config_hash === hashConfig(config)).map(e => e.receipt) ?? []);
+       state = expireGates(state, this.deps.clock);
+       for (const stagePlan of result.plan.stages) {
++        const stage = this.registry.byId.get(stagePlan.stage_id)!;
++        const ctx = this.stageContext(config, result.plan.desired_hash, result.plan.plan_hash);
++        ctx.completedOperationReceipts = (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations?.filter(e => e.config_hash === hashConfig(config)).map(e => e.receipt) ?? [];
++        const observed = await this.policyObservation(stage, ctx);
++        const source = result.observations.get(stage.id)!;
++        assertProducerPolicy(stage, config, stagePlan, source);
++        const previous = readPolicyBasis(state,stage);
++        const completed: string[] = [];
++        const prior = previous?.configHash === hashConfig(config) ? stage.plan(config,previous.source) : null;
++        for (const operation of stage.plan(config,source).operations) {
++          const old = prior?.operations.find(o=>o.id===operation.id);
++          const receipt = ctx.completedOperationReceipts.find(r=>r.operationId===operation.id && r.stageId===stage.id && r.resourceId===operation.resourceId);
++          const samePolicy = previous === null || (old !== undefined && previous.completed.includes(operation.id) && stableStringify(old)===stableStringify(operation));
++          if (!receipt || !samePolicy) continue;
++          try {
++            if (stage.verifyOperation) { await stage.verifyOperation(ctx,receipt); completed.push(operation.id); }
++            else if (observed.status==="verified") { await stage.verify(ctx); completed.push(operation.id); }
++            else throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"legacy_policy_progress_unverified",publicMessage:"Legacy partial progress has no current postcondition verifier.",nextAction:"Reconcile existing effects before enrolling a new reviewed policy.",stage:stage.id});
++          } catch(error) {
++            const failure=toSetupError(error);
++            if (failure.code==="legacy_policy_progress_unverified" || ![ExitCode.DriftOrRecoveryRequired,ExitCode.ManualActionRequired].includes(failure.exitCode)) throw error;
++            // Proven old effect whose resource has since drifted: explicit new review may reconcile it.
++            // Unknown journal outcomes were already rejected by ordinary evidence admission.
++          }
++        }
++        state = withPolicyBasis(state, stage, {version:1,planHash:result.plan.plan_hash,configHash:hashConfig(config),source,
++          expected:policyFingerprint(stage, config, observed),completed});
+         for (const gateId of stagePlan.required_gates) {
+           state = upsertPlanGates(
+             state,
+@@ -1049,6 +1103,7 @@ export class SetupEngine {
+         nextAction: "Run 'factory-setup plan' and pass --plan."
+       });
+     }
++    const configBytes = await this.requestHash(options.configPath), planBytes = await this.requestHash(options.planPath);
+     const config = await loadConfig(this.deps.fsAdapter, options.configPath);
+     const plan = await loadPlan(this.deps.fsAdapter, options.planPath);
+     validatePlanConsistency(config, plan);
+@@ -1057,14 +1112,44 @@ export class SetupEngine {
+     const lock = await acquireLock(this.deps.fsAdapter, this.deps.processAdapter, config);
+     let state: SetupState | null = null;
+     let activeStage: StageId | null = null;
++    let persistFailure = false;
++    const policies = new Map<StageId, PolicyBasis>();
+     try {
++      await this.assertRequestUnchanged(options, configBytes, planBytes);
++      const lockedConfig = await loadConfig(this.deps.fsAdapter, options.configPath);
++      const lockedPlan = await loadPlan(this.deps.fsAdapter, options.planPath);
++      if (stableStringify(config)!==stableStringify(lockedConfig) || stableStringify(plan)!==stableStringify(lockedPlan)) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"request_changed_after_read",publicMessage:"Parsed request changed during lock acquisition.",nextAction:"Regenerate and review the plan."});
++      assertPlanTime(plan, this.deps.clock);
+       state = await this.loadStateWithOptions(config, { initializeIfMissing: true });
+       state = expireGates(state, this.deps.clock);
+       this.assertOrdinaryEffectAdmission(state);
+       ensureNonInteractiveGates(state, plan.plan_hash, options.nonInteractive ?? false, this.deps.clock);
+       await this.consumeCancelOrThrow(config, lock.owner);
++      let reviewMismatch = false;
++      // Validate every stage before publishing any applying state or target intent.
++      for (const proposed of plan.stages) {
++        const stage = this.registry.byId.get(proposed.stage_id)!;
++        const ctx = this.stageContext(config, plan.desired_hash, plan.plan_hash);
++        ctx.completedOperationReceipts = (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations?.filter(e => e.config_hash === hashConfig(config)).map(e => e.receipt) ?? [];
++        const existing = readPolicyBasis(state, stage);
++        if (existing===null && proposed.operations.length>0 && ctx.completedOperationReceipts.some(r=>r.stageId===stage.id)) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,
++          code:"legacy_policy_review_required",publicMessage:"Legacy known progress needs an explicit current producer review before further actions.",nextAction:"Generate/review a plan; matching committed operations will be reverified rather than replayed.",stage:stage.id});
++        const observed = await this.policyObservation(stage, ctx);
++        const basis: PolicyBasis = existing ?? {version:1,planHash:plan.plan_hash,configHash:hashConfig(config),source:observed,expected:policyFingerprint(stage, config, observed),completed:[]};
++        assertProducerPolicy(stage, config, proposed, basis.source);
++        if (basis.planHash !== plan.plan_hash || basis.configHash !== hashConfig(config)) reviewMismatch = true;
++        if (basis.completed.some(id => !proposed.operations.some(o => o.id === id))) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_progress_invalid",publicMessage:"Committed progress is outside the reviewed operation sequence.",nextAction:"Preserve state and reconcile progress."});
++        const first = proposed.operations.find(o => !basis.completed.includes(o.id));
++        if (first) await stage.admitOperation?.(ctx, {id:first.id,resourceId:first.resource_id,preconditions:first.preconditions});
++        if (policyFingerprint(stage, config, observed)!==basis.expected) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_observation_drift",publicMessage:"Significant producer policy inputs changed since review or verified progress.",nextAction:"Generate/review a new plan; no new operation was admitted.",stage:stage.id});
++        policies.set(stage.id, basis);
++      }
++      if (reviewMismatch) throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"plan_review_required",publicMessage:"Plan is not the current committed producer review.",nextAction:"Generate and review a new plan."});
+ 
+       for (const stagePlan of plan.stages) {
++        assertPlanTime(plan, this.deps.clock);
++        await this.assertRequestUnchanged(options, configBytes, planBytes);
++        assertPlanTime(plan, this.deps.clock);
+         activeStage = stagePlan.stage_id;
+         const stage = this.registry.byId.get(stagePlan.stage_id);
+         if (stage === undefined) {
+@@ -1094,6 +1179,7 @@ export class SetupEngine {
+           });
+         }
+ 
++        state = withPolicyBasis(state, stage, policies.get(stage.id)!);
+         state = updateObservedStage(state, observation, "applying");
+         for (const gateId of stagePlan.required_gates) {
+           ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, `stage:${stagePlan.stage_id}`);
+@@ -1110,10 +1196,22 @@ export class SetupEngine {
+         if (executeWithApply) {
+           this.assertOrdinaryOwner(config, stagePlan.stage_id);
+           for (const operation of stagePlan.operations) {
++            let basis = policies.get(stage.id)!;
++            if (basis.completed.includes(operation.id)) continue;
++            assertPlanTime(plan, this.deps.clock);
++            await this.assertRequestUnchanged(options, configBytes, planBytes);
++            const current = await this.policyObservation(stage, stageCtx);
++            await stage.admitOperation?.(stageCtx, {id:operation.id,resourceId:operation.resource_id,preconditions:operation.preconditions});
++            if (policyFingerprint(stage, config, current)!==basis.expected) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_observation_drift",publicMessage:"Producer policy inputs changed before the next action.",nextAction:"Review a new plan before further effects.",stage:stage.id});
++            assertContinuingPolicy(stage,config,stageCtx,basis,current);
++            for (const gateId of stagePlan.required_gates) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, `stage:${stagePlan.stage_id}`);
++            for (const gateId of operation.gate_ids) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, operation.id);
++            await this.assertRequestUnchanged(options, configBytes, planBytes);
++            assertPlanTime(plan, this.deps.clock);
+             for (const gateId of stagePlan.required_gates) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, `stage:${stagePlan.stage_id}`);
+             for (const gateId of operation.gate_ids) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, operation.id);
+-            await stage.admitOperation?.(stageCtx, { id: operation.id, resourceId: operation.resource_id, preconditions: operation.preconditions });
+             const attemptId = randomUUID();
++            persistFailure = true;
+             state = withInFlightOperation(state, {
+               id: `${stagePlan.stage_id}:${operation.id}:${attemptId}`,
+               stage_id: stagePlan.stage_id,
+@@ -1179,6 +1277,11 @@ export class SetupEngine {
+               message: `verify:postconditions:${receipt.resourceId}:${receiptHash(receipt)}`,
+               attempt_id: attemptId
+             });
++            const progressCtx = {...stageCtx,completedOperationReceipts:[...(stageCtx.completedOperationReceipts ?? []),receipt]};
++            const confirmed = await this.policyObservation(stage, progressCtx);
++            basis = {...basis,expected:policyFingerprint(stage, config, confirmed),completed:[...basis.completed,operation.id]};
++            policies.set(stage.id, basis);
++            state = withPolicyBasis(state, stage, basis);
+             state = withInFlightOperation(state, null);
+             await saveState(this.deps.fsAdapter, config, state);
+             const committedStateHash = stateHash(state);
+@@ -1198,6 +1301,7 @@ export class SetupEngine {
+               stateHash: committedStateHash,
+               receipt
+             });
++            persistFailure = false;
+             stageCtx.previousOperationReceipt = receipt;
+             stageCtx.completedOperationReceipts = [...(stageCtx.completedOperationReceipts ?? []), receipt];
+             if (receipt.checks.manual_pause_required === true) {
+@@ -1211,8 +1315,10 @@ export class SetupEngine {
+             await this.consumeCancelOrThrow(config, lock.owner);
+           }
+         }
++        persistFailure = true;
+         await stage.verify(stageCtx);
+         const observedAfter = await stage.observe(stageCtx);
++        assertCompletionPolicy(stage,config,stageCtx,policies.get(stage.id)!,observedAfter);
+         const optionalSkipAccepted = stagePlan.optional
+           && !executeWithApply
+           && observedAfter.status === "skipped";
+@@ -1236,9 +1342,18 @@ export class SetupEngine {
+             stage: stagePlan.stage_id
+           });
+         }
++        const policyAfter = await this.policyObservation(stage,stageCtx);
++        const factView = (observed: typeof observedAfter) => stage.observePolicy && stage.policyInputs
++          ? stableStringify(stage.policyInputs(observed)) : policyFingerprint(stage,config,observed);
++        if (factView(policyAfter)!==factView(observedAfter)) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_completion_input_drift",
++          publicMessage:"Policy inputs changed after stage verification.",nextAction:"Reconcile resources and review a new plan before completion.",stage:stage.id});
++        const completeBasis = {...policies.get(stage.id)!,expected:policyFingerprint(stage,config,policyAfter)};
++        policies.set(stage.id,completeBasis);
++        state = withPolicyBasis(state,stage,completeBasis);
+         state = withInFlightOperation(state, null);
+         state = updateObservedStage(state, observedAfter, optionalSkipAccepted ? "skipped" : "verified");
+         await saveState(this.deps.fsAdapter, config, state, { finalVerified: true });
++        persistFailure = false;
+         await this.consumeCancelOrThrow(config, lock.owner);
+       }
+ 
+@@ -1269,6 +1384,7 @@ export class SetupEngine {
+       const failedStagePlan = failedStage === null ? null : plan.stages.find((entry) => entry.stage_id === failedStage);
+       if (
+         failedStagePlan?.optional === true
++        && this.registry.byId.get(failedStagePlan.stage_id)?.optional === true
+         && setup.exitCode !== ExitCode.OptionalRequestedStageFailed
+         && state !== null
+         && this.mandatoryStagesSucceeded(state, plan)
+@@ -1284,7 +1400,7 @@ export class SetupEngine {
+           evidenceRef: setup.evidenceRef
+         });
+       }
+-      if (state !== null) {
++      if (state !== null && persistFailure) {
+         if (failedStage !== null) {
+           const failureStatus: StageStatus = state.in_flight_operation?.stage_id === failedStage ? "interrupted"
+             : setup.exitCode === ExitCode.ManualActionRequired ? "awaiting_manual"
+@@ -1369,30 +1485,17 @@ export class SetupEngine {
+   }
+ 
+   private async runResume(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
+-    const planOptions: CommandOptions = { configPath: options.configPath };
+-    if (options.stageId !== undefined) {
+-      planOptions.stageId = options.stageId;
+-    }
+-    const planResult = await this.runPlan(planOptions);
+-    const planPath = path.join(
+-      (await loadConfig(this.deps.fsAdapter, options.configPath)).paths.setup_state_dir,
+-      "plan.json"
+-    );
+-    const applyOptions: CommandOptions = {
+-      configPath: options.configPath,
+-      planPath
+-    };
+-    if (options.nonInteractive !== undefined) {
+-      applyOptions.nonInteractive = options.nonInteractive;
+-    }
+-    return this.runApply(applyOptions).then((applyResult) => ({
+-      envelope: {
+-        ...applyResult.envelope,
+-        command: "resume",
+-        plan_hash: planResult.envelope.plan_hash
+-      },
+-      exitCode: applyResult.exitCode
+-    }));
++    const config = await loadConfig(this.deps.fsAdapter, options.configPath);
++    const planPath = path.join(config.paths.setup_state_dir, "plan.json");
++    if (!(await this.deps.fsAdapter.exists(planPath))) {
++      const lock = await acquireLock(this.deps.fsAdapter,this.deps.processAdapter,config);
++      try {
++        this.assertOrdinaryEffectAdmission(await this.loadStateWithOptions(config,{initializeIfMissing:false,readOnly:true}));
++        throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"plan_required",publicMessage:"Resume requires an existing reviewed plan.",nextAction:"Generate/review a plan explicitly before resume."});
++      } finally { await lock.release(); }
++    }
++    const result = await this.runApply({...options,planPath});
++    return {...result,envelope:{...result.envelope,command:"resume"}};
+   }
+ 
+   private async runVerify(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
+@@ -1478,13 +1581,20 @@ export class SetupEngine {
+         nextAction: "Run gate approve with both --id and --plan-hash."
+       });
+     }
++    const configBytes = await this.requestHash(options.configPath);
+     const config = await loadConfig(this.deps.fsAdapter, options.configPath);
+     let state: SetupState;
++    const planPath = path.join(config.paths.setup_state_dir,"plan.json"), planBytes = await this.requestHash(planPath);
+     const lock = await acquireLock(this.deps.fsAdapter, this.deps.processAdapter, config);
+     try {
++      await this.assertRequestUnchanged({...options,planPath},configBytes,planBytes);
++      const plan = await loadPlan(this.deps.fsAdapter,planPath);
++      validatePlanConsistency(config,plan);
++      if(plan.plan_hash!==options.planHash) throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"gate_plan_mismatch",publicMessage:"Approval is not for the current reviewed plan.",nextAction:"Review the current plan and approve its exact identity."});
+       state = await this.loadStateWithOptions(config, { initializeIfMissing: false });
+       state = expireGates(state, this.deps.clock);
+       try {
++        assertPlanTime(plan,this.deps.clock);
+         state = approveGate(state, options.gateId, options.planHash, this.deps.clock);
+       } finally {
+         await saveState(this.deps.fsAdapter, config, state);
+diff --git a/setup/src/core/plan.ts b/setup/src/core/plan.ts
+index 4528dbd..14101b8 100644
+--- a/setup/src/core/plan.ts
++++ b/setup/src/core/plan.ts
+@@ -97,11 +97,12 @@ export async function createPlanFile(
+   stageTarget: StageId | null,
+   clock: Clock,
+   completedOperationReceipts: import("./types").StageReceipt[] = []
+-): Promise<{ plan: InstallerPlan; planPath: string; stageClosure: StageId[] }> {
++): Promise<{ plan: InstallerPlan; planPath: string; stageClosure: StageId[]; observations: Map<StageId, import("./types").StageObservation> }> {
+   const stageIds = stageTarget === null ? config.selected_stages : [stageTarget];
+   const closure = buildStageClosure(registry, stageIds);
+ 
+   const stagePlans: InstallerPlan["stages"] = [];
++  const observations = new Map<StageId, import("./types").StageObservation>();
+   for (const stageId of closure) {
+     const stage = registry.byId.get(stageId);
+     if (stage === undefined) {
+@@ -122,6 +123,7 @@ export async function createPlanFile(
+       completedOperationReceipts,
+       config
+     });
++    observations.set(stageId, observation);
+     const stagePlan: StagePlan = stage.plan(config, observation);
+     stagePlans.push({
+       stage_id: stagePlan.stageId,
+@@ -149,12 +151,14 @@ export async function createPlanFile(
+   await fsAdapter.writeText(planPath, `${JSON.stringify(plan, null, 2)}\n`, 0o600);
+   await fsAdapter.fsyncFile(planPath);
+   await fsAdapter.fsyncDir(path.dirname(planPath));
+-  return { plan, planPath, stageClosure: closure };
++  return { plan, planPath, stageClosure: closure, observations };
+ }
+ 
+ export async function loadPlan(fsAdapter: FilesystemAdapter, planPath: string): Promise<InstallerPlan> {
+   const raw = await fsAdapter.readText(planPath);
+-  const parsed = JSON.parse(raw);
++  let parsed: unknown;
++  try { parsed = JSON.parse(raw); } catch { throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"plan_json_invalid",
++    publicMessage:"Submitted plan is not valid JSON.",nextAction:"Generate a valid reviewed plan."}); }
+   const validation = validateContractSchema("plan", parsed);
+   if (!validation.ok) {
+     throw setupError({
+@@ -213,3 +217,21 @@ export function validatePlanConsistency(config: SetupConfig, plan: InstallerPlan
+     });
+   }
+ }
++
++/** Current format uses planner-produced UTC milliseconds; C13 serialization is R2.2. */
++export function assertPlanTime(plan: InstallerPlan, clock: Clock): void {
++  const value = plan.created_at;
++  const created = Date.parse(value), now = clock.now().getTime();
++  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) || !Number.isFinite(created)
++    || new Date(created).toISOString() !== value) throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"plan_time_invalid",
++      publicMessage:"Plan created_at must be a real canonical ISO UTC millisecond timestamp.",nextAction:"Generate and review a new plan."});
++  if (!Number.isFinite(now) || created > now) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_from_future",
++    publicMessage:"Plan creation is later than the injected current time.",nextAction:"Reconcile the clock and generate/review a new plan."});
++  if (now >= created + 30 * 60_000) throw setupError({exitCode:ExitCode.ManualActionRequired,code:"plan_expired",
++    publicMessage:"Plan is at least 30 minutes old and cannot authorize another action.",nextAction:"Generate/review a new plan and approve its required gates."});
++}
++
++export function serializeStagePlan(plan: StagePlan): InstallerPlan["stages"][number] {
++  return {stage_id:plan.stageId,optional:plan.optional,required_capabilities:plan.requiredCapabilities,
++    required_gates:plan.requiredGates,operations:plan.operations.map(mapOperation)};
++}
+diff --git a/setup/src/core/state.ts b/setup/src/core/state.ts
+index 6dbd215..2be756d 100644
+--- a/setup/src/core/state.ts
++++ b/setup/src/core/state.ts
+@@ -6,6 +6,7 @@ import { ExitCode, STAGE_IDS, type SetupConfig, type SetupState, type StageId, t
+ import { setupError } from "./errors";
+ import { hashConfig, stableStringify, type Clock } from "./config";
+ import { validateContractSchema } from "./validators";
++import { POLICY_BASIS_KEY } from "./policy";
+ 
+ const STATE_FILE = "state.json";
+ const EVENTS_FILE = "events.jsonl";
+@@ -1671,6 +1672,7 @@ export function updateObservedStage(
+   observation: StageObservation,
+   status: StageStatus
+ ): SetupState {
++  const { [POLICY_BASIS_KEY]: _stageSuppliedPolicy, ...versions } = observation.versions;
+   return {
+     ...state,
+     stages: state.stages.map((stage) =>
+@@ -1680,7 +1682,7 @@ export function updateObservedStage(
+             status,
+             observed_at: observation.observedAt,
+             checks: observation.checks,
+-            versions: observation.versions
++            versions: { ...versions, ...(stage.versions[POLICY_BASIS_KEY] === undefined ? {} : { [POLICY_BASIS_KEY]: stage.versions[POLICY_BASIS_KEY] }) }
+           }
+         : stage
+     )
+diff --git a/setup/src/core/types.ts b/setup/src/core/types.ts
+index e245e27..3245574 100644
+--- a/setup/src/core/types.ts
++++ b/setup/src/core/types.ts
+@@ -146,6 +146,12 @@ export interface StageModule {
+   requiredCapabilities: CapabilityName[];
+   observe(ctx: StageContext): Promise<StageObservation>;
+   plan(desired: unknown, observed: StageObservation): StagePlan;
++  /** Non-executable policy observation, used before intent/checkpoint. Default: observe. */
++  observePolicy?(ctx: StageContext): Promise<StageObservation>;
++  /** Significant inputs beyond the canonical producer plan (no timestamps/volatile counters). */
++  policyInputs?(observed: StageObservation): {checks: StageObservation["checks"]; versions: StageObservation["versions"]};
++  /** Only rebase observation-derived identity/preconditions after core-proven own progress. Never gates/effects. */
++  reconcilePolicyOperation?(ctx: StageContext, reviewed: StagePlan, current: StageOperation): Pick<StageOperation,"id"|"preconditions">;
+   /** Read-only prerequisite check before in-flight/intent publication. */
+   admitOperation?(ctx: StageContext, operation: Pick<StageOperation, "id" | "resourceId" | "preconditions">): Promise<void>;
+   apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]>;
+diff --git a/setup/src/stages/access.ts b/setup/src/stages/access.ts
+index 67a5ed0..e6a27a6 100644
+--- a/setup/src/stages/access.ts
++++ b/setup/src/stages/access.ts
+@@ -272,6 +272,17 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
+       lastObservation = observation;
+       return observation;
+     },
++    reconcilePolicyOperation(ctx, reviewed, current) {
++      const prefix = current.id.replace(/-[0-9a-f]{12}$/, "");
++      const original = reviewed.operations.find(op=>op.id.replace(/-[0-9a-f]{12}$/, "")===prefix);
++      if (!original) return {id:current.id,preconditions:current.preconditions};
++      const cutover = (ctx.completedOperationReceipts ?? []).some(r=>r.stageId==="S03" && r.resourceId==="ssh-firewall-cutover");
++      return {id:original.id,preconditions:current.preconditions.map(value=>{
++        const key=value.split(":",1)[0]!;
++        return key==="s03_observation_hash" || (cutover && ["s03_ipv4_checked","s03_ipv6_checked"].includes(key))
++          ? original.preconditions.find(p=>p.startsWith(key+":")) ?? value : value;
++      })};
++    },
+     plan(_desired: unknown, observed: StageObservation): StagePlan {
+       const candidate = observed.versions.tailscale_candidate;
+       if (candidate === undefined || candidate === "absent") {
+diff --git a/setup/src/stages/application.ts b/setup/src/stages/application.ts
+index b359bc9..0b5d95c 100644
+--- a/setup/src/stages/application.ts
++++ b/setup/src/stages/application.ts
+@@ -386,6 +386,20 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
+       lastObservation = observation;
+       return observation;
+     },
++    async observePolicy(ctx) {
++      const current = await snapshot(ctx.config);
++      validateBlockedSnapshot(current);
++      if (current.checkout.exists && current.release.manifest !== null) {
++        const mismatches = await adapter.verifyContentHashes(ctx.config.paths.application_dir, current.release.manifest.content_hashes);
++        if (mismatches.length > 0) throw setupError({exitCode:ExitCode.SecurityBoundaryViolation,code:"s05_deployed_integrity_failed",
++          publicMessage:"Current deployment integrity failed during read-only policy admission.",nextAction:"Restore reviewed deployment bytes before executable probes.",stage:"S05"});
++      }
++      return {stageId:"S05",status:"planned",checks:checksFromSnapshot(current),versions:versionsFromSnapshot(current),observedAt:new Date().toISOString()};
++    },
++    policyInputs(observed) {
++      const {deployed_content_and_commands_verified: _executableProof, ...checks}=observed.checks;
++      return {checks, versions:observed.versions};
++    },
+     plan(desired: unknown, observed: StageObservation): StagePlan {
+       const config = desired as SetupConfig;
+ 
+diff --git a/setup/src/stages/docker.ts b/setup/src/stages/docker.ts
+index 51382ca..a3eb7c2 100644
+--- a/setup/src/stages/docker.ts
++++ b/setup/src/stages/docker.ts
+@@ -486,6 +486,22 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
+         observedAt: new Date().toISOString()
+       };
+     },
++    reconcilePolicyOperation(ctx, reviewed, current) {
++      const prefix=current.id.replace(/-[0-9a-f]{12}$/, "");
++      const original=reviewed.operations.find(op=>op.id.replace(/-[0-9a-f]{12}$/, "")===prefix);
++      if(!original)return {id:current.id,preconditions:current.preconditions};
++      const proven=(resource:string)=>(ctx.completedOperationReceipts ?? []).some(r=>r.stageId==="S04" && r.resourceId===resource);
++      return {id:original.id,preconditions:current.preconditions.map(value=>{
++        const key=value.split(":",1)[0]!;
++        return key==="s04_observation_hash" || (proven("docker-package-set") && key==="s04_observed_docker_installed")
++          || (proven("docker-managed-installation") && key==="s04_observed_managed_by_installer") || (proven("docker-daemon-log-config") && key==="s04_daemon_config_hash")
++          ? original.preconditions.find(p=>p.startsWith(key+":")) ?? value : value;
++      })};
++    },
++    policyInputs(observed) {
++      const { s04_completed_resources: _derived, ...checks } = observed.checks;
++      return {checks, versions: observed.versions};
++    },
+     plan(desired: unknown, observed: StageObservation): StagePlan {
+       const fixtureRef = (desired as { dockerFixtureRef?: string }).dockerFixtureRef ?? DEFAULT_FIXTURE_REF;
+       const candidatePins: DockerPackagePin[] = [];
+@@ -617,6 +633,11 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
+     async admitOperation(ctx, operation) {
+       const observation = await dockerAdapter.observe(ctx);
+       const owned = completedResources(ctx, observation).includes("docker-package-set");
++      if ((ctx.completedOperationReceipts ?? []).some(r => r.stageId === "S04" && r.resourceId === "docker-package-set") && !owned)
++        throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"s04_package_progress_drift",publicMessage:"Confirmed Docker package/config progress no longer matches current pins or resources.",nextAction:"Reconcile ownership and review a fresh plan.",stage:"S04"});
++      if ((ctx.completedOperationReceipts ?? []).some(r => r.stageId === "S04" && r.resourceId === "docker-group-membership")
++        && (observation.dockerGroup.accountUserInGroup ?? observation.dockerGroup.currentUserInGroup) !== true)
++        throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"s04_group_membership_drift",publicMessage:"Confirmed Docker account membership disappeared.",nextAction:"Reconcile group ownership before resuming.",stage:"S04"});
+       if (SESSION_RESOURCES.has(operation.resourceId)) assertOwnerRuntime(observation);
+       validateBlockedPreconditions(observation, { allowUnmanagedInstalledTransition: owned,
+         sessionPreparation: operation.resourceId === "docker-group-membership" && owned });
+diff --git a/setup/src/stages/system.ts b/setup/src/stages/system.ts
+index 656cac6..bcfe2b7 100644
+--- a/setup/src/stages/system.ts
++++ b/setup/src/stages/system.ts
+@@ -67,7 +67,7 @@ function missingCandidates(observation: AptSystemObservation): string[] {
+     .map((item) => item.name);
+ }
+ 
+-function parsePlanPins(stagePlan: StagePlan): PlannedPins {
++function parsePlanPins(stagePlan: {operations: Array<{preconditions: string[]}>}): PlannedPins {
+   const pinEntries = new Map<string, string>();
+   let expectedHash: string | null = null;
+ 
+@@ -295,6 +295,13 @@ export function createSystemStage(aptAdapter: AptAdapter): StageModule {
+         requiredGates
+       };
+     },
++    async admitOperation(ctx, operation) {
++      const current = await aptAdapter.observe(requiredPackageNames(ctx.profile));
++      if (!current.sudoAvailable || !current.dpkgAuditClean) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,
++        code:"s02_admission_prerequisite_changed",publicMessage:"APT privileges/audit readiness changed before intent.",nextAction:"Reconcile APT readiness and review a fresh plan.",stage:"S02"});
++      if (plannedPinsFromObservation(current).packageSetHash!==parsePlanPins({operations:[operation]}).packageSetHash) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,
++        code:"s02_admission_pin_drift",publicMessage:"APT candidate pins changed before intent.",nextAction:"Review a fresh package plan.",stage:"S02"});
++    },
+     async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
+       const profile = ctx.profile;
+       const observed = await aptAdapter.observe(requiredPackageNames(profile));
+diff --git a/docs/audits/remediation-q1a-r2-1-2026-10-25.md b/docs/audits/remediation-q1a-r2-1-2026-10-25.md
+new file mode 100644
+index 0000000..1a79a0a
+--- /dev/null
++++ b/docs/audits/remediation-q1a-r2-1-2026-10-25.md
+@@ -0,0 +1,128 @@
++# Q1A-R2.1 — trusted producer policy и срок плана
++
++2026-10-25, Europe/Amsterdam. **R2.1 local scope PASS; production OPEN; real-host qualification NOT RUN.** R2-F01/F02 закрыты в локальном scope. R1.6 принятие сохранено; R15-F01 не переоткрывается. R2.2, R3/Q1B/Q2–Q6 и общий AF backlog остаются OPEN. Коммитов, push, веток/worktree/PR, merge/tag/release/deploy агентом не выполнялось; git index для packaging не использовался.
++
++## Actual base и owner layer
++
++Initial HEAD `ca6d0b6f2a75f3c97a80468bbc2bdcbe2db7a4ff`, tree `9a0f861b71ebce4df8c56850dcf6c6764e1082a4`, branch `master`. `git status --porcelain=v1` пустой; initial staged/unstaged/new-file owner layer пуст. Index SHA-256 до/после: `b95af8c89f59acfaca7c8094796c088e9021f8fde3059b2da5b71d75c4404957`. Read-only snapshot и пустые initial patches сохранены; чужие файлы/dependencies не удалялись.
++
++Delta к проверенному `5fde93d2c470171039698c35478c020085ef66ff` — только четыре committed audit-входа: `audit/copilot-q1a-r2-1-task.ru.md`, `audit/evidence/agent-factory-r16-review-evidence-5fde93d.zip`, его `.sha256`, `audit/reviews/agent-factory-r16-audit-5fde93d.ru.md`. Имена/hashes — `base-delta.json`. Все 138 файлов R1.6 manifest SHA-256 `a95c623dde5996cf6abf4f93d9b03e76fdaef9fe0fc5ca6b6ced11fe0a9de5cb` совпали с actual base archive. Production baseline применим без изменений.
++
++Прочитаны AGENTS.md, аудит R1.6, report R1.6, CONTRACT C06/C08/C09/C13, релевантные core/stage tests. Это явно назначенный cross-cutting remediation. Public CLI/config/state/plan schemas, exit enum и CONTRACT 1.0.0 не изменены. C13 serialization/context binding этим пакетом не объявляются выполненными.
++
++## Before → after
++
++Исходный `r2-admission-probes.cjs` заморожен без изменения oracle. Одинаковый runner запущен на actual base и reconstructed fixed; API adapter не понадобился. Настоящие engine и S02 producer, APT — fake counters; TTL producer явно synthetic. `harness_ok`/exit0 не засчитывались за product PASS.
++
++| Probe | Baseline | Fixed |
++|---|---|---|
++| R2A01 valid approved | exit0, refresh/simulate/install=1/1/1 | Сохранён exit0, 1/1/1 |
++| R2A02 no approvals | exit4, 0/0/0 | Сохранён отказ, 0/0/0 |
++| R2A03 strip both gate arrays + recompute hash | **exit0, S02 verified, 1/1/1 — unsafe** | **exit2 plan_policy_mismatch, 0/0/0, не verified** |
++| R2A04 one-sided gates | exit2, 0/0/0 | Сохранён semantic refusal |
++| R2A05 wrong hash | exit2, 0/0/0 | Сохранён отказ |
++| R2A06 gate-free age5min | exit0, effects=1 | Сохранён exit0/effects=1 |
++| R2A07 gate-free age31min | **exit0/effects=1 — unsafe** | **exit4 plan_expired/effects=0** |
++| R2A08 creation1h in future | **exit0/effects=1 — unsafe** | **exit8 plan_from_future/effects=0** |
++
++Итог: baseline **5 safe / 3 unsafe**, fixed **8 safe / 0 unsafe**. Raw rows — `logs/baseline-r2-final.log`, `logs/fixed-r2-final.log`; отдельные product assertions — `r2-product-assertions.json`.
++
++До production edits записан regression layer: strip gates и два gate-free age cases падают на baseline по правильным assertions; старый gate-expiry control проходит. Build exit0; **4 tests: 1 pass / 3 fail**, exit1. Frozen red-layer и повтор с elapsed/exit сохранены. Другие tampering variants — coverage класса дефекта, не заявление, что каждый уже был baseline exploit.
++
++## Design note: policy, progress и persistence
++
++Подробный protocol — `setup/docs/plan-admission-r21.md`.
++
++Submitted plan остаётся предложением. Единственный источник operation/gate definitions — trusted `stage.plan(config, observation)` плюс registry profile/optional/capabilities. Core сравнивает полную canonical stage policy: parent/stage/id/order/kind/resource/risk/preconditions/side effects/timeout/retry, operation gates и stage-only gates. IDs также уникальны глобально. Нельзя убрать simulation/gate либо переименовать effect, сохранив adapter behavior. Required external prerequisite не становится одобряемым gate. Submitted plan не переписывается и approvals не добавляются.
++
++Для restart и собственных transitions нужен исходный reviewed producer input: S03/S04 operation IDs и preconditions зависят от observation hashes. Только fresh planning теряет исходную последовательность, а process-local cache не переживает restart. Поэтому core сохраняет **валидируемую internal PolicyBasis** в существующем `stage.versions.setup_policy_basis_v1`: source observation, plan/config binding, expected significant-input fingerprint и completed IDs. Это существующий extensible string map, без нового public field/schema version и без sidecar. Parser проверяет точные поля/типы/hash/stage/finite values/completion IDs, лимит 64 KiB/stage. Исходный JSON key order сохраняется для совместимости существующих S03/S04 hash producers.
++
++Это не просто «доверенный любой клиентский hash»: canonical policy заново получается из trusted producer и captured observation; текущие inputs проверяются под lock. Отдельный legacy test без enrollment доказывает отказ stripped gates/пропущенной simulation/изменённого timeout даже без stored plan hash. Plan/config hash служит дополнительным binding, не заменой semantic policy.
++
++Progress/expected inputs публикуются в том же snapshot/hash, который связывается существующим operation checkpoint и manifest. Intent/effect/verify/checkpoint/final clean proof protocol не переписан. Частичная запись по-прежнему разрешается только существующим evidence evaluator; policy metadata не обходит generation/quarantine/journal checks. Если publication не доказана, результат остаётся unresolved, не false success. State observation helper только сохраняет core-owned key и не принимает его подмену от stage versions.
++
++Current producer requirements сверяются перед следующим action: собственный verified effect не разрешает новый gate/resource/risk/constraint автоматически. В таком случае предыдущий checkpoint остаётся известным, следующий intent отсутствует, требуется явный re-plan/review. Новые stage-only requirements после последнего effect также блокируют final verified, сохраняя завершённый checkpoint. Resource-level verified не удаляет обязательные ещё не выполненные orchestration steps (S03 arm/cutover/tailnet/disarm, S05 probes).
++
++Для observation-derived полей S03/S04 имеются узкие typed reconciliation callbacks. Они могут вернуть только id/preconditions; gates/kind/resource/risk/limits остаются от fresh producer и сравниваются core. Нормализуются observation hash и только подтверждённые own-transition flags: S03 public-exposure после bound cutover; S04 installed/managed/config hash после соответствующих receipts. Pins/manual prerequisites/fixture и новые requirements не нормализуются. Raw significant inputs и stage-specific admission по-прежнему должны совпасть с подтверждёнными postconditions. S02 добавляет read-only pre-intent проверку candidate pins/privilege/dpkg readiness.
++
++S05 policy observation специально не исполняет application commands перед materialization checkpoint. Она проверяет archive/checkout/current content; обычные observe/verify/probe по-прежнему выполняют обязательные R1.6 prepared commands. S04 fingerprint исключает только core-derived completed-resource list; security/resource facts сохранены. Общая policy projection не сравнивает observed_at и producer-ignored volatile counters буквально.
++
++Legacy без basis и без known progress получает строгую fresh producer validation. При known legacy progress требуется явный current review; matching config-bound receipt и current postcondition verification позволяют перенести известное завершение, а не повторять его. Unsupported/malformed/future basis блокируется до записи плана, не удаляется и не мигрируется в authorization. Новый review может согласованно reconcile ресурс, у которого старый postcondition больше не выполняется; **unknown journal outcome** всё равно блокирует до recovery. Legacy без необходимого verifier не объявляется complete.
++
++`resume` теперь использует **существующий** reviewed plan и не вызывает implicit plan generation/TTL renewal. Новый Docker login требует явного remaining plan/review/gates. При новом plan старые approvals не переносятся на иной hash. Exact unchanged known operations переносятся только с receipt/current verifier; partial progress работает между новыми engine instances и отдельными subprocesses.
++
++## Lock, time и ошибки
++
++Config/plan bounded snapshots — по 1 MiB, unambiguous UTF-8 JSON — сверяются после lock; parsed identity перепроверяется. Перед каждым action повторяются bytes/time/policy/admission/approvals checks. Changed request не исполняется из старой памяти и не подменяется новым файлом молча. Это проверка назначенных lock barriers, не полный filesystem/session concurrency proof.
++
++Один injected clock определяет plan/gate expiry. Runtime `created_at` — строгая planner ISO/UTC millisecond форма `YYYY-MM-DDTHH:mm:ss.sssZ`, finite round-trip, без невозможных дат. Future creation блокируется без skew allowance; `now >= created_at + 30min` истёк, в том числе без gates. Уже admitted bounded APT action не убивается по TTL: сначала его postconditions/checkpoint, затем блокируется следующий action. Gate expiry независим и не продлевается. Gate-approve может сохранить expired status, сохраняя исходный expires_at и receipts.
++
++| Причина | Typed exit |
++|---|---|
++| JSON/schema/self-hash/producer-policy mismatch, invalid timestamp/operation identity/unreviewed plan identity | 2 |
++| Significant/current-policy/pin drift, future timestamp, changed/unreadable request, invalid/unsupported policy basis, legacy progress needing review | 8 |
++| Plan expired, approval missing/expired, прежние stage-specific manual prerequisites | 4 |
++| Прежние security/integrity refusals | 9 |
++| Unsupported profile/capability/entrypoint, не одобряемый external prerequisite | Прежние guards 5 |
++
++Refusal перед новым effect не пишет target intent, не очищает history/receipts и не превращает уже known progress в unknown. Admission error возвращается без last_error/state rewrite; при TTL pause частичный stage может оставаться applying с `in_flight_operation=null` и доказанным checkpoint, а не verified. Действительно неизвестный effect сохраняет существующий in-flight blocker.
++
++## Production diff
++
++- `core/plan.ts`: runtime TTL, strict date/JSON semantics, shared stage serialization, internal observation result для enrollment.
++- `core/policy.ts` (новый): typed/bounded basis validation, producer comparison, current-policy continuation; без duplicated gate policy lists.
++- `core/engine.ts`: enrollment/current policy, post-lock/request checks, per-action TTL/approvals, known-progress reuse, no implicit resume re-plan, expired-plan approval refusal.
++- `core/types.ts`: только internal optional policy interfaces.
++- `core/state.ts`: только preservation/reservation core metadata в observation update; generation/journal/recovery algorithms не менялись.
++- `stages/system.ts`: pre-intent APT readiness/pin check.
++- `stages/access.ts`, `docker.ts`: узкая нормализация observation-derived fields по proven progress. Docker также различает package/account drift и relogin до session check.
++- `stages/application.ts`: non-executable policy observation, чтобы core не запускал probes до durable trust.
++
++Изменения дополнительных stage/state файлов необходимы для одинаковой identity модели и безопасных own transitions; нельзя было решить это вторым gate-name allowlist либо буквальным сравнением original/current observations. Public schemas/CLI/exit enum, ProcessAdapter и `adapters/git.ts` R1.6 не менялись.
++
++## Acceptance matrix
++
++Полные имена assertions, source и logs — `acceptance-matrix.json`; final raw log — `logs/final-validation/tests.log`. Parameterized inner cases перечислены явно в test source и machine rows.
++
++| ID | Проверяемые assertions | Local status |
++|---|---|---|
++| A21-01 | Actual S02 strip обоих arrays + rehash; 0 APT calls, refusal до target intent; independent legacy/no-basis test; R2A03 | PASS |
++| A21-02 | Wrong/nonempty/missing/shared gate variants; state/previous/manifest/journal/marker hashes unchanged; original approvals остаются пригодны только original policy; newly required gate после own progress блокирует следующий effect | PASS |
++| A21-03 | Parent/stage/id/kind/resource/risk/preconditions/side effects/timeout/retry/duplicate/order/no simulation; rehash; global duplicate IDs между stages; 0 target effects; current changed resource/risk requires review | PASS |
++| A21-04 | Stage-only gate ops=[], external-required unapprovable, optional/capability forgery; correct no-op без apply; internal metadata corruption/legacy positive controls | PASS |
++| A21-05 | Actual S02 reviewed/approved plan, новые instances; refresh/simulate/install=1/1/1 и verified | PASS |
++| A21-06 | No approvals/bad hash/one-sided gate control, typed invalid JSON/unreadable input, zero effects | PASS |
++| A21-07 | Explicit S02 с prerequisite closure при config.selected_stages=[S06]; generic S08/S14 blocked. Frozen real S00…S07 composition сохранилась | PASS local |
++| A21-08 | Separate owned plan/tamper/approve/apply/resume processes с actual S02, persistent fake APT facts и no replay; legacy simulation proof сохранён; старые S03/S04/S05/crash controls проходят | PASS local |
++| A21-09 | Gate-free 0/30min−1ms/30min/+1ms/31min/future−1ms/−1h; malformed/non-UTC/no milliseconds/impossible dates; negatives без effects/evidence mutation | PASS |
++| A21-10 | После первого verified checkpoint время пересекает TTL; second=0, null in-flight; old resume blocked/bytes retained; explicit review продолжает без replay | PASS |
++| A21-11 | Controlled mkdir-lock barriers config/plan, hit count1; request_changed_after_read=8, target counters0, evidence hashes unchanged | PASS |
++| A21-12 | Actual S02 same-planned candidate drift и refresh revealing new pins; no unreviewed install. Synthetic volatile/timestamp control проходит; new gate/resource/risk после собственного effect требует review | PASS |
++| A21-13 | Expired approve/resume не обновляют expiry/identity; actual completed S02 refresh checkpoint/binding/journal сохранены; новый review доводит sim/install без refresh replay; старые gate TTL/upsert tests | PASS |
++| A21-14 | **429/429**, все прежние 397 сохранены без удаления/переименования; old fault/crash rows; 33 frozen и 37 command assertions, composition; reconstruction до/после совпадает | PASS local |
++
++F01/F02 — PASS local по этой матрице, не по одному harness exit. Ошибочные intermediate runs сохранены: первичный metadata JSON key sorting вызвал honest producer mismatch; один test использовал TS-private registry и исправлен на явный public registry fixture; ранняя continuation проверка ошибочно считала resource-level verified завершением orchestration и исправлена. Build/type errors и fixture issues не считаются baseline product failure. Исторические R11/R12/R13/K/T/U/V/W смыслы не переименованы.
++
++## Фактическая validation и упаковка
++
++Реальный Node **v24.12.0**, npm **11.6.2**, macOS **15.5 arm64**, UID **501**. `process.versions` не подменялся; actual host не является Ubuntu VPS qualification. Owner dependencies оставлены; npm ci выполнен только в собственной ordinary temporary copy.
++
++| Final reconstructed command | Exit / result |
++|---|---|
++| `node --version` | 0, v24.12.0 |
++| `npm --version` | 0, 11.6.2 |
++| `npm --prefix setup ci --ignore-scripts --no-audit --no-fund` | 0 |
++| `npm --prefix setup run typecheck --silent` | 0 |
++| `npm --prefix setup run test --silent` | 0, **429 pass / 0 fail / 0 skip** |
++
++Exact argv/cwd/exit/elapsed — `final-validation/commands.json`, `comparison-commands.json`, `frozen-comparisons/independent-commands.json`. Frozen **33 assertions PASS**. Original R1.6 checker — **37 PASS**, включая агрегат этих 33, не 70 unique scenarios. Для его исторического baseline отдельно собран `b888082` (R1.5); это replay известного старого baseline, не новый контрпример R1.6. R2 baseline везде actual `ca6d0b6`.
++
++Нового tested commit **нет**. Identity: actual base + complete local patch; tested-files manifest — **143 файла**, SHA-256 `75973014385506fd0228e64c4d0165effdb38b267c3c94f2aa3c20ae4685ae8c`. Проверены SHA каждого current/reconstructed input до/после final suite. Coverage: все tracked setup и новые source/helpers/tests/docs/config/locks/schemas/fixtures/bootstrap/release inputs. Excludes: dependencies/dist/Git metadata, audit/report/packaging и временные outputs; secrets не собирались. Deletions=[]. Report/packaging hashes отдельны, без self-reference.
++
++Папка: `audit/evidence/q1a-r2-1-2026-10-25-local/`. Report, identity, complete adding patch, new-files.tar/json, deletions, tested-files.sha256, evidence.zip + внешняя checksum. Additions уже входят в patch; tar не применять повторно. Owner layer пуст. Final patch с report снова применён в пустой ordinary temporary folder; manifest/new-file hashes совпали. HEAD/branch/index сохранены. ZIP содержит неизменённый reviewer runner, frozen inputs/runners/checkers, red layer, logs/counters/fault matrices и README; личная session directory и другой неопубликованный archive не нужны. Report/patch внутри ZIP совпадают с файлами в папке по bytes.
++
++**R2.2 OPEN:** полный C13 generated_at/expires_at format, host/owner-session/version-lock/release/public observations binding, provenance explicit target, остальные substitution/concurrency cases. R2.1 не является криптографической аутентификацией plans и не защищает от изменения trusted installer самим owner.
++
++**Остальное OPEN / NOT RUN:** R3/Q1B/Q2–Q6, реальный privileged executor/APT provenance/S03 cutover и rollback timer, M0/service/unattended/live, AF backlog и production. **NOT RUN:** sudo/apt/systemd/SSH/UFW/Docker daemon/cgroups, credentials/OAuth/provider/model/GitHub writes, VM/VPS/provisioning, release/deploy, physical power loss. Реальны только owned local child processes; внешние effects моделируются.
++
++Следующее действие владельца — передать локальные report/patch/new-file payload/identity/manifest/ZIP/checksum на review. Push, credentials и VPS для этого не нужны. Следующий пакет агентом не начинался. Во всех будущих agent prompts сохраняется запрет на commits/push/branches/worktree/PR/release/deploy без нового явного разрешения владельца.
+diff --git a/setup/docs/plan-admission-r21.md b/setup/docs/plan-admission-r21.md
+new file mode 100644
+index 0000000..a8ada2b
+--- /dev/null
++++ b/setup/docs/plan-admission-r21.md
+@@ -0,0 +1,61 @@
++# R2.1 trusted plan policy and runtime admission
++
++This is local code behavior, not host qualification. Contract 1.0.0 and public CLI/config/state/plan shapes remain unchanged. In particular, this format still has `created_at`; the full C13 serialization and context binding are **R2.2 OPEN**.
++
++## Trusted policy and submitted data
++
++A plan is a proposal, not its own security policy. The trusted producer regenerates the complete stage policy (including ordered operations, parent/id/kind/resource/risk/preconditions/effects/timeout/retry, stage-only and operation gates, optional and capabilities). Core compares the submitted stage exactly. Registry DAG/profile/capability/entrypoint guards still run. A stage target and its prerequisite closure remain legal; comparison does not force every request to use all config-selected stages.
++
++An explicit `plan` captures the producer observation and stores an internal `PolicyBasis` in the existing stage `versions.setup_policy_basis_v1` string. It contains an internal version, original source observation, plan/config hashes, an expected significant-input fingerprint and completed operation IDs. The record is not supplied by the submitted JSON. Its parser checks exact field sets, types, finite primitive values, hashes, stage identity and unique completion IDs; its UTF-8 serialization is capped at 64 KiB per stage. This is a versioned internal value in an existing extensible map, not a new public schema version or an authorization sidecar.
++
++Why retain a basis: S03/S04 operation IDs and some preconditions contain observation hashes. Own package/timer/group/config changes alter those observations. A fresh producer plan alone loses the original reviewed sequence, while process-local memory cannot support restart. The existing committed state generation provides a durable, validated place for the original producer input and progress. Canonical policy is recomputed from that source rather than trusting any client hash or duplicated gate-name list. The original JSON key order inside the observation is retained because existing S03/S04 producer hashes use it.
++
++`apply` checks exact submitted policy and current inputs under the lock, before target intent. Missing basis for a fresh legacy/current-format plan gets a strict fresh producer comparison, never weaker gate checks. If committed partial progress already exists, ordinary apply first requires an explicit producer review; matching config-bound operations are reverified during enrollment instead of replayed. Changed/malformed/unsupported basis is a blocker; it is not deleted/migrated into authorization. Explicit plan generation checks existing metadata before overwriting a plan. New enrollment does not silently adopt legacy unknown effects.
++
++## Own progress and current policy
++
++The significant-input fingerprint uses producer policy and status, not observed_at. Producer-ignored volatile counters do not affect that view. S04 supplies its security/resource checks and versions, excluding only the core-derived completed-resource list. S05 supplies a separate non-executable policy observation: archive/checkout/content checks run, but application probes do not run before a durable materialization receipt. Normal S05 observe/verify/probe behavior remains mandatory and unchanged.
++
++After verified operation postconditions, core captures the expected policy input state and completion ID in the same state snapshot used by the existing operation checkpoint. A subsequent operation must match that expectation and current producer policy. A resource-level `verified` observation cannot erase still-unperformed reviewed orchestration: the producer catalog remains open until the reviewed sequence finishes. This preserves mandatory S03 rollback/verify/disarm and S05 probes.
++
++Current producer requirements are compared to the remaining reviewed sequence. Newly required gates, changed resources/risks/constraints or missing/reordered steps refuse before the next intent. They are not silently executed under old approvals. A separate completion check also rejects newly required stage-only gates or actions after the last effect, before publishing final verified. Stage-wide verification never substitutes for that policy check. S03/S04 reconciliation returns **only** normalized ID/precondition fields; core continues to compare all other operation fields and gates. Reconciliation requires core-proven completed operations and their receipts:
++
++- S03: observation-derived ID/hash; public IPv4/IPv6 post-cutover flags only after a bound cutover receipt. Pins, manual readiness and gate definitions remain strict.
++- S04: observation-derived ID/hash; installed/managed markers only with their own proof, and daemon config hash only with its confirmed config receipt. Package-set hash, fixture and gates remain strict. Read-only stage admission checks current ownership, account/process membership, package/config progress and API safety.
++
++For S02, a separate read-only admission checks current candidates/privilege/dpkg readiness before intent. A refresh may reveal new candidates, but cannot authorize installation of those candidates under the old review.
++
++## Persistence and crash boundaries
++
++| Boundary | Meaning / restart behavior |
++|---|---|
++| Explicit producer planning | Original observation/policy basis and gates enter the existing atomic state commit; plan file is still untrusted submitted data |
++| Admission | Config/plan bytes rechecked after lock and before each operation; policy, time and approvals checked before intent |
++| In-flight + intent | Existing protocol, no completed policy ID yet; unknown outcome never replayed |
++| Effect evidence + postcondition verify | Receipt remains core-owned. Read-only post-policy observation prepares a next-state expectation; failures remain unresolved, never false verified |
++| State snapshot, checkpoint append and manifest binding | Completion/expectation is included in the checkpoint state hash. Partial publication is handled by existing generation/journal/evidence admission; policy metadata cannot bypass it |
++| Next operation | Uses only admitted policy and known committed progress; changed required actions cause refusal without making previous progress unknown |
++| Final stage verify/publication | Current completion policy and verified input consistency checked; expected policy snapshot updated in final clean proof; no schema/generation/recovery algorithm change |
++| Metadata-only diagnostics | Stage updates retain the core-owned reserved basis. Plain status does not write or probe |
++
++No new persistence artifact is introduced. The small state helper change preserves the core-owned key when stage observations replace their ordinary versions. Ordinary load still validates manifest/journal/generation before policy admission. Marker/quarantine/foreign/unknown evidence refusal is unchanged. Existing crash/fault suite covers the snapshot/checkpoint/binding paths with this metadata present.
++
++On explicit re-plan, completed operations carry only when their full canonical operation is unchanged, a matching config-bound receipt exists, and current operation postconditions (or whole-resource verified checks) are confirmed. A resource whose old postcondition no longer holds is not carried as complete: an explicit new review may authorize its reconciliation; unknown journal outcomes still block. Legacy enrollment without a postcondition verifier refuses rather than assuming completion. Old approvals are not transferred to a different plan hash. Resume does **not** re-plan or renew time; it reuses the existing reviewed plan. After a Docker login, generate/review the remaining plan and approve its gates before resume. Missing plan requires an explicit plan/review; damaged/unknown evidence remains a blocker first.
++
++## Time, inputs and refusals
++
++The injected clock is the sole clock for plan/gate expiry. `created_at` must round-trip exactly as the planner's `YYYY-MM-DDTHH:mm:ss.sssZ`, with a real finite date. Future creation refuses with no skew allowance. `now >= created_at + 30 minutes` is expired, including gate-free plans. Time and approvals are checked under lock and again at each operation admission. An already admitted bounded APT action is not killed for TTL; the next action is refused. Gate expiry remains independent and is never extended in place.
++
++Bounded request snapshots (1 MiB each, unambiguous UTF-8 JSON without NUL/replacement characters) are compared after lock and before each action. Changed bytes refuse; core does not switch to a replacement plan or config. This closes the specified controlled lock-wait cases, not every possible filesystem/owner-session race; remaining concurrency/context binding is R2.2.
++
++| Refusal | Existing exit code |
++|---|---|
++| Malformed JSON/schema/time, self-hash/producer policy mismatch, unreviewed policy identity | 2 |
++| Significant input/current-policy drift, future time, unreadable/changed request, invalid internal basis/progress | 8 |
++| Plan expired, missing/expired approval, existing stage manual prerequisites | 4 |
++| Stage security/integrity violation | 9 |
++| Unsupported capability/profile/entrypoint or unapprovable external prerequisite | Existing 5 guards |
++
++Policy/TTL refusal before a new effect does not clear receipts, append a target intent, repair history or mark known progress unknown. Its error is returned without rewriting state evidence. Existing gate-approve expiry publication can mark gates expired without changing their expiry dates or receipts. Effects whose outcome is unknown retain the existing in-flight/recovery blocker. Optional failure status uses the trusted module's optional policy, not a forged client flag.
++
++This package does not claim cryptographic plan authentication or protection against an owner who changes the trusted installer. Full generated_at/expires_at serialization, host/session/version-lock/release/public observations binding, other concurrency cases, Q1B/Q2–Q6 and production qualification remain OPEN/NOT RUN.
+diff --git a/setup/src/core/policy.ts b/setup/src/core/policy.ts
+new file mode 100644
+index 0000000..423b1a2
+--- /dev/null
++++ b/setup/src/core/policy.ts
+@@ -0,0 +1,89 @@
++import { createHash } from "node:crypto";
++import { stableStringify } from "./config";
++import { setupError } from "./errors";
++import { ExitCode, type InstallerPlan, type SetupConfig, type SetupState, type StageModule, type StageObservation, type StageContext } from "./types";
++import { serializeStagePlan } from "./plan";
++
++/** Core-owned, schema-validated internal metadata in existing versions storage, not a sidecar. */
++export const POLICY_BASIS_KEY = "setup_policy_basis_v1";
++export interface PolicyBasis {
++  version: 1;
++  planHash: string;
++  configHash: string;
++  source: StageObservation;
++  expected: string;
++  completed: string[];
++}
++function refuse(message: string): never {throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"plan_policy_mismatch",publicMessage:message,nextAction:"Generate a new plan with the trusted producer, review it and approve its required gates."});}
++export function policyFingerprint(stage: StageModule, config: SetupConfig, observed: StageObservation): string {
++  const view = stage.policyInputs ? {status:observed.status,inputs:stage.policyInputs(observed)}
++    : {status:observed.status,policy:serializeStagePlan(stage.plan(config, observed))};
++  return createHash("sha256").update(stableStringify(view)).digest("hex");
++}
++export function readPolicyBasis(state: SetupState, stage: StageModule): PolicyBasis | null {
++  const raw = state.stages.find(s => s.id === stage.id)?.versions[POLICY_BASIS_KEY];
++  if (raw === undefined) return null;
++  try {
++    if (Buffer.byteLength(raw)>64*1024) throw Error("oversized");
++    const p: unknown = JSON.parse(raw);
++    if (p===null || typeof p!=="object" || Array.isArray(p)) throw Error("shape");
++    const v=p as Record<string,unknown>;
++    if (Object.keys(v).sort().join(",")!=="completed,configHash,expected,planHash,source,version" || v.version!==1
++      || [v.planHash,v.configHash,v.expected].some(h=>typeof h!=="string" || !/^[0-9a-f]{64}$/.test(h))) throw Error("binding");
++    if (!Array.isArray(v.completed) || v.completed.some(id=>typeof id!=="string") || new Set(v.completed).size!==v.completed.length) throw Error("progress");
++    if (v.source===null || typeof v.source!=="object" || Array.isArray(v.source)) throw Error("source");
++    const obs=v.source as Record<string,unknown>;
++    if(Object.keys(obs).sort().join(",")!=="checks,observedAt,stageId,status,versions" || obs.stageId!==stage.id || typeof obs.observedAt!=="string"
++      || typeof obs.status!=="string" || !["pending","planned","applying","installed","verified","awaiting_manual","blocked","failed","skipped","interrupted","drifted"].includes(String(obs.status))) throw Error("observation");
++    for(const key of ["checks","versions"]){const values=obs[key];if(values===null||typeof values!=="object"||Array.isArray(values))throw Error("record");
++      for(const value of Object.values(values)){if(key==="versions"?typeof value!=="string":!(typeof value==="string"||typeof value==="boolean"||(typeof value==="number"&&Number.isFinite(value))))throw Error("value");}}
++    return p as PolicyBasis;
++  } catch {throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_policy_basis_invalid",publicMessage:"Committed policy basis is malformed or unsupported.",nextAction:"Preserve evidence and generate a reviewed plan after reconciliation.",stage:stage.id});}
++}
++export function withPolicyBasis(state: SetupState, stage: StageModule, basis: PolicyBasis): SetupState {
++  const raw=JSON.stringify(basis);if(Buffer.byteLength(raw)>64*1024)refuse("Policy observation exceeds bounded internal metadata.");
++  return {...state,stages:state.stages.map(s=>s.id===stage.id?{...s,versions:{...s.versions,[POLICY_BASIS_KEY]:raw}}:s)};
++}
++export function assertProducerPolicy(stage: StageModule, config: SetupConfig, submitted: InstallerPlan["stages"][number], source: StageObservation): void {
++  const canonical=serializeStagePlan(stage.plan(config,source));
++  if (canonical.stage_id!==stage.id || canonical.optional!==stage.optional || stableStringify(canonical)!==stableStringify(submitted)) refuse(`Stage ${stage.id} plan differs from its trusted producer policy.`);
++  const ids=submitted.operations.map(o=>o.id);
++  if(new Set(ids).size!==ids.length || submitted.operations.some(o=>o.stage_id!==stage.id))refuse(`Stage ${stage.id} has duplicate/foreign operations.`);
++}
++
++/** A postcondition may change observed facts, but cannot authorize newly required actions/gates. */
++export function assertContinuingPolicy(stage: StageModule, config: SetupConfig, ctx: StageContext, basis: PolicyBasis, observed: StageObservation): void {
++  const original = stage.plan(config,basis.source);
++  const remaining = original.operations.filter(op=>!basis.completed.includes(op.id));
++  if (remaining.length===0) return;
++  // A resource-level verified observation cannot erase still-unperformed reviewed orchestration.
++  // Re-open only this producer catalog after proven progress, never blocked/manual readiness.
++  const planning = basis.completed.length>0 && observed.status==="verified" ? {...observed,status:basis.source.status} : observed;
++  const fresh = stage.plan(config,planning);
++  const proofCtx = {...ctx,completedOperationReceipts:(ctx.completedOperationReceipts ?? []).filter(r=>basis.completed.includes(r.operationId))};
++  const operations = fresh.operations.map(op=>basis.completed.length>0 && stage.reconcilePolicyOperation
++    ? {...op,...stage.reconcilePolicyOperation(proofCtx,original,op)} : op).filter(op=>!basis.completed.includes(op.id));
++  if (fresh.stageId!==original.stageId || fresh.optional!==original.optional
++    || stableStringify(fresh.requiredCapabilities)!==stableStringify(original.requiredCapabilities)
++    || fresh.requiredGates.some(g=>!original.requiredGates.includes(g))
++    || stableStringify(operations)!==stableStringify(remaining)) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_policy_drift",
++      publicMessage:"Current producer requires different remaining actions or security requirements.",nextAction:"Create/review a new plan; prior checkpoints remain known and are not replayed.",stage:stage.id});
++}
++
++/** Stage-wide verify is not permission to publish success with newly discovered requirements. */
++export function assertCompletionPolicy(stage: StageModule, config: SetupConfig, ctx: StageContext, basis: PolicyBasis, observed: StageObservation): void {
++  const original=stage.plan(config,basis.source),fresh=stage.plan(config,observed);
++  const proofCtx={...ctx,completedOperationReceipts:(ctx.completedOperationReceipts ?? []).filter(r=>basis.completed.includes(r.operationId))};
++  const operations=fresh.operations.map(op=>basis.completed.length>0 && stage.reconcilePolicyOperation
++    ? {...op,...stage.reconcilePolicyOperation(proofCtx,original,op)} : op);
++  const compatible=fresh.stageId===original.stageId && fresh.optional===original.optional
++    && stableStringify(fresh.requiredCapabilities)===stableStringify(original.requiredCapabilities)
++    && fresh.requiredGates.every(g=>original.requiredGates.includes(g))
++    && operations.every(op=>{
++      const approved=original.operations.find(p=>p.id===op.id);
++      return approved!==undefined && stableStringify(approved)===stableStringify(op)
++        && (basis.completed.includes(op.id) || op.kind==="verify");
++    });
++  if (!compatible) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_completion_policy_drift",
++    publicMessage:"Verified resources reveal additional unreviewed stage requirements.",nextAction:"Review a new plan before publishing stage completion; completed operation evidence remains known.",stage:stage.id});
++}
+diff --git a/setup/tests/helpers/r21-admission.ts b/setup/tests/helpers/r21-admission.ts
+new file mode 100644
+index 0000000..29bf236
+--- /dev/null
++++ b/setup/tests/helpers/r21-admission.ts
+@@ -0,0 +1,43 @@
++import fs from "node:fs/promises";
++import path from "node:path";
++import { createHash } from "node:crypto";
++import { r14Fixture, r14Noop, r14Process } from "./r14-engine";
++import { SetupEngine } from "../../src/core/engine";
++import { createRegistry } from "../../src/core/plan";
++import { stableStringify } from "../../src/core/config";
++import { createSystemStage } from "../../src/stages/system";
++import { type InstallerPlan } from "../../src/core/types";
++export async function aptFixture() {
++  const x = await r14Fixture("S02"), counts = {refresh:0,simulate:0,install:0};
++  let candidate = "1.0.0", fresh = false, installed = false, now = Date.parse("2026-10-25T10:00:00.000Z");
++  const clock = {now: () => new Date(now)};
++  const apt = {observe: async (names: string[]) => ({metadataFresh:fresh,metadataUpdatedAt:fresh?"2026-10-25T10:00:00Z":null,sudoAvailable:true,dpkgAuditClean:true,dpkgAuditOutput:"",rebootRequired:false,
++    packages:names.map(name => ({name,candidateVersion:candidate,installedVersion:installed?candidate:null}))}),
++    refreshMetadata:async()=>{counts.refresh++;fresh=true;}, simulateInstall:async()=>{counts.simulate++;}, installPinned:async()=>{counts.install++;installed=true;}};
++  const make = () => new SetupEngine({fsAdapter:x.f,processAdapter:r14Process,clock},createRegistry([r14Noop("S01"),createSystemStage(apt)]));
++  return {x,counts,clock,apt,make,candidate:(value:string)=>{candidate=value;},advance:(ms:number)=>{now+=ms;}};
++}
++export function rehash(plan: InstallerPlan) {const {plan_hash,...payload}=plan;plan.plan_hash=createHash("sha256").update(stableStringify(payload)).digest("hex");}
++
++export async function evidence(config: import("../../src/core/types").SetupConfig) {
++  const result: Record<string,string|null> = {};
++  for (const name of ["state.json","state.json.previous","state-commit.json","events.jsonl","recovery-required.json"]) {
++    try {result[name]=createHash("sha256").update(await fs.readFile(path.join(config.paths.setup_state_dir,name))).digest("hex");}
++    catch(error){if((error as NodeJS.ErrnoException).code!=="ENOENT")throw error;result[name]=null;}
++  }
++  return result;
++}
++export async function readPlan(x: Awaited<ReturnType<typeof r14Fixture>>) {return JSON.parse(await fs.readFile(x.applyOptions.planPath,"utf8")) as InstallerPlan;}
++export async function writePlan(x: Awaited<ReturnType<typeof r14Fixture>>, p:InstallerPlan) {rehash(p);await fs.writeFile(x.applyOptions.planPath,JSON.stringify(p));}
++
++/** Explicitly synthetic gate-free resource producer, with durable checkpoints and injected time. */
++export async function counterFixture(operations=1) {
++  const q=await aptFixture();const counts=Array.from({length:operations},()=>0);let revision="reviewed";
++  const stage=r14Noop("S02");stage.dependencies=["S01"];
++  stage.observe=async()=>({stageId:"S02",status:counts.every(n=>n>0)?"verified":"planned",checks:{revision},versions:{},observedAt:q.clock.now().toISOString()});
++  stage.plan=(_desired,obs)=>({stageId:"S02",optional:false,requiredCapabilities:[],requiredGates:[],operations:counts.map((_n,index)=>({id:`owned-${index}`,stageId:"S02",kind:"mutate",resourceId:`counter-${index}`,risk:"low",gateIds:[],preconditions:[`revision:${obs.checks.revision}`],sideEffects:["owned in-memory counter"],timeoutSec:1,retryable:false}))});
++  stage.apply=async(_ctx,p)=>{const op=p.operations[0]!;counts[Number(op.id.slice(6))]!++;return [{operationId:op.id,stageId:"S02",resourceId:op.resourceId,observedAt:q.clock.now().toISOString(),checks:{done:true},versions:{},artifacts:[]}];};
++  stage.verifyOperation=async(_ctx,r)=>{if(counts[Number(r.operationId.slice(6))]!==1)throw Error("Counter postcondition failed");};
++  const make=()=>new SetupEngine({fsAdapter:q.x.f,processAdapter:r14Process,clock:q.clock},createRegistry([r14Noop("S01"),stage]));
++  return {...q,stage,make,counts,revision:(value:string)=>{revision=value;}};
++}
+diff --git a/setup/tests/helpers/r21-worker.cjs b/setup/tests/helpers/r21-worker.cjs
+new file mode 100644
+index 0000000..b274265
+--- /dev/null
++++ b/setup/tests/helpers/r21-worker.cjs
+@@ -0,0 +1,20 @@
++'use strict';
++// An owned process uses the real engine/S02 producer. Every APT effect changes only this test's JSON.
++const path = require('node:path'), fs = require('node:fs/promises');
++const dist = process.argv[2], configPath = process.argv[3], factsPath = process.argv[4], mode = process.argv[5];
++const from = n => require(path.join(dist,'src',n+'.js'));
++const {r14Noop,r14Process} = require(path.join(dist,'tests/helpers/r14-engine.js'));
++(async()=>{
++ const {NodeFilesystemAdapter} = from('adapters/filesystem'), {SetupEngine} = from('core/engine'),{createRegistry}=from('core/plan'),{createSystemStage}=from('stages/system');
++ const load=async()=>JSON.parse(await fs.readFile(factsPath,'utf8'));
++ async function effect(name){const f=await load();f.counts[name]++;if(name==='refresh')f.fresh=true;if(name==='install')f.installed=true;await fs.writeFile(factsPath,JSON.stringify(f));}
++ const apt={observe:async names=>{const f=await load();return {metadataFresh:f.fresh,metadataUpdatedAt:f.fresh?'2026-10-25T10:00:00Z':null,sudoAvailable:true,dpkgAuditClean:true,dpkgAuditOutput:'',rebootRequired:false,packages:names.map(name=>({name,candidateVersion:'1.0.0',installedVersion:f.installed?'1.0.0':null}))};},refreshMetadata:()=>effect('refresh'),simulateInstall:()=>effect('simulate'),installPinned:()=>effect('install')};
++ const e=new SetupEngine({fsAdapter:new NodeFilesystemAdapter(),processAdapter:r14Process,clock:{now:()=>new Date('2026-10-25T10:00:00.000Z')}},createRegistry([r14Noop('S01'),createSystemStage(apt)]));
++ const config=JSON.parse(await fs.readFile(configPath,'utf8')),planPath=path.join(config.paths.setup_state_dir,'plan.json');let result;
++ if(mode==='approve'){
++  const p=JSON.parse(await fs.readFile(planPath,'utf8'));const gates=[...new Set(p.stages.flatMap(s=>s.required_gates))];
++  for(const gateId of gates){result=await e.run('gate-approve',{configPath,gateId,planHash:p.plan_hash});if(result.exitCode!==0)throw Error(JSON.stringify(result));}
++  result={exitCode:0,gates};
++ }else result=await e.run(mode,{configPath,...(mode==='apply'?{planPath,nonInteractive:true}:{})});
++ process.stdout.write(JSON.stringify({mode,pid:process.pid,result,facts:await load()}));
++})().catch(error=>{console.error(error.stack);process.exitCode=1;});
+diff --git a/setup/tests/integration/q1a-r21-admission.test.ts b/setup/tests/integration/q1a-r21-admission.test.ts
+new file mode 100644
+index 0000000..f13257b
+--- /dev/null
++++ b/setup/tests/integration/q1a-r21-admission.test.ts
+@@ -0,0 +1,211 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import fs from "node:fs/promises";
++import { createHash } from "node:crypto";
++import { r14Fixture, r14Noop, r14Process } from "../helpers/r14-engine";
++import { SetupEngine } from "../../src/core/engine";
++import { createRegistry } from "../../src/core/plan";
++import { stableStringify } from "../../src/core/config";
++import { createSystemStage } from "../../src/stages/system";
++import { type InstallerPlan } from "../../src/core/types";
++
++import {aptFixture, rehash} from "../helpers/r21-admission";
++test("A21-01 actual S02 stripped stage+operation gates cannot authorize APT", async () => {
++  const q=await aptFixture(),e=q.make();assert.equal((await e.run("plan",{configPath:q.x.configPath})).exitCode,0);
++  const p=JSON.parse(await fs.readFile(q.x.applyOptions.planPath,"utf8")) as InstallerPlan;
++  for(const s of p.stages){s.required_gates=[];for(const op of s.operations)op.gate_ids=[];} rehash(p);await fs.writeFile(q.x.applyOptions.planPath,JSON.stringify(p));
++  const applied=await e.run("apply",{...q.x.applyOptions,nonInteractive:true});assert.notEqual(applied.exitCode,0);assert.deepEqual(q.counts,{refresh:0,simulate:0,install:0});
++});
++test("A21-09 independently expired plan refuses even before APT approval checks",async()=>{
++  const q=await aptFixture(),e=q.make();await q.x.planAndApprove(e);q.advance(31*60_000);
++  assert.notEqual((await e.run("apply",q.x.applyOptions)).exitCode,0);assert.deepEqual(q.counts,{refresh:0,simulate:0,install:0});
++});
++for(const age of [31,-60]) test(`A21-09 synthetic gate-free age ${age} minutes cannot execute`,async()=>{
++  const q=await aptFixture();let effects=0;const s=r14Noop("S02");s.dependencies=["S01"];
++  s.observe=async()=>({stageId:"S02",status:effects?"verified":"planned",checks:{},versions:{},observedAt:q.clock.now().toISOString()});
++  s.plan=()=>({stageId:"S02",optional:false,requiredCapabilities:[],requiredGates:[],operations:[{id:"age-effect",stageId:"S02",kind:"mutate",resourceId:"synthetic",risk:"low",gateIds:[],preconditions:[],sideEffects:["local counter"],timeoutSec:1,retryable:false}]});
++  s.apply=async()=>{effects++;return [{operationId:"age-effect",stageId:"S02",resourceId:"synthetic",observedAt:q.clock.now().toISOString(),checks:{done:true},versions:{},artifacts:[]}];};
++  const e=new SetupEngine({fsAdapter:q.x.f,processAdapter:r14Process,clock:q.clock},createRegistry([r14Noop("S01"),s]));
++  await q.x.planAndApprove(e);q.advance(age*60_000);assert.notEqual((await e.run("apply",q.x.applyOptions)).exitCode,0);assert.equal(effects,0);
++});
++
++import path from "node:path";
++import { evidence, readPlan, writePlan, counterFixture } from "../helpers/r21-admission";
++import { type StageModule } from "../../src/core/types";
++const edits: Array<[string,(s:InstallerPlan["stages"][number])=>void]> = [
++  ["wrong nonempty gates",s=>{s.required_gates=["forged-review"];for(const op of s.operations)op.gate_ids=["forged-review"];}],
++  ["one mandatory gate removed",s=>{s.required_gates=s.required_gates.filter(g=>g!=="s02-sudo-apt-install");s.operations[2]!.gate_ids=[];}],
++  ["same gate different resources",s=>{s.required_gates=["s02-sudo-apt-install"];for(const op of s.operations)op.gate_ids=["s02-sudo-apt-install"];}],
++  ["parent stage",s=>{s.stage_id="S01";}], ["foreign stage",s=>{s.operations[0]!.stage_id="S01";}], ["operation id",s=>{s.operations[2]!.id="renamed-install";}],
++  ["kind",s=>{s.operations[2]!.kind="observe";}], ["resource",s=>{s.operations[2]!.resource_id="harmless";}],
++  ["risk",s=>{s.operations[2]!.risk="low";}], ["preconditions",s=>{s.operations[2]!.preconditions=[];}],
++  ["side effects",s=>{s.operations[2]!.side_effects=[];}], ["timeout",s=>{s.operations[2]!.timeout_sec=1;}],
++  ["retry",s=>{s.operations[2]!.retryable=true;}], ["duplicate",s=>{s.operations.push({...s.operations[0]!});}],
++  ["reorder",s=>{s.operations.reverse();}], ["simulation omitted",s=>{s.operations=s.operations.filter(o=>o.resource_id!=="apt-simulation");}],
++  ["forged optional",s=>{s.optional=true;}], ["forged capability",s=>{s.required_capabilities=["runner-readonly"];}]
++];
++test("A21-02/03 policy tampering matrix: recomputed hash, zero target intents/effects and preserved approval evidence",async()=>{
++  for(const [name,edit] of edits){
++    const q=await aptFixture(),e=q.make();await q.x.planAndApprove(e);const original=await readPlan(q.x),p=structuredClone(original);edit(p.stages.find(s=>s.stage_id==="S02")!);await writePlan(q.x,p);
++    const before=await evidence(q.x.config);const result=await q.make().run("apply",q.x.applyOptions);
++    assert.equal(result.exitCode,2,`${name}: ${JSON.stringify(result)}`);assert.deepEqual(q.counts,{refresh:0,simulate:0,install:0});assert.deepEqual(await evidence(q.x.config),before,name);
++    console.log("R21_TAMPER "+JSON.stringify({name,exit:result.exitCode,error:result.envelope.error?.code,counts:q.counts,before,after:await evidence(q.x.config)}));
++    if(name==="wrong nonempty gates"){await fs.writeFile(q.x.applyOptions.planPath,JSON.stringify(original));assert.equal((await q.make().run("apply",q.x.applyOptions)).exitCode,0,"original approvals must remain usable for their original policy");assert.deepEqual(q.counts,{refresh:1,simulate:1,install:1});}
++  }
++});
++test("A21-04 stage-only requirements, optional/capabilities and true no-op are independent policy",async()=>{
++  for(const mode of ["review","prerequisite","optional","capability","noop"] as const){
++    const q=await aptFixture();let calls=0;const stage=r14Noop("S02");stage.dependencies=["S01"];
++    stage.requiredCapabilities=mode==="capability"?["runner-readonly"]:[];
++    const gate=mode==="prerequisite"?"external-required":"stage-review";
++    stage.plan=()=>({stageId:"S02",optional:false,requiredCapabilities:stage.requiredCapabilities,requiredGates:mode==="noop"?[]:[gate],operations:[]});stage.apply=async()=>{calls++;return [];};
++    const make=()=>new SetupEngine({fsAdapter:q.x.f,processAdapter:r14Process,clock:q.clock},createRegistry([r14Noop("S01"),stage]));
++    const e=make();assert.equal((await e.run("plan",{configPath:q.x.configPath})).exitCode,0);const p=await readPlan(q.x),original=structuredClone(p);const s=p.stages.find(s=>s.stage_id==="S02")!;
++    if(mode!=="noop"){
++      if(mode==="optional")s.optional=true;else if(mode==="capability")s.required_capabilities=[];else s.required_gates=[];
++      await writePlan(q.x,p);assert.equal((await make().run("apply",q.x.applyOptions)).exitCode,2);await fs.writeFile(q.x.applyOptions.planPath,JSON.stringify(original));
++      assert.equal((await make().run("apply",q.x.applyOptions)).exitCode,4);
++      const approved=await make().run("gate-approve",{configPath:q.x.configPath,gateId:gate,planHash:original.plan_hash});
++      assert.equal(approved.exitCode,mode==="prerequisite"?5:0);
++    }
++    const result=await make().run("apply",q.x.applyOptions);assert.equal(result.exitCode,mode==="prerequisite"?4:0,JSON.stringify(result));assert.equal(calls,0);
++  }
++});
++test("A21-05/06 actual S02 fresh/approved succeeds; no approval, bad hash and one-sided gates remain refusals",async()=>{
++  for(const mode of ["approved","unapproved","hash","one-sided"] as const){
++    const q=await aptFixture(),e=q.make();if(mode==="approved")await q.x.planAndApprove(e);else assert.equal((await e.run("plan",{configPath:q.x.configPath})).exitCode,0);
++    const p=await readPlan(q.x);if(mode==="hash"){p.plan_hash="0".repeat(64);await fs.writeFile(q.x.applyOptions.planPath,JSON.stringify(p));}if(mode==="one-sided"){p.stages.find(s=>s.stage_id==="S02")!.required_gates=[];await writePlan(q.x,p);}
++    const result=await q.make().run("apply",{...q.x.applyOptions,nonInteractive:true});assert.equal(result.exitCode,mode==="approved"?0:mode==="unapproved"?4:2,JSON.stringify(result));
++    assert.deepEqual(q.counts,mode==="approved"?{refresh:1,simulate:1,install:1}:{refresh:0,simulate:0,install:0});
++  }
++});
++for(const age of [0,30*60_000-1,30*60_000,30*60_000+1,31*60_000,-1,-60*60_000])test(`A21-09 synthetic gate-free plan age boundary ${age}ms`,async()=>{
++  const q=await counterFixture(),e=q.make();await q.x.planAndApprove(e);q.advance(age);const before=await evidence(q.x.config);const result=await q.make().run("apply",q.x.applyOptions);
++  const valid=age>=0&&age<30*60_000;assert.equal(result.exitCode,valid?0:age<0?8:4,JSON.stringify(result));assert.deepEqual(q.counts,[valid?1:0]);if(!valid)assert.deepEqual(await evidence(q.x.config),before);
++  console.log("R21_TIME "+JSON.stringify({age,exit:result.exitCode,effects:q.counts,error:result.envelope.error?.code}));
++});
++test("A21-09 malformed and impossible UTC creation timestamps refuse without effects",async()=>{
++  for(const value of ["2026-10-25Tnonsense","2026-10-25T10:00:00Z","2026-10-25T10:00:00.000+00:00","2026-02-30T10:00:00.000Z","2026-02-29T10:00:00.000Z","2026-13-25T10:00:00.000Z"]){
++    const q=await counterFixture(),e=q.make();await q.x.planAndApprove(e);const p=await readPlan(q.x);p.created_at=value;await writePlan(q.x,p);const before=await evidence(q.x.config);const result=await q.make().run("apply",q.x.applyOptions);assert.equal(result.exitCode,2,JSON.stringify(result));assert.deepEqual(q.counts,[0]);assert.deepEqual(await evidence(q.x.config),before);
++  }
++});
++test("A21-08/10 expiry after durable first operation preserves progress across instances and explicit re-review",async()=>{
++  const q=await counterFixture(2);const apply=q.stage.apply.bind(q.stage);q.stage.apply=async(ctx,p)=>{const receipts=await apply(ctx,p);if(p.operations[0]!.id==="owned-0")q.advance(30*60_000);return receipts;};
++  const e=q.make();await q.x.planAndApprove(e);const result=await e.run("apply",q.x.applyOptions);assert.equal(result.exitCode,4);assert.deepEqual(q.counts,[1,0]);assert.equal((await q.x.state()).in_flight_operation,null);
++  const before=await evidence(q.x.config);assert.equal((await q.make().run("resume",{configPath:q.x.configPath})).exitCode,4);assert.deepEqual(await evidence(q.x.config),before);assert.deepEqual(q.counts,[1,0]);
++  const manifest=JSON.parse(await fs.readFile(path.join(q.x.config.paths.setup_state_dir,"state-commit.json"),"utf8")) as {completed_operations:Array<{receipt:{operationId:string}}>} ;assert.ok(manifest.completed_operations.some(x=>x.receipt.operationId==="owned-0"));
++  await q.x.planAndApprove(q.make());assert.equal((await q.make().run("resume",{configPath:q.x.configPath})).exitCode,0);assert.deepEqual(q.counts,[1,1]);assert.equal((await q.make().run("resume",{configPath:q.x.configPath})).exitCode,0);assert.deepEqual(q.counts,[1,1]);
++  console.log("R21_PROGRESS "+JSON.stringify({first_exit:result.exitCode,effects:q.counts,inflight:(await q.x.state()).in_flight_operation,completed:manifest.completed_operations.map(x=>x.receipt.operationId)}));
++});
++for(const changed of ["config","plan"] as const)test(`A21-11 controlled lock barrier changes ${changed}: no in-memory substitution`,async()=>{
++  const q=await aptFixture(),e=q.make();await q.x.planAndApprove(e);const before=await evidence(q.x.config);const mkdir=q.x.f.mkdir.bind(q.x.f);let hit=0;
++  q.x.f.mkdir=async(dir,opts)=>{await mkdir(dir,opts);if(dir===path.join(q.x.config.paths.setup_state_dir,"lock")&&hit++===0){if(changed==="config"){const c=structuredClone(q.x.config);c.resource_profile="standard";await fs.writeFile(q.x.configPath,JSON.stringify(c));}else await fs.appendFile(q.x.applyOptions.planPath,"\n ");}};
++  const result=await q.make().run("apply",q.x.applyOptions);assert.equal(hit,1);assert.equal(result.exitCode,8,JSON.stringify(result));assert.equal(result.envelope.error?.code,"request_changed_after_read");assert.deepEqual(q.counts,{refresh:0,simulate:0,install:0});assert.deepEqual(await evidence(q.x.config),before);
++});
++test("A21-12 actual S02 candidate drift with unchanged planned status requires a fresh reviewed policy",async()=>{
++  const q=await aptFixture(),e=q.make();await q.x.planAndApprove(e);q.candidate("2.0.0");const before=await evidence(q.x.config);const result=await q.make().run("apply",q.x.applyOptions);assert.equal(result.exitCode,8);assert.deepEqual(q.counts,{refresh:0,simulate:0,install:0});assert.deepEqual(await evidence(q.x.config),before);
++  await q.x.planAndApprove(q.make());assert.equal((await q.make().run("apply",q.x.applyOptions)).exitCode,0);assert.deepEqual(q.counts,{refresh:1,simulate:1,install:1});
++});
++test("A21-12 APT refresh may change candidates, but unreviewed install never gains that authorization",async()=>{
++  const q=await aptFixture();const refresh=q.apt.refreshMetadata;q.apt.refreshMetadata=async()=>{await refresh();q.candidate("2.0.0");};await q.x.planAndApprove(q.make());const result=await q.make().run("apply",q.x.applyOptions);assert.equal(result.exitCode,8,JSON.stringify(result));assert.deepEqual(q.counts,{refresh:1,simulate:0,install:0});assert.equal((await q.x.state()).in_flight_operation,null);
++});
++test("A21-13 expired plan approval/resume/upsert never renews approval identity or destroys known progress",async()=>{
++  const q=await aptFixture(),e=q.make();await q.x.planAndApprove(e);const p=await readPlan(q.x),gates=(await q.x.state()).pending_gates;q.advance(30*60_000);
++  const approved=await q.make().run("gate-approve",{configPath:q.x.configPath,gateId:"s02-sudo-apt-update",planHash:p.plan_hash});assert.equal(approved.exitCode,4);assert.equal((await q.make().run("resume",{configPath:q.x.configPath})).exitCode,4);
++  const next=(await q.x.state()).pending_gates;assert.deepEqual(next.map(g=>[g.id,g.operation_id,g.plan_hash,g.expires_at]),gates.map(g=>[g.id,g.operation_id,g.plan_hash,g.expires_at]));assert.ok(next.every(g=>g.status==="expired"));assert.deepEqual(q.counts,{refresh:0,simulate:0,install:0});
++});
++
++import { createPlanFile } from "../../src/core/plan";
++test("A21-01/03 legacy without enrolled basis still derives policy independently from actual S02 producer",async()=>{
++  for(const mode of ["strip", "simulation omitted", "timeout"] as const){
++    const q=await aptFixture(),e=q.make();await createPlanFile(q.x.f,q.x.config,createRegistry([r14Noop("S01"),createSystemStage(q.apt)]),null,q.clock);
++    const p=await readPlan(q.x),s=p.stages.find(s=>s.stage_id==="S02")!;
++    if(mode==="strip"){s.required_gates=[];for(const op of s.operations)op.gate_ids=[];}else edits.find(([name])=>name===mode)![1](s);
++    await writePlan(q.x,p);const result=await e.run("apply",{...q.x.applyOptions,nonInteractive:true});assert.equal(result.exitCode,2,JSON.stringify(result));assert.equal(result.envelope.error?.code,"plan_policy_mismatch");assert.deepEqual(q.counts,{refresh:0,simulate:0,install:0});assert.equal((await q.x.state()).in_flight_operation,null);
++  }
++});
++
++import { execFile } from "node:child_process";
++import { promisify } from "node:util";
++test("A21-07 explicit S02 target uses its closure rather than all config selected stages; containment retained",async()=>{
++  const q=await aptFixture();q.x.config.selected_stages=["S06"];await fs.writeFile(q.x.configPath,JSON.stringify(q.x.config));
++  const e=q.make();assert.equal((await e.run("plan",{configPath:q.x.configPath,stageId:"S02"})).exitCode,0);const p=await readPlan(q.x);assert.deepEqual(p.stages.map(s=>s.stage_id),["S01","S02"]);
++  for(const gateId of new Set(p.stages.flatMap(s=>s.required_gates)))assert.equal((await e.run("gate-approve",{configPath:q.x.configPath,gateId,planHash:p.plan_hash})).exitCode,0);
++  assert.equal((await e.run("apply",q.x.applyOptions)).exitCode,0);assert.deepEqual(q.counts,{refresh:1,simulate:1,install:1});
++  for(const id of ["S08","S14"] as const){const x=await aptFixture(),stage=r14Noop(id);const engine=new SetupEngine({fsAdapter:x.x.f,processAdapter:r14Process,clock:x.clock},createRegistry([stage]));assert.equal((await engine.run("plan",{configPath:x.x.configPath,stageId:id})).exitCode,0);assert.equal((await engine.run("apply",x.x.applyOptions)).exitCode,5);}
++});
++test("A21-08 separate owned engine subprocesses: plan, tamper refusal, approve, apply, resume with no replay",async()=>{
++  const q=await aptFixture(),factsPath=path.join(q.x.root,"owned-apt.json");await fs.writeFile(factsPath,JSON.stringify({fresh:false,installed:false,counts:{refresh:0,simulate:0,install:0}}));
++  async function run(mode:string){const {stdout}=await promisify(execFile)(process.execPath,[path.resolve(__dirname,"../../../tests/helpers/r21-worker.cjs"),path.resolve(__dirname,"../.."),q.x.configPath,factsPath,mode],{timeout:20_000,maxBuffer:512*1024,env:{PATH:"/usr/bin:/bin",LC_ALL:"C"}});return JSON.parse(stdout) as {pid:number;result:{exitCode:number};facts:{counts:{refresh:number;simulate:number;install:number}}};}
++  const planned=await run("plan");assert.equal(planned.result.exitCode,0);const p=await readPlan(q.x),original=structuredClone(p);for(const s of p.stages){s.required_gates=[];for(const op of s.operations)op.gate_ids=[];}await writePlan(q.x,p);
++  const before=await evidence(q.x.config),refused=await run("apply");assert.equal(refused.result.exitCode,2);assert.deepEqual(refused.facts.counts,{refresh:0,simulate:0,install:0});assert.deepEqual(await evidence(q.x.config),before);
++  await fs.writeFile(q.x.applyOptions.planPath,JSON.stringify(original));const approved=await run("approve"),applied=await run("apply"),resumed=await run("resume");assert.equal(approved.result.exitCode,0);assert.equal(applied.result.exitCode,0);assert.equal(resumed.result.exitCode,0);assert.deepEqual(resumed.facts.counts,{refresh:1,simulate:1,install:1});assert.notEqual(planned.pid,applied.pid);
++  console.log("R21_PROCESSES "+JSON.stringify({planned,refused,approved,applied,resumed}));
++});
++test("A21-12 planner timestamps and producer-ignored volatile counters do not create false drift",async()=>{
++  const q=await counterFixture(),observe=q.stage.observe.bind(q.stage);let reads=0;q.stage.observe=async ctx=>{const o=await observe(ctx);o.checks.free_memory=++reads;o.observedAt=new Date().toISOString();return o;};await q.x.planAndApprove(q.make());assert.equal((await q.make().run("apply",q.x.applyOptions)).exitCode,0);assert.deepEqual(q.counts,[1]);assert.ok(reads>=3);
++});
++
++import { saveState } from "../../src/core/state";
++import { POLICY_BASIS_KEY } from "../../src/core/policy";
++test("A21-04/08 internal basis compatibility: legacy fresh policy is validated, malformed/future metadata preserved and blocked",async()=>{
++  const legacy=await counterFixture(),engine=legacy.make();await createPlanFile(legacy.x.f,legacy.x.config,createRegistry([r14Noop("S01"),legacy.stage]),null,legacy.clock);assert.equal((await engine.run("apply",legacy.x.applyOptions)).exitCode,0);assert.deepEqual(legacy.counts,[1]);
++  for(const corrupt of ["json","version","shape","status-type"] as const){
++    const q=await counterFixture();await q.x.planAndApprove(q.make());const state=await q.x.state(),stage=state.stages.find(s=>s.id==="S02")!;
++    const basis=JSON.parse(stage.versions[POLICY_BASIS_KEY]!) as Record<string,unknown>;
++    if(corrupt==="status-type")(basis.source as Record<string,unknown>).status=["planned"];
++    if(corrupt==="version")basis.version=99;if(corrupt==="shape")basis.extra="unsupported";
++    stage.versions[POLICY_BASIS_KEY]=corrupt==="json"?"{":JSON.stringify(basis);
++    // Synthetic malformed metadata, published with the real core writer, never a forged state hash.
++    await saveState(q.x.f,q.x.config,state);const before=await evidence(q.x.config),plan=await fs.readFile(q.x.applyOptions.planPath);
++    assert.equal((await q.make().run("apply",q.x.applyOptions)).exitCode,8);assert.equal((await q.make().run("plan",{configPath:q.x.configPath})).exitCode,8);assert.deepEqual(q.counts,[0]);assert.deepEqual(await evidence(q.x.config),before);assert.deepEqual(await fs.readFile(q.x.applyOptions.planPath),plan);
++  }
++});
++test("A21-06 malformed JSON and unreadable reviewed plan have typed refusal and zero effects",async()=>{
++  const q=await counterFixture();await q.x.planAndApprove(q.make());await fs.writeFile(q.x.applyOptions.planPath,"{");assert.equal((await q.make().run("apply",q.x.applyOptions)).exitCode,2);await fs.unlink(q.x.applyOptions.planPath);assert.equal((await q.make().run("apply",q.x.applyOptions)).exitCode,8);assert.deepEqual(q.counts,[0]);
++});
++
++test("A21-02/03/12 own progress cannot silently authorize a newly required gate/resource/risk",async()=>{
++  for(const change of ["gate","resource","risk"] as const){
++    const q=await counterFixture(2),observe=q.stage.observe.bind(q.stage),plan=q.stage.plan.bind(q.stage);
++    q.stage.observe=async ctx=>{const o=await observe(ctx);o.checks.first_done=q.counts[0]===1;return o;};
++    q.stage.plan=(desired,obs)=>{const p=plan(desired,obs);if(obs.checks.first_done){if(change==="gate"){p.requiredGates=["new-review"];p.operations[1]!.gateIds=["new-review"];}if(change==="resource")p.operations[1]!.resourceId="new-resource";if(change==="risk")p.operations[1]!.risk="critical";}return p;};
++    await q.x.planAndApprove(q.make());const first=await q.make().run("apply",q.x.applyOptions);assert.equal(first.exitCode,8,JSON.stringify(first));assert.deepEqual(q.counts,[1,0]);assert.equal((await q.x.state()).in_flight_operation,null);
++    await q.x.planAndApprove(q.make());assert.equal((await q.make().run("apply",q.x.applyOptions)).exitCode,0);assert.deepEqual(q.counts,[1,1]);
++  }
++});
++
++test("A21-13 expired approval retains actual S02 checkpoint/binding and a new review resumes without refresh replay",async()=>{
++  const q=await aptFixture(),refresh=q.apt.refreshMetadata;q.apt.refreshMetadata=async()=>{await refresh();q.advance(30*60_000);};await q.x.planAndApprove(q.make());const plan=await readPlan(q.x);assert.equal((await q.make().run("apply",q.x.applyOptions)).exitCode,4);assert.deepEqual(q.counts,{refresh:1,simulate:0,install:0});
++  const commitPath=path.join(q.x.config.paths.setup_state_dir,"state-commit.json"),before=JSON.parse(await fs.readFile(commitPath,"utf8")) as {completed_operations:unknown;last_effect_checkpoint:unknown};const journal=await fs.readFile(path.join(q.x.config.paths.setup_state_dir,"events.jsonl"));const expiry=(await q.x.state()).pending_gates.map(g=>g.expires_at);
++  assert.equal((await q.make().run("gate-approve",{configPath:q.x.configPath,gateId:"s02-sudo-apt-install",planHash:plan.plan_hash})).exitCode,4);assert.equal((await q.make().run("resume",{configPath:q.x.configPath})).exitCode,4);
++  const after=JSON.parse(await fs.readFile(commitPath,"utf8")) as typeof before;assert.deepEqual(after.completed_operations,before.completed_operations);assert.deepEqual(after.last_effect_checkpoint,before.last_effect_checkpoint);assert.deepEqual(await fs.readFile(path.join(q.x.config.paths.setup_state_dir,"events.jsonl")),journal);assert.deepEqual((await q.x.state()).pending_gates.map(g=>g.expires_at),expiry);assert.equal((await q.x.state()).in_flight_operation,null);
++  await q.x.planAndApprove(q.make());assert.equal((await q.make().run("resume",{configPath:q.x.configPath})).exitCode,0);assert.deepEqual(q.counts,{refresh:1,simulate:1,install:1});
++});
++
++test("A21-03 operation IDs are unique across parent stages, not merely within each array",async()=>{
++  for(const collision of [true,false]){
++    const q=await aptFixture(),counts:{[key:string]:number}={S01:0,S02:0};
++    const stages=(["S01","S02"] as const).map(id=>{
++      const s=r14Noop(id);s.dependencies=id==="S02"?["S01"]:[];s.observe=async()=>({stageId:id,status:counts[id]!>0?"verified":"planned",checks:{},versions:{},observedAt:q.clock.now().toISOString()});
++      s.plan=()=>({stageId:id,optional:false,requiredCapabilities:[],requiredGates:[],operations:[{id:collision?"shared":`owned-${id}`,stageId:id,kind:"mutate",resourceId:`resource-${id}`,risk:"low",gateIds:[],preconditions:[],sideEffects:["owned counter"],timeoutSec:1,retryable:false}]});
++      s.apply=async(_ctx,p)=>{counts[id]!++;return [{operationId:p.operations[0]!.id,stageId:id,resourceId:`resource-${id}`,observedAt:q.clock.now().toISOString(),checks:{done:true},versions:{},artifacts:[]}];};return s;
++    });
++    const e=new SetupEngine({fsAdapter:q.x.f,processAdapter:r14Process,clock:q.clock},createRegistry(stages));await q.x.planAndApprove(e);const result=await e.run("apply",q.x.applyOptions);assert.equal(result.exitCode,collision?2:0);assert.deepEqual(counts,collision?{S01:0,S02:0}:{S01:1,S02:1});
++  }
++});
++
++test("A21-08 synthetic legacy policy absence preserves engine-generated simulation proof until explicit review",async()=>{
++  const q=await aptFixture(),observe=q.apt.observe,simulate=q.apt.simulateInstall;q.apt.observe=async names=>({...await observe(names),metadataFresh:true});q.apt.simulateInstall=async()=>{await simulate();q.advance(30*60_000);};await q.x.planAndApprove(q.make());assert.equal((await q.make().run("apply",q.x.applyOptions)).exitCode,4);assert.deepEqual(q.counts,{refresh:0,simulate:1,install:0});
++  q.advance(-30*60_000);const legacy=await q.x.state();for(const s of legacy.stages)delete s.versions[POLICY_BASIS_KEY];await saveState(q.x.f,q.x.config,legacy);
++  const before=await evidence(q.x.config);const refused=await q.make().run("apply",q.x.applyOptions);assert.equal(refused.exitCode,8);assert.equal(refused.envelope.error?.code,"legacy_policy_review_required");assert.deepEqual(await evidence(q.x.config),before);assert.deepEqual(q.counts,{refresh:0,simulate:1,install:0});
++  await q.x.planAndApprove(q.make());assert.equal((await q.make().run("resume",{configPath:q.x.configPath})).exitCode,0);assert.deepEqual(q.counts,{refresh:0,simulate:1,install:1});
++});
++
++test("A21-04/12 stage-only gate discovered after the last effect blocks final verified until explicit review",async()=>{
++  const q=await counterFixture(),observe=q.stage.observe.bind(q.stage),plan=q.stage.plan.bind(q.stage);
++  q.stage.observe=async ctx=>{const o=await observe(ctx);o.checks.requires_final_review=q.counts[0]===1;return o;};
++  q.stage.plan=(desired,o)=>o.checks.requires_final_review?{stageId:"S02",optional:false,requiredCapabilities:[],requiredGates:["final-review"],operations:[]}:plan(desired,o);
++  await q.x.planAndApprove(q.make());const result=await q.make().run("apply",q.x.applyOptions);assert.equal(result.exitCode,8);assert.equal(result.envelope.error?.code,"plan_completion_policy_drift");assert.deepEqual(q.counts,[1]);assert.equal((await q.x.state()).in_flight_operation,null);assert.notEqual((await q.x.state()).stages.find(s=>s.id==="S02")?.status,"verified");
++  await q.x.planAndApprove(q.make());assert.equal((await q.make().run("apply",q.x.applyOptions)).exitCode,0);assert.deepEqual(q.counts,[1]);
++});

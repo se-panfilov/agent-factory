@@ -24,12 +24,13 @@ import { createPlatformsStage } from "../stages/platforms";
 import { createUpdateStage } from "../stages/update";
 import { createBackup, verifyBackup } from "../operations/backup";
 import { emergencyCancel } from "../operations/emergency";
-import { hashConfig, initConfig, loadConfig, systemClock, type Clock } from "./config";
+import { hashConfig, initConfig, loadConfig, stableStringify, systemClock, type Clock } from "./config";
 import { ExitCode, type InstallerPlan, type JsonEnvelope, type SetupConfig, type SetupState, type StageId, type StageModule, type StageReceipt, type StageContext, type StageStatus } from "./types";
 import { setupError, toSetupError } from "./errors";
 import { approveGate, ensureGateApproved, ensureNonInteractiveGates, expireGates, upsertPlanGates } from "./gates";
 import { acquireLock, consumeCancelRequest, recoverLockOnly, requestCancel, type LockOwner } from "./lock";
-import { buildStageClosure, createPlanFile, createRegistry, loadPlan, validatePlanConsistency, type StageRegistry } from "./plan";
+import { assertPlanTime, buildStageClosure, createPlanFile, createRegistry, loadPlan, validatePlanConsistency, type StageRegistry } from "./plan";
+import { assertCompletionPolicy, assertContinuingPolicy, assertProducerPolicy, policyFingerprint, readPolicyBasis, withPolicyBasis, type PolicyBasis } from "./policy";
 import {
   appendEvent,
   assertEvidenceAdmission,
@@ -699,6 +700,7 @@ export class SetupEngine {
       });
     }
 
+    const operationIds = new Set<string>();
     for (const stage of plan.stages) {
       if (GENERIC_APPLY_FORBIDDEN_STAGES.has(stage.stage_id)) {
         throw setupError({
@@ -756,6 +758,9 @@ export class SetupEngine {
 
       const requiredSet = new Set(stage.required_gates);
       for (const operation of stage.operations) {
+        if (operation.stage_id !== stage.stage_id || operationIds.has(operation.id)) throw setupError({exitCode:ExitCode.CliOrSchemaError,
+          code:"plan_operation_identity_invalid",publicMessage:"Operation parent or globally unique ID is inconsistent.",nextAction:"Generate a plan with canonical unique operation identities.",stage:stage.stage_id});
+        operationIds.add(operation.id);
         for (const gateId of operation.gate_ids) {
           if (!requiredSet.has(gateId)) {
             throw setupError({
@@ -978,12 +983,33 @@ export class SetupEngine {
     };
   }
 
+  private async requestHash(file: string): Promise<string> {
+    let raw: Awaited<ReturnType<FilesystemAdapter["readTextBounded"]>>;
+    try { raw = await this.deps.fsAdapter.readTextBounded(file, 1024 * 1024); }
+    catch { throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"request_input_unreadable",publicMessage:"Reviewed config/plan cannot be read for admission.",nextAction:"Restore bounded read access and review the request before retrying."}); }
+    if (raw.text.includes("\ufffd") || raw.text.includes("\0")) throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"request_input_encoding_invalid",publicMessage:"Config/plan requires unambiguous UTF-8 JSON text.",nextAction:"Regenerate the reviewed input without invalid encoding or NUL bytes."});
+    if (raw.truncated) throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"request_input_oversized",publicMessage:"Config/plan exceeds bounded admission input size.",nextAction:"Provide a bounded reviewed config/plan."});
+    return createHash("sha256").update(raw.text).digest("hex");
+  }
+
+  private async assertRequestUnchanged(options: CommandOptions, configHash: string, planHash?: string): Promise<void> {
+    if (await this.requestHash(options.configPath) !== configHash || (planHash !== undefined && options.planPath !== undefined && await this.requestHash(options.planPath) !== planHash)) {
+      throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"request_changed_after_read",publicMessage:"Config/plan bytes changed while waiting for admission.",nextAction:"Generate/review a new plan; the in-memory request was not executed."});
+    }
+  }
+
+  private async policyObservation(stage: StageModule, ctx: StageContext) {
+    return stage.observePolicy ? stage.observePolicy(ctx) : stage.observe(ctx);
+  }
+
   private async runPlan(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
+    const configBytes = await this.requestHash(options.configPath);
     const config = await loadConfig(this.deps.fsAdapter, options.configPath);
     let state: SetupState;
     const lock = await acquireLock(this.deps.fsAdapter, this.deps.processAdapter, config);
     let result: Awaited<ReturnType<typeof createPlanFile>> | null = null;
     try {
+      await this.assertRequestUnchanged(options, configBytes);
       state = await this.loadStateWithOptions(config, { initializeIfMissing: true });
       if (state.in_flight_operation !== null) {
         throw setupError({
@@ -996,10 +1022,38 @@ export class SetupEngine {
         });
       }
       const stageId = options.stageId ?? null;
+      for (const id of buildStageClosure(this.registry,stageId===null?config.selected_stages:[stageId])) readPolicyBasis(state,this.registry.byId.get(id)!);
       result = await createPlanFile(this.deps.fsAdapter, config, this.registry, stageId, this.deps.clock,
         (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations?.filter(e => e.config_hash === hashConfig(config)).map(e => e.receipt) ?? []);
       state = expireGates(state, this.deps.clock);
       for (const stagePlan of result.plan.stages) {
+        const stage = this.registry.byId.get(stagePlan.stage_id)!;
+        const ctx = this.stageContext(config, result.plan.desired_hash, result.plan.plan_hash);
+        ctx.completedOperationReceipts = (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations?.filter(e => e.config_hash === hashConfig(config)).map(e => e.receipt) ?? [];
+        const observed = await this.policyObservation(stage, ctx);
+        const source = result.observations.get(stage.id)!;
+        assertProducerPolicy(stage, config, stagePlan, source);
+        const previous = readPolicyBasis(state,stage);
+        const completed: string[] = [];
+        const prior = previous?.configHash === hashConfig(config) ? stage.plan(config,previous.source) : null;
+        for (const operation of stage.plan(config,source).operations) {
+          const old = prior?.operations.find(o=>o.id===operation.id);
+          const receipt = ctx.completedOperationReceipts.find(r=>r.operationId===operation.id && r.stageId===stage.id && r.resourceId===operation.resourceId);
+          const samePolicy = previous === null || (old !== undefined && previous.completed.includes(operation.id) && stableStringify(old)===stableStringify(operation));
+          if (!receipt || !samePolicy) continue;
+          try {
+            if (stage.verifyOperation) { await stage.verifyOperation(ctx,receipt); completed.push(operation.id); }
+            else if (observed.status==="verified") { await stage.verify(ctx); completed.push(operation.id); }
+            else throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"legacy_policy_progress_unverified",publicMessage:"Legacy partial progress has no current postcondition verifier.",nextAction:"Reconcile existing effects before enrolling a new reviewed policy.",stage:stage.id});
+          } catch(error) {
+            const failure=toSetupError(error);
+            if (failure.code==="legacy_policy_progress_unverified" || ![ExitCode.DriftOrRecoveryRequired,ExitCode.ManualActionRequired].includes(failure.exitCode)) throw error;
+            // Proven old effect whose resource has since drifted: explicit new review may reconcile it.
+            // Unknown journal outcomes were already rejected by ordinary evidence admission.
+          }
+        }
+        state = withPolicyBasis(state, stage, {version:1,planHash:result.plan.plan_hash,configHash:hashConfig(config),source,
+          expected:policyFingerprint(stage, config, observed),completed});
         for (const gateId of stagePlan.required_gates) {
           state = upsertPlanGates(
             state,
@@ -1049,6 +1103,7 @@ export class SetupEngine {
         nextAction: "Run 'factory-setup plan' and pass --plan."
       });
     }
+    const configBytes = await this.requestHash(options.configPath), planBytes = await this.requestHash(options.planPath);
     const config = await loadConfig(this.deps.fsAdapter, options.configPath);
     const plan = await loadPlan(this.deps.fsAdapter, options.planPath);
     validatePlanConsistency(config, plan);
@@ -1057,14 +1112,44 @@ export class SetupEngine {
     const lock = await acquireLock(this.deps.fsAdapter, this.deps.processAdapter, config);
     let state: SetupState | null = null;
     let activeStage: StageId | null = null;
+    let persistFailure = false;
+    const policies = new Map<StageId, PolicyBasis>();
     try {
+      await this.assertRequestUnchanged(options, configBytes, planBytes);
+      const lockedConfig = await loadConfig(this.deps.fsAdapter, options.configPath);
+      const lockedPlan = await loadPlan(this.deps.fsAdapter, options.planPath);
+      if (stableStringify(config)!==stableStringify(lockedConfig) || stableStringify(plan)!==stableStringify(lockedPlan)) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"request_changed_after_read",publicMessage:"Parsed request changed during lock acquisition.",nextAction:"Regenerate and review the plan."});
+      assertPlanTime(plan, this.deps.clock);
       state = await this.loadStateWithOptions(config, { initializeIfMissing: true });
       state = expireGates(state, this.deps.clock);
       this.assertOrdinaryEffectAdmission(state);
       ensureNonInteractiveGates(state, plan.plan_hash, options.nonInteractive ?? false, this.deps.clock);
       await this.consumeCancelOrThrow(config, lock.owner);
+      let reviewMismatch = false;
+      // Validate every stage before publishing any applying state or target intent.
+      for (const proposed of plan.stages) {
+        const stage = this.registry.byId.get(proposed.stage_id)!;
+        const ctx = this.stageContext(config, plan.desired_hash, plan.plan_hash);
+        ctx.completedOperationReceipts = (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations?.filter(e => e.config_hash === hashConfig(config)).map(e => e.receipt) ?? [];
+        const existing = readPolicyBasis(state, stage);
+        if (existing===null && proposed.operations.length>0 && ctx.completedOperationReceipts.some(r=>r.stageId===stage.id)) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,
+          code:"legacy_policy_review_required",publicMessage:"Legacy known progress needs an explicit current producer review before further actions.",nextAction:"Generate/review a plan; matching committed operations will be reverified rather than replayed.",stage:stage.id});
+        const observed = await this.policyObservation(stage, ctx);
+        const basis: PolicyBasis = existing ?? {version:1,planHash:plan.plan_hash,configHash:hashConfig(config),source:observed,expected:policyFingerprint(stage, config, observed),completed:[]};
+        assertProducerPolicy(stage, config, proposed, basis.source);
+        if (basis.planHash !== plan.plan_hash || basis.configHash !== hashConfig(config)) reviewMismatch = true;
+        if (basis.completed.some(id => !proposed.operations.some(o => o.id === id))) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_progress_invalid",publicMessage:"Committed progress is outside the reviewed operation sequence.",nextAction:"Preserve state and reconcile progress."});
+        const first = proposed.operations.find(o => !basis.completed.includes(o.id));
+        if (first) await stage.admitOperation?.(ctx, {id:first.id,resourceId:first.resource_id,preconditions:first.preconditions});
+        if (policyFingerprint(stage, config, observed)!==basis.expected) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_observation_drift",publicMessage:"Significant producer policy inputs changed since review or verified progress.",nextAction:"Generate/review a new plan; no new operation was admitted.",stage:stage.id});
+        policies.set(stage.id, basis);
+      }
+      if (reviewMismatch) throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"plan_review_required",publicMessage:"Plan is not the current committed producer review.",nextAction:"Generate and review a new plan."});
 
       for (const stagePlan of plan.stages) {
+        assertPlanTime(plan, this.deps.clock);
+        await this.assertRequestUnchanged(options, configBytes, planBytes);
+        assertPlanTime(plan, this.deps.clock);
         activeStage = stagePlan.stage_id;
         const stage = this.registry.byId.get(stagePlan.stage_id);
         if (stage === undefined) {
@@ -1094,6 +1179,7 @@ export class SetupEngine {
           });
         }
 
+        state = withPolicyBasis(state, stage, policies.get(stage.id)!);
         state = updateObservedStage(state, observation, "applying");
         for (const gateId of stagePlan.required_gates) {
           ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, `stage:${stagePlan.stage_id}`);
@@ -1110,10 +1196,22 @@ export class SetupEngine {
         if (executeWithApply) {
           this.assertOrdinaryOwner(config, stagePlan.stage_id);
           for (const operation of stagePlan.operations) {
+            let basis = policies.get(stage.id)!;
+            if (basis.completed.includes(operation.id)) continue;
+            assertPlanTime(plan, this.deps.clock);
+            await this.assertRequestUnchanged(options, configBytes, planBytes);
+            const current = await this.policyObservation(stage, stageCtx);
+            await stage.admitOperation?.(stageCtx, {id:operation.id,resourceId:operation.resource_id,preconditions:operation.preconditions});
+            if (policyFingerprint(stage, config, current)!==basis.expected) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_observation_drift",publicMessage:"Producer policy inputs changed before the next action.",nextAction:"Review a new plan before further effects.",stage:stage.id});
+            assertContinuingPolicy(stage,config,stageCtx,basis,current);
             for (const gateId of stagePlan.required_gates) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, `stage:${stagePlan.stage_id}`);
             for (const gateId of operation.gate_ids) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, operation.id);
-            await stage.admitOperation?.(stageCtx, { id: operation.id, resourceId: operation.resource_id, preconditions: operation.preconditions });
+            await this.assertRequestUnchanged(options, configBytes, planBytes);
+            assertPlanTime(plan, this.deps.clock);
+            for (const gateId of stagePlan.required_gates) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, `stage:${stagePlan.stage_id}`);
+            for (const gateId of operation.gate_ids) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, operation.id);
             const attemptId = randomUUID();
+            persistFailure = true;
             state = withInFlightOperation(state, {
               id: `${stagePlan.stage_id}:${operation.id}:${attemptId}`,
               stage_id: stagePlan.stage_id,
@@ -1179,6 +1277,11 @@ export class SetupEngine {
               message: `verify:postconditions:${receipt.resourceId}:${receiptHash(receipt)}`,
               attempt_id: attemptId
             });
+            const progressCtx = {...stageCtx,completedOperationReceipts:[...(stageCtx.completedOperationReceipts ?? []),receipt]};
+            const confirmed = await this.policyObservation(stage, progressCtx);
+            basis = {...basis,expected:policyFingerprint(stage, config, confirmed),completed:[...basis.completed,operation.id]};
+            policies.set(stage.id, basis);
+            state = withPolicyBasis(state, stage, basis);
             state = withInFlightOperation(state, null);
             await saveState(this.deps.fsAdapter, config, state);
             const committedStateHash = stateHash(state);
@@ -1198,6 +1301,7 @@ export class SetupEngine {
               stateHash: committedStateHash,
               receipt
             });
+            persistFailure = false;
             stageCtx.previousOperationReceipt = receipt;
             stageCtx.completedOperationReceipts = [...(stageCtx.completedOperationReceipts ?? []), receipt];
             if (receipt.checks.manual_pause_required === true) {
@@ -1211,8 +1315,10 @@ export class SetupEngine {
             await this.consumeCancelOrThrow(config, lock.owner);
           }
         }
+        persistFailure = true;
         await stage.verify(stageCtx);
         const observedAfter = await stage.observe(stageCtx);
+        assertCompletionPolicy(stage,config,stageCtx,policies.get(stage.id)!,observedAfter);
         const optionalSkipAccepted = stagePlan.optional
           && !executeWithApply
           && observedAfter.status === "skipped";
@@ -1236,9 +1342,18 @@ export class SetupEngine {
             stage: stagePlan.stage_id
           });
         }
+        const policyAfter = await this.policyObservation(stage,stageCtx);
+        const factView = (observed: typeof observedAfter) => stage.observePolicy && stage.policyInputs
+          ? stableStringify(stage.policyInputs(observed)) : policyFingerprint(stage,config,observed);
+        if (factView(policyAfter)!==factView(observedAfter)) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_completion_input_drift",
+          publicMessage:"Policy inputs changed after stage verification.",nextAction:"Reconcile resources and review a new plan before completion.",stage:stage.id});
+        const completeBasis = {...policies.get(stage.id)!,expected:policyFingerprint(stage,config,policyAfter)};
+        policies.set(stage.id,completeBasis);
+        state = withPolicyBasis(state,stage,completeBasis);
         state = withInFlightOperation(state, null);
         state = updateObservedStage(state, observedAfter, optionalSkipAccepted ? "skipped" : "verified");
         await saveState(this.deps.fsAdapter, config, state, { finalVerified: true });
+        persistFailure = false;
         await this.consumeCancelOrThrow(config, lock.owner);
       }
 
@@ -1269,6 +1384,7 @@ export class SetupEngine {
       const failedStagePlan = failedStage === null ? null : plan.stages.find((entry) => entry.stage_id === failedStage);
       if (
         failedStagePlan?.optional === true
+        && this.registry.byId.get(failedStagePlan.stage_id)?.optional === true
         && setup.exitCode !== ExitCode.OptionalRequestedStageFailed
         && state !== null
         && this.mandatoryStagesSucceeded(state, plan)
@@ -1284,7 +1400,7 @@ export class SetupEngine {
           evidenceRef: setup.evidenceRef
         });
       }
-      if (state !== null) {
+      if (state !== null && persistFailure) {
         if (failedStage !== null) {
           const failureStatus: StageStatus = state.in_flight_operation?.stage_id === failedStage ? "interrupted"
             : setup.exitCode === ExitCode.ManualActionRequired ? "awaiting_manual"
@@ -1369,30 +1485,17 @@ export class SetupEngine {
   }
 
   private async runResume(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
-    const planOptions: CommandOptions = { configPath: options.configPath };
-    if (options.stageId !== undefined) {
-      planOptions.stageId = options.stageId;
+    const config = await loadConfig(this.deps.fsAdapter, options.configPath);
+    const planPath = path.join(config.paths.setup_state_dir, "plan.json");
+    if (!(await this.deps.fsAdapter.exists(planPath))) {
+      const lock = await acquireLock(this.deps.fsAdapter,this.deps.processAdapter,config);
+      try {
+        this.assertOrdinaryEffectAdmission(await this.loadStateWithOptions(config,{initializeIfMissing:false,readOnly:true}));
+        throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"plan_required",publicMessage:"Resume requires an existing reviewed plan.",nextAction:"Generate/review a plan explicitly before resume."});
+      } finally { await lock.release(); }
     }
-    const planResult = await this.runPlan(planOptions);
-    const planPath = path.join(
-      (await loadConfig(this.deps.fsAdapter, options.configPath)).paths.setup_state_dir,
-      "plan.json"
-    );
-    const applyOptions: CommandOptions = {
-      configPath: options.configPath,
-      planPath
-    };
-    if (options.nonInteractive !== undefined) {
-      applyOptions.nonInteractive = options.nonInteractive;
-    }
-    return this.runApply(applyOptions).then((applyResult) => ({
-      envelope: {
-        ...applyResult.envelope,
-        command: "resume",
-        plan_hash: planResult.envelope.plan_hash
-      },
-      exitCode: applyResult.exitCode
-    }));
+    const result = await this.runApply({...options,planPath});
+    return {...result,envelope:{...result.envelope,command:"resume"}};
   }
 
   private async runVerify(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
@@ -1478,13 +1581,20 @@ export class SetupEngine {
         nextAction: "Run gate approve with both --id and --plan-hash."
       });
     }
+    const configBytes = await this.requestHash(options.configPath);
     const config = await loadConfig(this.deps.fsAdapter, options.configPath);
     let state: SetupState;
+    const planPath = path.join(config.paths.setup_state_dir,"plan.json"), planBytes = await this.requestHash(planPath);
     const lock = await acquireLock(this.deps.fsAdapter, this.deps.processAdapter, config);
     try {
+      await this.assertRequestUnchanged({...options,planPath},configBytes,planBytes);
+      const plan = await loadPlan(this.deps.fsAdapter,planPath);
+      validatePlanConsistency(config,plan);
+      if(plan.plan_hash!==options.planHash) throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"gate_plan_mismatch",publicMessage:"Approval is not for the current reviewed plan.",nextAction:"Review the current plan and approve its exact identity."});
       state = await this.loadStateWithOptions(config, { initializeIfMissing: false });
       state = expireGates(state, this.deps.clock);
       try {
+        assertPlanTime(plan,this.deps.clock);
         state = approveGate(state, options.gateId, options.planHash, this.deps.clock);
       } finally {
         await saveState(this.deps.fsAdapter, config, state);

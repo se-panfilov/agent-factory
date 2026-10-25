@@ -97,11 +97,12 @@ export async function createPlanFile(
   stageTarget: StageId | null,
   clock: Clock,
   completedOperationReceipts: import("./types").StageReceipt[] = []
-): Promise<{ plan: InstallerPlan; planPath: string; stageClosure: StageId[] }> {
+): Promise<{ plan: InstallerPlan; planPath: string; stageClosure: StageId[]; observations: Map<StageId, import("./types").StageObservation> }> {
   const stageIds = stageTarget === null ? config.selected_stages : [stageTarget];
   const closure = buildStageClosure(registry, stageIds);
 
   const stagePlans: InstallerPlan["stages"] = [];
+  const observations = new Map<StageId, import("./types").StageObservation>();
   for (const stageId of closure) {
     const stage = registry.byId.get(stageId);
     if (stage === undefined) {
@@ -122,6 +123,7 @@ export async function createPlanFile(
       completedOperationReceipts,
       config
     });
+    observations.set(stageId, observation);
     const stagePlan: StagePlan = stage.plan(config, observation);
     stagePlans.push({
       stage_id: stagePlan.stageId,
@@ -149,12 +151,14 @@ export async function createPlanFile(
   await fsAdapter.writeText(planPath, `${JSON.stringify(plan, null, 2)}\n`, 0o600);
   await fsAdapter.fsyncFile(planPath);
   await fsAdapter.fsyncDir(path.dirname(planPath));
-  return { plan, planPath, stageClosure: closure };
+  return { plan, planPath, stageClosure: closure, observations };
 }
 
 export async function loadPlan(fsAdapter: FilesystemAdapter, planPath: string): Promise<InstallerPlan> {
   const raw = await fsAdapter.readText(planPath);
-  const parsed = JSON.parse(raw);
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"plan_json_invalid",
+    publicMessage:"Submitted plan is not valid JSON.",nextAction:"Generate a valid reviewed plan."}); }
   const validation = validateContractSchema("plan", parsed);
   if (!validation.ok) {
     throw setupError({
@@ -212,4 +216,22 @@ export function validatePlanConsistency(config: SetupConfig, plan: InstallerPlan
       nextAction: "Regenerate the plan and avoid manual plan edits."
     });
   }
+}
+
+/** Current format uses planner-produced UTC milliseconds; C13 serialization is R2.2. */
+export function assertPlanTime(plan: InstallerPlan, clock: Clock): void {
+  const value = plan.created_at;
+  const created = Date.parse(value), now = clock.now().getTime();
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) || !Number.isFinite(created)
+    || new Date(created).toISOString() !== value) throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"plan_time_invalid",
+      publicMessage:"Plan created_at must be a real canonical ISO UTC millisecond timestamp.",nextAction:"Generate and review a new plan."});
+  if (!Number.isFinite(now) || created > now) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_from_future",
+    publicMessage:"Plan creation is later than the injected current time.",nextAction:"Reconcile the clock and generate/review a new plan."});
+  if (now >= created + 30 * 60_000) throw setupError({exitCode:ExitCode.ManualActionRequired,code:"plan_expired",
+    publicMessage:"Plan is at least 30 minutes old and cannot authorize another action.",nextAction:"Generate/review a new plan and approve its required gates."});
+}
+
+export function serializeStagePlan(plan: StagePlan): InstallerPlan["stages"][number] {
+  return {stage_id:plan.stageId,optional:plan.optional,required_capabilities:plan.requiredCapabilities,
+    required_gates:plan.requiredGates,operations:plan.operations.map(mapOperation)};
 }

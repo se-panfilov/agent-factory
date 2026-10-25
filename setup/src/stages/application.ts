@@ -386,6 +386,20 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
       lastObservation = observation;
       return observation;
     },
+    async observePolicy(ctx) {
+      const current = await snapshot(ctx.config);
+      validateBlockedSnapshot(current);
+      if (current.checkout.exists && current.release.manifest !== null) {
+        const mismatches = await adapter.verifyContentHashes(ctx.config.paths.application_dir, current.release.manifest.content_hashes);
+        if (mismatches.length > 0) throw setupError({exitCode:ExitCode.SecurityBoundaryViolation,code:"s05_deployed_integrity_failed",
+          publicMessage:"Current deployment integrity failed during read-only policy admission.",nextAction:"Restore reviewed deployment bytes before executable probes.",stage:"S05"});
+      }
+      return {stageId:"S05",status:"planned",checks:checksFromSnapshot(current),versions:versionsFromSnapshot(current),observedAt:new Date().toISOString()};
+    },
+    policyInputs(observed) {
+      const {deployed_content_and_commands_verified: _executableProof, ...checks}=observed.checks;
+      return {checks, versions:observed.versions};
+    },
     plan(desired: unknown, observed: StageObservation): StagePlan {
       const config = desired as SetupConfig;
 

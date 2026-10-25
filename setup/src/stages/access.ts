@@ -272,6 +272,17 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
       lastObservation = observation;
       return observation;
     },
+    reconcilePolicyOperation(ctx, reviewed, current) {
+      const prefix = current.id.replace(/-[0-9a-f]{12}$/, "");
+      const original = reviewed.operations.find(op=>op.id.replace(/-[0-9a-f]{12}$/, "")===prefix);
+      if (!original) return {id:current.id,preconditions:current.preconditions};
+      const cutover = (ctx.completedOperationReceipts ?? []).some(r=>r.stageId==="S03" && r.resourceId==="ssh-firewall-cutover");
+      return {id:original.id,preconditions:current.preconditions.map(value=>{
+        const key=value.split(":",1)[0]!;
+        return key==="s03_observation_hash" || (cutover && ["s03_ipv4_checked","s03_ipv6_checked"].includes(key))
+          ? original.preconditions.find(p=>p.startsWith(key+":")) ?? value : value;
+      })};
+    },
     plan(_desired: unknown, observed: StageObservation): StagePlan {
       const candidate = observed.versions.tailscale_candidate;
       if (candidate === undefined || candidate === "absent") {

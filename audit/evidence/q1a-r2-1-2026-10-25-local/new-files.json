@@ -1,0 +1,26 @@
+[
+  {
+    "path": "docs/audits/remediation-q1a-r2-1-2026-10-25.md",
+    "sha256": "4d257344b9b720c585b4e98dc87ecdf20da09a34a3ca05cef5e216447a9ebfc2"
+  },
+  {
+    "path": "setup/docs/plan-admission-r21.md",
+    "sha256": "fa9d41b933b5b2a8784e6733b79653f27839033a2977645bfac63e128de00cdc"
+  },
+  {
+    "path": "setup/src/core/policy.ts",
+    "sha256": "0d2873d2b51cd5dfe441d472061bd4197e89e23b44881a67c6874bae91365ef8"
+  },
+  {
+    "path": "setup/tests/helpers/r21-admission.ts",
+    "sha256": "4b95cf827f271f18d265927b6da55ab4db276c5cd10ceb678f1bbbd7184b7cc4"
+  },
+  {
+    "path": "setup/tests/helpers/r21-worker.cjs",
+    "sha256": "0df419ea8d45259b4870978c49e41b82249f1e659150b34ceee3aae113291af9"
+  },
+  {
+    "path": "setup/tests/integration/q1a-r21-admission.test.ts",
+    "sha256": "c6d8cf77293c1da3ec7502fdab38b18b85024da34258b1b589d2e656c2de6d20"
+  }
+]

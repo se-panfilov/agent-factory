@@ -1,0 +1,283 @@
+{
+  "base_commit": "ca6d0b6f2a75f3c97a80468bbc2bdcbe2db7a4ff",
+  "base_tree": "9a0f861b71ebce4df8c56850dcf6c6764e1082a4",
+  "branch": "master",
+  "audited_base_commit": "5fde93d2c470171039698c35478c020085ef66ff",
+  "audited_base_tree": "f8bca0179c0ce0f583c947a6d53e9852f38fba89",
+  "tested_commit": null,
+  "tested_tree_identity": "sha256-manifest:75973014385506fd0228e64c4d0165effdb38b267c3c94f2aa3c20ae4685ae8c",
+  "tested_manifest_sha256": "75973014385506fd0228e64c4d0165effdb38b267c3c94f2aa3c20ae4685ae8c",
+  "tested_files": 143,
+  "patch_sha256": "1abd4c0fd235ebe0d215da171bb57aeecde4c2de0bc85bf1fce2e57a5b066b67",
+  "new_files_tar_sha256": "f518cc7a4cdf861d417260cb8dd8af6860f604c062b694b5a43aab23a7b3e1ad",
+  "report_sha256": "4d257344b9b720c585b4e98dc87ecdf20da09a34a3ca05cef5e216447a9ebfc2",
+  "initial_owner_layer": {
+    "status": "",
+    "changes": [],
+    "staged_patch": "logs/staged.patch",
+    "unstaged_patch": "logs/unstaged.patch"
+  },
+  "index_sha256_before": "b95af8c89f59acfaca7c8094796c088e9021f8fde3059b2da5b71d75c4404957",
+  "index_sha256_after": "b95af8c89f59acfaca7c8094796c088e9021f8fde3059b2da5b71d75c4404957",
+  "node": "v24.12.0",
+  "npm": "11.6.2",
+  "os": "macOS-15.5-arm64-arm-64bit-Mach-O",
+  "arch": "arm64",
+  "uid": 501,
+  "validation_commands": [
+    {
+      "argv": [
+        "node",
+        "--version"
+      ],
+      "cwd": "/private/tmp/af-r21/fixed-release",
+      "exit_code": 0,
+      "log": "node.log",
+      "elapsed_seconds": 0.052
+    },
+    {
+      "argv": [
+        "npm",
+        "--version"
+      ],
+      "cwd": "/private/tmp/af-r21/fixed-release",
+      "exit_code": 0,
+      "log": "npm.log",
+      "elapsed_seconds": 0.144
+    },
+    {
+      "argv": [
+        "npm",
+        "--prefix",
+        "setup",
+        "ci",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "/private/tmp/af-r21/fixed-release",
+      "exit_code": 0,
+      "log": "ci.log",
+      "elapsed_seconds": 0.395
+    },
+    {
+      "argv": [
+        "npm",
+        "--prefix",
+        "setup",
+        "run",
+        "typecheck",
+        "--silent"
+      ],
+      "cwd": "/private/tmp/af-r21/fixed-release",
+      "exit_code": 0,
+      "log": "typecheck.log",
+      "elapsed_seconds": 1.161
+    },
+    {
+      "argv": [
+        "npm",
+        "--prefix",
+        "setup",
+        "run",
+        "test",
+        "--silent"
+      ],
+      "cwd": "/private/tmp/af-r21/fixed-release",
+      "exit_code": 0,
+      "log": "tests.log",
+      "elapsed_seconds": 84.332
+    }
+  ],
+  "comparison_commands": [
+    {
+      "argv": [
+        "node",
+        "/private/tmp/af-r21/input/evidence/r2-admission-probes.cjs",
+        "/private/tmp/af-r21/base"
+      ],
+      "cwd": "/Users/splswrd/work/agent-factory",
+      "exit_code": 0,
+      "expected_exit": 0,
+      "log": "baseline-r2-final.log",
+      "elapsed_seconds": 3.605
+    },
+    {
+      "argv": [
+        "node",
+        "/private/tmp/af-r21/input/evidence/r2-admission-probes.cjs",
+        "/private/tmp/af-r21/fixed-release"
+      ],
+      "cwd": "/Users/splswrd/work/agent-factory",
+      "exit_code": 0,
+      "expected_exit": 0,
+      "log": "fixed-r2-final.log",
+      "elapsed_seconds": 2.281
+    },
+    {
+      "argv": [
+        "npm",
+        "--prefix",
+        "setup",
+        "run",
+        "build",
+        "--silent"
+      ],
+      "cwd": "/private/tmp/af-r21/red",
+      "exit_code": 0,
+      "expected_exit": 0,
+      "log": "red-build-final.log",
+      "elapsed_seconds": 1.617
+    },
+    {
+      "argv": [
+        "node",
+        "--test",
+        "setup/dist/tests/integration/q1a-r21-admission.test.js"
+      ],
+      "cwd": "/private/tmp/af-r21/red",
+      "exit_code": 1,
+      "expected_exit": 1,
+      "log": "red-tests-final.log",
+      "elapsed_seconds": 2.328
+    },
+    {
+      "argv": [
+        "npm",
+        "--prefix",
+        "setup",
+        "ci",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "/private/tmp/af-r21/historical-r15",
+      "exit_code": 0,
+      "expected_exit": 0,
+      "log": "historical-r15-ci.log",
+      "elapsed_seconds": 1.978
+    },
+    {
+      "argv": [
+        "npm",
+        "--prefix",
+        "setup",
+        "run",
+        "build",
+        "--silent"
+      ],
+      "cwd": "/private/tmp/af-r21/historical-r15",
+      "exit_code": 0,
+      "expected_exit": 0,
+      "log": "historical-r15-build.log",
+      "elapsed_seconds": 1.544
+    },
+    {
+      "argv": [
+        "node",
+        "/private/tmp/af-r21/r16-frozen/runners/command-identity-probes.cjs",
+        "/private/tmp/af-r21/historical-r15",
+        "adapter"
+      ],
+      "cwd": "/Users/splswrd/work/agent-factory",
+      "exit_code": 0,
+      "expected_exit": 0,
+      "log": "baseline-adapter-final.log",
+      "elapsed_seconds": 0.331
+    },
+    {
+      "argv": [
+        "node",
+        "/private/tmp/af-r21/r16-frozen/runners/command-identity-probes.cjs",
+        "/private/tmp/af-r21/historical-r15",
+        "stage"
+      ],
+      "cwd": "/Users/splswrd/work/agent-factory",
+      "exit_code": 0,
+      "expected_exit": 0,
+      "log": "baseline-stage-final.log",
+      "elapsed_seconds": 0.28
+    },
+    {
+      "argv": [
+        "node",
+        "/private/tmp/af-r21/r16-frozen/runners/command-identity-probes.cjs",
+        "/private/tmp/af-r21/fixed-release",
+        "adapter"
+      ],
+      "cwd": "/Users/splswrd/work/agent-factory",
+      "exit_code": 0,
+      "expected_exit": 0,
+      "log": "fixed-adapter-final.log",
+      "elapsed_seconds": 0.285
+    },
+    {
+      "argv": [
+        "node",
+        "/private/tmp/af-r21/r16-frozen/runners/command-identity-probes.cjs",
+        "/private/tmp/af-r21/fixed-release",
+        "stage"
+      ],
+      "cwd": "/Users/splswrd/work/agent-factory",
+      "exit_code": 0,
+      "expected_exit": 0,
+      "log": "fixed-stage-final.log",
+      "elapsed_seconds": 0.288
+    },
+    {
+      "argv": [
+        "python3",
+        "/private/tmp/af-r21/r16-frozen/runners/run-evidence.py",
+        "--baseline",
+        "/private/tmp/af-r21/base",
+        "--fixed",
+        "/private/tmp/af-r21/fixed-release",
+        "--inputs",
+        "/private/tmp/af-r21/r16-frozen/inputs",
+        "--logs",
+        "/private/tmp/af-r21/frozen-comparisons"
+      ],
+      "cwd": "/Users/splswrd/work/agent-factory",
+      "exit_code": 0,
+      "expected_exit": 0,
+      "log": "frozen-driver.log",
+      "elapsed_seconds": 39.642
+    },
+    {
+      "argv": [
+        "python3",
+        "/private/tmp/af-r21/r16-frozen/runners/check-results.py",
+        "/private/tmp/af-r21/frozen-comparisons"
+      ],
+      "cwd": "/Users/splswrd/work/agent-factory",
+      "exit_code": 0,
+      "expected_exit": 0,
+      "log": "frozen-checker.log",
+      "elapsed_seconds": 0.043
+    },
+    {
+      "argv": [
+        "python3",
+        "/private/tmp/af-r21/r16-frozen/runners/check-r16.py",
+        "/private/tmp/af-r21"
+      ],
+      "cwd": "/Users/splswrd/work/agent-factory",
+      "exit_code": 0,
+      "expected_exit": 0,
+      "log": "command-checker.log",
+      "elapsed_seconds": 0.04
+    }
+  ],
+  "reconstruction": "git archive actual base into empty ordinary temporary directory; empty owner layer; git apply full-local.patch without index; verify tested-files/new-files/deletions. Additions already in full patch; tar is redundant. Packaging is separate.",
+  "manifest_exclusions": [
+    "node_modules",
+    "dist",
+    ".git",
+    "audit/report/packaging",
+    "temporary outputs/secrets"
+  ],
+  "production": "OPEN",
+  "R2_2": "OPEN",
+  "real_host_qualification": "NOT RUN",
+  "agent_commit_push_branch_worktree_pr_tag_release_deploy": false
+}

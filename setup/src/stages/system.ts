@@ -67,7 +67,7 @@ function missingCandidates(observation: AptSystemObservation): string[] {
     .map((item) => item.name);
 }
 
-function parsePlanPins(stagePlan: StagePlan): PlannedPins {
+function parsePlanPins(stagePlan: {operations: Array<{preconditions: string[]}>}): PlannedPins {
   const pinEntries = new Map<string, string>();
   let expectedHash: string | null = null;
 
@@ -294,6 +294,13 @@ export function createSystemStage(aptAdapter: AptAdapter): StageModule {
         operations,
         requiredGates
       };
+    },
+    async admitOperation(ctx, operation) {
+      const current = await aptAdapter.observe(requiredPackageNames(ctx.profile));
+      if (!current.sudoAvailable || !current.dpkgAuditClean) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,
+        code:"s02_admission_prerequisite_changed",publicMessage:"APT privileges/audit readiness changed before intent.",nextAction:"Reconcile APT readiness and review a fresh plan.",stage:"S02"});
+      if (plannedPinsFromObservation(current).packageSetHash!==parsePlanPins({operations:[operation]}).packageSetHash) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,
+        code:"s02_admission_pin_drift",publicMessage:"APT candidate pins changed before intent.",nextAction:"Review a fresh package plan.",stage:"S02"});
     },
     async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
       const profile = ctx.profile;

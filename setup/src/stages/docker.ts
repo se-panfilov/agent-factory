@@ -486,6 +486,22 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
         observedAt: new Date().toISOString()
       };
     },
+    reconcilePolicyOperation(ctx, reviewed, current) {
+      const prefix=current.id.replace(/-[0-9a-f]{12}$/, "");
+      const original=reviewed.operations.find(op=>op.id.replace(/-[0-9a-f]{12}$/, "")===prefix);
+      if(!original)return {id:current.id,preconditions:current.preconditions};
+      const proven=(resource:string)=>(ctx.completedOperationReceipts ?? []).some(r=>r.stageId==="S04" && r.resourceId===resource);
+      return {id:original.id,preconditions:current.preconditions.map(value=>{
+        const key=value.split(":",1)[0]!;
+        return key==="s04_observation_hash" || (proven("docker-package-set") && key==="s04_observed_docker_installed")
+          || (proven("docker-managed-installation") && key==="s04_observed_managed_by_installer") || (proven("docker-daemon-log-config") && key==="s04_daemon_config_hash")
+          ? original.preconditions.find(p=>p.startsWith(key+":")) ?? value : value;
+      })};
+    },
+    policyInputs(observed) {
+      const { s04_completed_resources: _derived, ...checks } = observed.checks;
+      return {checks, versions: observed.versions};
+    },
     plan(desired: unknown, observed: StageObservation): StagePlan {
       const fixtureRef = (desired as { dockerFixtureRef?: string }).dockerFixtureRef ?? DEFAULT_FIXTURE_REF;
       const candidatePins: DockerPackagePin[] = [];
@@ -617,6 +633,11 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
     async admitOperation(ctx, operation) {
       const observation = await dockerAdapter.observe(ctx);
       const owned = completedResources(ctx, observation).includes("docker-package-set");
+      if ((ctx.completedOperationReceipts ?? []).some(r => r.stageId === "S04" && r.resourceId === "docker-package-set") && !owned)
+        throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"s04_package_progress_drift",publicMessage:"Confirmed Docker package/config progress no longer matches current pins or resources.",nextAction:"Reconcile ownership and review a fresh plan.",stage:"S04"});
+      if ((ctx.completedOperationReceipts ?? []).some(r => r.stageId === "S04" && r.resourceId === "docker-group-membership")
+        && (observation.dockerGroup.accountUserInGroup ?? observation.dockerGroup.currentUserInGroup) !== true)
+        throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"s04_group_membership_drift",publicMessage:"Confirmed Docker account membership disappeared.",nextAction:"Reconcile group ownership before resuming.",stage:"S04"});
       if (SESSION_RESOURCES.has(operation.resourceId)) assertOwnerRuntime(observation);
       validateBlockedPreconditions(observation, { allowUnmanagedInstalledTransition: owned,
         sessionPreparation: operation.resourceId === "docker-group-membership" && owned });

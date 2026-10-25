@@ -6,6 +6,7 @@ import { ExitCode, STAGE_IDS, type SetupConfig, type SetupState, type StageId, t
 import { setupError } from "./errors";
 import { hashConfig, stableStringify, type Clock } from "./config";
 import { validateContractSchema } from "./validators";
+import { POLICY_BASIS_KEY } from "./policy";
 
 const STATE_FILE = "state.json";
 const EVENTS_FILE = "events.jsonl";
@@ -1671,6 +1672,7 @@ export function updateObservedStage(
   observation: StageObservation,
   status: StageStatus
 ): SetupState {
+  const { [POLICY_BASIS_KEY]: _stageSuppliedPolicy, ...versions } = observation.versions;
   return {
     ...state,
     stages: state.stages.map((stage) =>
@@ -1680,7 +1682,7 @@ export function updateObservedStage(
             status,
             observed_at: observation.observedAt,
             checks: observation.checks,
-            versions: observation.versions
+            versions: { ...versions, ...(stage.versions[POLICY_BASIS_KEY] === undefined ? {} : { [POLICY_BASIS_KEY]: stage.versions[POLICY_BASIS_KEY] }) }
           }
         : stage
     )
