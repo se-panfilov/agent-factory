@@ -338,7 +338,8 @@ for (const mode of ["success", "negative", "timeout", "missing"] as const) {
     const e = x.engine([r14Noop("S04"), createApplicationStage(a)]);
     await x.planAndApprove(e);
     const applied = await e.run("apply", x.applyOptions);
-    assert.ok(a.probeCalls >= 1, "required probe actually called");
+    if (mode === "missing") assert.equal(a.probeCalls, 0, "missing command is refused before application adapter entry");
+    else assert.ok(a.probeCalls >= 1, "required valid command probe actually called");
     assert.equal(a.extractCalls, 2, "both extractions are explicitly planned"); assert.equal(a.materializeCalls, 1);
     const state = await x.state();
     if (mode === "success") {

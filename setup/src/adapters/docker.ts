@@ -66,6 +66,7 @@ export interface DockerRuntimeObservation {
   dockerInstalled: boolean;
   managedByInstaller: boolean;
   daemonReachable: boolean;
+  daemonAccess?: "available" | "permission_denied" | "unavailable" | "malformed";
   clientVersion: string | null;
   serverVersion: string | null;
   apiCompatible: boolean;
@@ -77,6 +78,7 @@ export interface DockerRuntimeObservation {
   daemonConfig: DockerDaemonConfigObservation;
   dockerSocket: {
     exists: boolean;
+    inspectionVerified?: boolean;
     mode: string;
     worldWritable: boolean;
     uid: number | null;
@@ -84,9 +86,11 @@ export interface DockerRuntimeObservation {
   };
   tcpApi: {
     configured: boolean;
+    inspectionVerified?: boolean;
     listening: boolean;
   };
   workloads: {
+    inspection?: "verified" | "unavailable" | "malformed";
     foreignContainerCount: number;
     foreignContainerIds: string[];
     publicPublishedPortCount: number;
@@ -269,8 +273,17 @@ function parsePolicyBlocks(
   return byPackage;
 }
 
-function parsePortsForPublicExposure(ports: string): boolean {
-  return ports.includes("0.0.0.0:") || ports.includes(":::") || ports.includes("[::]:");
+function inspectPorts(ports: string): { valid: boolean; public: boolean } {
+  let published = false;
+  const range = (value: string) => value.split("-").every(port => /^\d{1,5}$/.test(port) && Number(port) > 0 && Number(port) <= 65535);
+  for (const token of ports.split(",").map(value => value.trim()).filter(Boolean)) {
+    const exposed = /^(\d+(?:-\d+)?)\/(tcp|udp|sctp)$/.exec(token);
+    if (exposed !== null) { if (!range(exposed[1]!)) return { valid: false, public: false }; continue; }
+    const mapping = /^([0-9a-fA-F:.]+|\[[0-9a-fA-F:]+\]):(\d+(?:-\d+)?)->(\d+(?:-\d+)?)\/(tcp|udp|sctp)$/.exec(token);
+    if (mapping === null || !range(mapping[2]!) || !range(mapping[3]!)) return { valid: false, public: false };
+    if (!["127.0.0.1", "[::1]", "::1"].includes(mapping[1]!)) published = true;
+  }
+  return { valid: true, public: published };
 }
 
 function sanitizeEvidence(value: string): string {
@@ -465,19 +478,19 @@ export class NodeDockerAdapter implements DockerAdapter {
         contextHost = contextInspect.stdout.trim();
       }
     }
-    const localContext = contextHost === null || contextHost === "unix:///var/run/docker.sock";
+    const localContext = contextHost === "unix:///var/run/docker.sock" || (!dockerInstalled && currentContext === null);
 
     const versionResult = await this.run("/usr/bin/docker", ["version", "--format", "{{json .}}"]);
     let clientVersion: string | null = null;
     let serverVersion: string | null = null;
-    if (versionResult.exitCode === 0 && versionResult.stdout.trim().length > 0) {
+    if (versionResult.exitCode === 0 && !versionResult.timedOut && versionResult.stdout.trim().length > 0) {
       try {
         const parsed = JSON.parse(versionResult.stdout) as {
           Client?: { Version?: string };
           Server?: { Version?: string };
         };
-        clientVersion = parsed.Client?.Version ?? null;
-        serverVersion = parsed.Server?.Version ?? null;
+        clientVersion = typeof parsed?.Client?.Version === "string" ? parsed.Client.Version : null;
+        serverVersion = typeof parsed?.Server?.Version === "string" ? parsed.Server.Version : null;
       } catch {
         clientVersion = null;
         serverVersion = null;
@@ -485,6 +498,7 @@ export class NodeDockerAdapter implements DockerAdapter {
     }
 
     const infoResult = await this.run("/usr/bin/docker", ["info", "--format", "{{json .}}"]);
+    let daemonAccess: NonNullable<DockerRuntimeObservation["daemonAccess"]> = /permission denied/i.test(infoResult.stderr + versionResult.stderr) ? "permission_denied" : "unavailable";
     let daemonReachable = false;
     let rootlessMode = false;
     let firewallBackend: DockerRuntimeObservation["firewallBackend"] = "unknown";
@@ -492,47 +506,57 @@ export class NodeDockerAdapter implements DockerAdapter {
     let memoryBytes = 0;
     let cgroupVersion = "unknown";
     let pidsLimitSupported = false;
-    if (infoResult.exitCode === 0 && infoResult.stdout.trim().length > 0) {
-      daemonReachable = true;
+    if (infoResult.exitCode === 0 && !infoResult.timedOut && infoResult.stdout.trim().length > 0) {
       try {
-        const info = JSON.parse(infoResult.stdout) as Record<string, unknown>;
-        const securityOptions = Array.isArray(info.SecurityOptions) ? info.SecurityOptions as string[] : [];
+        const info: unknown = JSON.parse(infoResult.stdout);
+        if (typeof info !== "object" || info === null || Array.isArray(info) || !("NCPU" in info) || !("MemTotal" in info)
+          || typeof info.NCPU !== "number" || !Number.isFinite(info.NCPU) || info.NCPU <= 0 || typeof info.MemTotal !== "number" || !Number.isFinite(info.MemTotal) || info.MemTotal <= 0
+          || !("SecurityOptions" in info) || !Array.isArray(info.SecurityOptions) || !info.SecurityOptions.every(value => typeof value === "string")) throw Error("malformed info");
+        const data = info as Record<string, unknown>;
+        daemonReachable = true; daemonAccess = clientVersion !== null && serverVersion !== null ? "available" : "malformed";
+        const securityOptions = Array.isArray(data.SecurityOptions) ? data.SecurityOptions as string[] : [];
         rootlessMode = securityOptions.some((option) => option.toLowerCase().includes("rootless"));
-        const backend = typeof info.FirewallBackend === "string" ? info.FirewallBackend.toLowerCase() : "unknown";
+        const backend = typeof data.FirewallBackend === "string" ? data.FirewallBackend.toLowerCase() : "unknown";
         firewallBackend = backend === "iptables" || backend === "nftables" ? backend : "unknown";
-        cpuCount = typeof info.NCPU === "number" ? info.NCPU : 0;
-        memoryBytes = typeof info.MemTotal === "number" ? info.MemTotal : 0;
-        cgroupVersion = typeof info.CgroupVersion === "string" ? info.CgroupVersion : "unknown";
-        pidsLimitSupported = info.PidsLimit === true;
+        cpuCount = typeof data.NCPU === "number" ? data.NCPU : 0;
+        memoryBytes = typeof data.MemTotal === "number" ? data.MemTotal : 0;
+        cgroupVersion = typeof data.CgroupVersion === "string" ? data.CgroupVersion : "unknown";
+        pidsLimitSupported = data.PidsLimit === true;
       } catch {
-        daemonReachable = false;
+        daemonReachable = false; daemonAccess = "malformed";
       }
     }
 
     const psResult = await this.run("/usr/bin/docker", ["ps", "-a", "--format", "{{json .}}"]);
     const foreignContainerIds: string[] = [];
     let publicPublishedPortCount = 0;
-    if (psResult.exitCode === 0) {
+    let workloadInspection: NonNullable<DockerRuntimeObservation["workloads"]["inspection"]> = "unavailable";
+    if (psResult.exitCode === 0 && !psResult.timedOut) {
+      workloadInspection = "verified";
       for (const line of psResult.stdout.split("\n")) {
         if (line.trim().length === 0) {
           continue;
         }
         try {
           const parsed = JSON.parse(line) as { ID?: string; Labels?: string; Ports?: string };
-          const labels = parsed.Labels ?? "";
-          const owned = labels.includes(`com.agent-factory.installation_id=${ctx.installationId}`);
+          if (typeof parsed?.ID !== "string" || parsed.ID.length === 0 || typeof parsed.Labels !== "string" || typeof parsed.Ports !== "string") throw Error("malformed workload");
+          const labels = parsed.Labels;
+          const owned = labels.split(",").includes(`com.agent-factory.installation_id=${ctx.installationId}`);
           if (!owned && parsed.ID !== undefined) {
             foreignContainerIds.push(parsed.ID);
           }
-          if (parsed.Ports !== undefined && parsePortsForPublicExposure(parsed.Ports)) {
-            publicPublishedPortCount += 1;
-          }
+          const ports = inspectPorts(parsed.Ports);
+          if (!ports.valid) throw Error("malformed port inventory");
+          if (ports.public) publicPublishedPortCount += 1;
         } catch {
-          continue;
+          workloadInspection = "malformed";
         }
       }
     }
 
+    if (!daemonReachable || daemonAccess === "malformed") workloadInspection = daemonAccess === "malformed" ? "malformed" : "unavailable";
+
+    let socketInspectionVerified = true;
     let socketExists = false;
     let socketMode = "0000";
     let socketUid: number | null = null;
@@ -546,8 +570,8 @@ export class NodeDockerAdapter implements DockerAdapter {
       socketUid = Number(sockStat.uid);
       socketGid = Number(sockStat.gid);
       socketWorldWritable = (mode & 0o002) !== 0;
-    } catch {
-      // socket is absent or inaccessible; keep defaults
+    } catch (error) {
+      socketInspectionVerified = typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
     }
 
     const ssResult = await this.run("/usr/bin/ss", ["-lnt"]);
@@ -572,6 +596,7 @@ export class NodeDockerAdapter implements DockerAdapter {
       dockerInstalled,
       managedByInstaller,
       daemonReachable,
+      daemonAccess,
       clientVersion,
       serverVersion,
       apiCompatible: versionsCompatible(clientVersion, serverVersion),
@@ -583,6 +608,7 @@ export class NodeDockerAdapter implements DockerAdapter {
       daemonConfig,
       dockerSocket: {
         exists: socketExists,
+        inspectionVerified: socketInspectionVerified,
         mode: socketMode,
         worldWritable: socketWorldWritable,
         uid: socketUid,
@@ -590,12 +616,14 @@ export class NodeDockerAdapter implements DockerAdapter {
       },
       tcpApi: {
         configured: tcpConfigured,
+        inspectionVerified: ssResult.exitCode === 0 && !ssResult.timedOut,
         listening: tcpListening
       },
       workloads: {
-        foreignContainerCount: foreignContainerIds.length,
+        inspection: workloadInspection,
+        foreignContainerCount: workloadInspection === "verified" ? foreignContainerIds.length : -1,
         foreignContainerIds,
-        publicPublishedPortCount
+        publicPublishedPortCount: workloadInspection === "verified" ? publicPublishedPortCount : -1
       },
       resources: {
         cpuCount,

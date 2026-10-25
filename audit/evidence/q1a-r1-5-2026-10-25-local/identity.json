@@ -1,0 +1,28 @@
+{
+  "base_commit": "d7d141106aa50f58c8ec9ac7c3991b4d9b42e6e6",
+  "base_tree": "dad67852d36e14014177237719870acc5a8609dc",
+  "audited_base_commit": "2eb026527d3448fc0d455f6fe8713cba61c0d3c5",
+  "audited_base_tree": "5db7df2b8f313e9213f524f217772e5aad6d398a",
+  "tested_commit": null,
+  "identity_kind": "local base + complete patch; no commit created",
+  "node": "v24.12.0",
+  "npm": "11.6.2",
+  "os": "macOS-15.5-arm64-arm-64bit-Mach-O",
+  "architecture": "arm64",
+  "tested_manifest_sha256": "2d70f17d321a92acdabe9baa832e30adeab63b3ec9b6fc93b4481d06e8941f01",
+  "tested_file_count": 135,
+  "patch_sha256": "4d79264ffe10e7c58855d62a14f0feda2d95687593aeb9438cd7ec3a47608cb4",
+  "new_files_payload_sha256": "1a6b0b5b88553b1a12d6bbd653efbb927cd0732d507eb3f04f3f97b56a7eba26",
+  "report_sha256": "f5ecad31d6fcd1ebdeaa6cd572e63309a398eb61d30686f634b8368311d033c6",
+  "initial_owner_layer": "empty; initial working tree and index clean",
+  "reconstruction": "git archive base into empty temp folder; git apply full-local.patch without index; verify every SHA256 manifest entry and deletions/new-file manifest. new-files.tar is redundant alternative payload, not needed after full patch.",
+  "manifest_exclusions": [
+    "node_modules",
+    "dist",
+    "Git metadata",
+    "audit/report/evidence packaging",
+    "temporary outputs"
+  ],
+  "real_host_qualification": "NOT RUN",
+  "new_commit_branch_push_pr": false
+}

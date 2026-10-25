@@ -1,0 +1,30 @@
+[
+  {
+    "path": "docs/audits/remediation-q1a-r1-5-2026-10-25.md",
+    "sha256": "f5ecad31d6fcd1ebdeaa6cd572e63309a398eb61d30686f634b8368311d033c6"
+  },
+  {
+    "path": "setup/tests/helpers/r15-access-adapter.ts",
+    "sha256": "3f823de83b9b1fdc6a8700267168b031e7bdb87ce92a290eb309e3c12b8848bf"
+  },
+  {
+    "path": "setup/tests/helpers/r15-access.ts",
+    "sha256": "2d1e7ed448d096a7f25264875e101fb49e98cfb3b200ed92ef44d2dc185f1585"
+  },
+  {
+    "path": "setup/tests/helpers/r15-application.ts",
+    "sha256": "1679c3789f664602b623fa6b4b8f88224d1c7b5ddbd7c01e4ca877da55ae3bb2"
+  },
+  {
+    "path": "setup/tests/helpers/r15-docker-child.cjs",
+    "sha256": "d914a311e588d2027781c44af1d8decab891becf41e770de055a49064301232a"
+  },
+  {
+    "path": "setup/tests/helpers/r15-docker.ts",
+    "sha256": "fcd377855e28bafba9e1b9823295880d4206f37f288cc1dd2dcd89c38e06a518"
+  },
+  {
+    "path": "setup/tests/integration/q1a-r15-stages.test.ts",
+    "sha256": "4e68f439223f176300fdd238e9af33009c579a1db9195e611f87e6bcec7cfa0e"
+  }
+]

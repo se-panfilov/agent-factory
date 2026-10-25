@@ -147,7 +147,9 @@ class FakeDockerAdapter implements DockerAdapter {
   };
 
   async observe(): Promise<DockerRuntimeObservation> {
-    return JSON.parse(JSON.stringify(this.observation)) as DockerRuntimeObservation;
+    const observed = JSON.parse(JSON.stringify(this.observation)) as DockerRuntimeObservation;
+    if (!observed.dockerGroup.currentUserInGroup) { observed.daemonReachable = false; observed.apiCompatible = false; observed.serverVersion = null; }
+    return observed;
   }
 
   async installPinnedPackages(pins: DockerPackagePin[]): Promise<void> {
@@ -274,9 +276,9 @@ test("S04 apply returns manual relogin requirement after docker group change", a
   );
 
   assert.equal(adapter.installCalls, 1);
-  assert.equal(adapter.mergeCalls, 1);
-  assert.equal(adapter.validateCalls, 1);
-  assert.equal(adapter.restartCalls, 1);
+  assert.equal(adapter.mergeCalls, 0);
+  assert.equal(adapter.validateCalls, 0);
+  assert.equal(adapter.restartCalls, 0);
   assert.equal(adapter.groupCalls, 1);
   assert.equal(adapter.probeCalls, 0);
 });
@@ -395,6 +397,7 @@ test("U06 clean S04 engine installs, checkpoints group, pauses, observes new ses
   a.observation.dockerGroup.currentUserInGroup = true;
   a.observation.reloginRequired = false;
   e = makeEngine();
+  await x.planAndApprove(e); // remaining config/restart effects need fresh plan-bound owner approvals
   const resumed = await e.run("resume", { configPath: x.configPath });
   assert.equal(resumed.exitCode, 0, JSON.stringify(resumed));
   assert.equal(a.installCalls, 1); assert.equal(a.groupCalls, 1); assert.equal(a.probeCalls, 1); assert.equal(a.markManagedCalls, 1);

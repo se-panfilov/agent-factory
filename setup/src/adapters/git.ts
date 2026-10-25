@@ -182,6 +182,28 @@ function resolveCommandArgs(args: string[], rootDir: string): string[] {
   });
 }
 
+function canonicalContentPath(value: string): boolean {
+  return value.length > 0 && !path.isAbsolute(value) && !value.includes("\\") && !value.includes("\0")
+    && value.split("/").every(part => part.length > 0 && part !== "." && part !== "..");
+}
+
+/** Executable entries must be covered by the reviewed deployment content map. */
+export function assertOfflineCommands(manifest: ApplicationManifestData, config: SetupConfig): void {
+  for (const key of ["runner_verify", "runner_stop"]) {
+    const argv = manifest.commands[key];
+    if (!Array.isArray(argv) || argv.length === 0 || argv.some(value => typeof value !== "string" || value.includes("\0"))) {
+      throw setupError({ exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence, code: "s05_required_command_missing",
+        publicMessage: "A mandatory offline command is missing.", nextAction: "Provide a reviewed release with both required commands.", stage: "S05" });
+    }
+    const binary = argv[0]!;
+    const entry = binary === "node" || binary === path.join(config.paths.setup_node_dir, "bin", "node") ? argv[1] : binary;
+    if (entry === undefined || !canonicalContentPath(entry) || !Object.hasOwn(manifest.content_hashes, entry)) {
+      throw setupError({ exitCode: ExitCode.SecurityBoundaryViolation, code: "s05_command_content_unbound",
+        publicMessage: "Offline command entry is outside the reviewed deployment content map.", nextAction: "Bind a confined executable or Node entry file to reviewed content hashes; sudo/external executables are forbidden.", stage: "S05" });
+    }
+  }
+}
+
 export class NodeApplicationReleaseAdapter implements ApplicationReleaseAdapter {
   constructor(
     private readonly processAdapter: ProcessAdapter,
@@ -452,29 +474,26 @@ export class NodeApplicationReleaseAdapter implements ApplicationReleaseAdapter 
 
   async verifyContentHashes(rootDir: string, expected: Record<string, string>): Promise<string[]> {
     const mismatches: string[] = [];
+    let root: Awaited<ReturnType<FilesystemAdapter["lstat"]>>;
+    try { root = await this.fsAdapter.lstat(rootDir); }
+    catch { return ["deployment-root:metadata-read-failed"]; }
+    if (root.isSymbolicLink() || !root.isDirectory() || Number(root.uid) !== this.processAdapter.uid() || (Number(root.mode) & 0o022) !== 0) return ["deployment-root:unsafe-ownership-or-type"];
     for (const [relativePath, expectedHash] of Object.entries(expected)) {
-      if (isTraversalPath(relativePath)) {
-        mismatches.push(`${relativePath}:unsafe-path`);
-        continue;
+      if (!canonicalContentPath(relativePath) || !/^[0-9a-f]{64}$/.test(expectedHash)) { mismatches.push(`${relativePath}:unsafe-path-or-pin`); continue; }
+      const parts = relativePath.split("/"); let current = rootDir, safe = true;
+      for (let index = 0; index < parts.length; index++) {
+        current = path.join(current, parts[index]!);
+        try {
+          const stat = await this.fsAdapter.lstat(current);
+          if (stat.isSymbolicLink() || Number(stat.uid) !== Number(root.uid) || (Number(stat.mode) & 0o022) !== 0
+            || (index === parts.length - 1 ? !stat.isFile() : !stat.isDirectory())) { safe = false; break; }
+        } catch { safe = false; break; }
       }
-      const absolutePath = path.join(rootDir, sanitizePath(relativePath));
-      if (!(await this.fsAdapter.exists(absolutePath))) {
-        mismatches.push(`${relativePath}:missing`);
-        continue;
-      }
-      const hashResult = await this.run("/usr/bin/sha256sum", [absolutePath], OBSERVE_TIMEOUT_MS);
-      if (hashResult.exitCode !== 0 || hashResult.timedOut) {
-        mismatches.push(`${relativePath}:hash-read-failed`);
-        continue;
-      }
+      if (!safe) { mismatches.push(`${relativePath}:missing-unreadable-or-unsafe`); continue; }
+      const hashResult = await this.run("/usr/bin/sha256sum", [current], OBSERVE_TIMEOUT_MS);
+      if (hashResult.exitCode !== 0 || hashResult.timedOut) { mismatches.push(`${relativePath}:hash-read-failed`); continue; }
       const actual = parseSha256sum(hashResult.stdout);
-      if (actual === null) {
-        mismatches.push(`${relativePath}:hash-parse-failed`);
-        continue;
-      }
-      if (actual !== expectedHash) {
-        mismatches.push(`${relativePath}:hash-mismatch`);
-      }
+      if (actual === null || actual !== expectedHash) mismatches.push(`${relativePath}:hash-mismatch`);
     }
     return mismatches;
   }
@@ -489,6 +508,7 @@ export class NodeApplicationReleaseAdapter implements ApplicationReleaseAdapter 
   }
 
   async probeCommands(rootDir: string, manifest: ApplicationManifestData, config: SetupConfig): Promise<ProbeResult> {
+    assertOfflineCommands(manifest, config);
     const details: string[] = [];
     const verifyArgv = supportsCommand(manifest, "runner_verify");
     const stopArgv = supportsCommand(manifest, "runner_stop");
@@ -506,6 +526,9 @@ export class NodeApplicationReleaseAdapter implements ApplicationReleaseAdapter 
         details.push(`${commandName}:empty`);
         return false;
       }
+      const mismatches = await this.verifyContentHashes(rootDir, manifest.content_hashes);
+      if (mismatches.length > 0) throw setupError({ exitCode: ExitCode.SecurityBoundaryViolation, code: "s05_deployed_integrity_failed",
+        publicMessage: "Current deployment integrity failed before offline command invocation.", nextAction: "Restore reviewed deployment bytes before any executable probe.", stage: "S05", evidenceRef: rootDir });
       const binary = resolveBinary(binaryRaw, config, rootDir);
       const args = [...resolveCommandArgs(argsRaw, rootDir), "--help"];
       const result = await this.run(binary, args, OBSERVE_TIMEOUT_MS);

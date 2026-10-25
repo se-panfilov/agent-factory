@@ -1,5 +1,8 @@
 import path from "node:path";
-import { setupError } from "../core/errors";
+import { createHash } from "node:crypto";
+import { stableStringify } from "../core/config";
+import { assertOfflineCommands } from "../adapters/git";
+import { setupError, SetupError } from "../core/errors";
 import {
   ExitCode,
   type SetupConfig,
@@ -82,7 +85,8 @@ function versionsFromSnapshot(snapshot: RuntimeSnapshot): Record<string, string>
     existing_checkout_branch: snapshot.checkout.branch ?? "absent",
     existing_checkout_origin: snapshot.checkout.originUrl ?? "absent",
     release_manifest_path: snapshot.release.manifestPath ?? "absent",
-    release_application_version: manifest?.application_version ?? "absent"
+    release_application_version: manifest?.application_version ?? "absent",
+    release_manifest_hash: manifest === null ? "absent" : createHash("sha256").update(stableStringify(manifest)).digest("hex")
   };
 }
 
@@ -306,11 +310,13 @@ function releaseRootFromManifestPath(stagingRoot: string, manifestPath: string |
   return path.join(stagingRoot, ...segments.slice(0, -1));
 }
 
-function hasDeployedReleaseProof(ctx: StageContext): boolean {
+function hasDeployedReleaseProof(ctx: StageContext, manifest: ApplicationManifestData | null): boolean {
   return (ctx.completedOperationReceipts ?? []).some(r => r.stageId === "S05"
     && ["application-checkout", "application-release"].includes(r.resourceId)
     && (r.versions.archive_sha256 ?? r.versions.release_archive_sha256_expected) === ctx.config.release.sha256
-    && (r.versions.source_commit ?? r.versions.release_expected_source_commit) === ctx.config.release.source_commit);
+    && (r.versions.source_commit ?? r.versions.release_expected_source_commit) === ctx.config.release.source_commit
+    && r.artifacts.includes(ctx.config.paths.application_dir)
+    && (r.versions.release_manifest_hash === undefined || (manifest !== null && r.versions.release_manifest_hash === createHash("sha256").update(stableStringify(manifest)).digest("hex"))));
 }
 
 export function createApplicationStage(adapter: ApplicationReleaseAdapter): StageModule {
@@ -328,6 +334,35 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
     };
   };
 
+  const checkDeployment = async (ctx: StageContext, current: RuntimeSnapshot): Promise<ApplicationManifestData> => {
+    validateBlockedSnapshot(current);
+    if (!hasDeployedReleaseProof(ctx, current.release.manifest)) throw setupError({ exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence, code: "s05_release_trust_evidence_missing",
+      publicMessage: "Executable probes require matching journal-bound reviewed deployment evidence.", nextAction: "Review a new S05 plan before running executable probes.", stage: "S05" });
+    if (!current.checkout.exists || current.checkout.deployedSourceCommit !== ctx.config.release.source_commit) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s05_deployed_commit_mismatch",
+      publicMessage: "The trusted deployment is absent or has a different commit.", nextAction: "Reconcile deployment ownership and release identity.", stage: "S05" });
+    const manifest = current.release.manifest!;
+    assertOfflineCommands(manifest, ctx.config);
+    let mismatches: string[];
+    try { mismatches = await adapter.verifyContentHashes(ctx.config.paths.application_dir, manifest.content_hashes); }
+    catch { mismatches = ["content-read-failed"]; }
+    if (mismatches.length > 0) throw setupError({ exitCode: ExitCode.SecurityBoundaryViolation, code: "s05_deployed_integrity_failed",
+      publicMessage: "Current deployment content is missing, unsafe, unreadable or differs from the reviewed release.", nextAction: "Restore reviewed content before invoking any application command.", stage: "S05", evidenceRef: ctx.config.paths.application_dir });
+    return manifest;
+  };
+  const checkedProbes = async (ctx: StageContext, current: RuntimeSnapshot) => {
+    const manifest = await checkDeployment(ctx, current);
+    let probes: Awaited<ReturnType<ApplicationReleaseAdapter["probeCommands"]>>;
+    try { probes = await adapter.probeCommands(ctx.config.paths.application_dir, manifest, ctx.config); }
+    catch (error) {
+      if (error instanceof SetupError) throw error;
+      throw setupError({ exitCode: ExitCode.OperationOrVerificationFailed, code: "s05_runner_probe_error",
+        publicMessage: "Integrity-checked offline command could not complete within its execution contract.", nextAction: "Inspect the reviewed command/runtime availability and bounded timeout result.", stage: "S05" });
+    }
+    if (!probes.runnerVerifyHelpOk || !probes.runnerStopHelpOk) throw setupError({ exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence, code: "s05_runner_probe_failed",
+      publicMessage: "Integrity-checked application failed mandatory offline command probes.", nextAction: "Repair the reviewed release's offline commands.", stage: "S05" });
+    return probes;
+  };
+
   return {
     id: "S05",
     dependencies: ["S04"],
@@ -337,14 +372,13 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
     async observe(ctx: StageContext): Promise<StageObservation> {
       const observedSnapshot = await snapshot(ctx.config);
       let runnable = false;
-      if (inferStatus(observedSnapshot) === "verified" && observedSnapshot.release.manifest !== null && hasDeployedReleaseProof(ctx)) {
-        const mismatches = await adapter.verifyContentHashes(ctx.config.paths.application_dir, observedSnapshot.release.manifest.content_hashes);
-        const probes = await adapter.probeCommands(ctx.config.paths.application_dir, observedSnapshot.release.manifest, ctx.config);
-        runnable = mismatches.length === 0 && probes.runnerVerifyHelpOk && probes.runnerStopHelpOk;
+      if (inferStatus(observedSnapshot) === "verified" && observedSnapshot.release.manifest !== null && hasDeployedReleaseProof(ctx, observedSnapshot.release.manifest)) {
+        await checkedProbes(ctx, observedSnapshot);
+        runnable = true;
       }
       const observation: StageObservation = {
         stageId: "S05",
-        status: inferStatus(observedSnapshot) === "verified" && !runnable ? (hasDeployedReleaseProof(ctx) ? "blocked" : "planned") : inferStatus(observedSnapshot),
+        status: inferStatus(observedSnapshot) === "verified" && !runnable ? (hasDeployedReleaseProof(ctx, observedSnapshot.release.manifest) ? "blocked" : "planned") : inferStatus(observedSnapshot),
         checks: { ...checksFromSnapshot(observedSnapshot), deployed_content_and_commands_verified: runnable },
         versions: versionsFromSnapshot(observedSnapshot),
         observedAt: new Date().toISOString()
@@ -498,6 +532,7 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
               content_hashes_verified: true
             },
             versions: {
+              release_manifest_hash: createHash("sha256").update(stableStringify(manifest)).digest("hex"),
               archive_sha256: config.release.sha256,
               source_commit: config.release.source_commit,
               application_version: manifest.application_version
@@ -540,6 +575,7 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
               checkout_materialized: true
             },
             versions: {
+              release_manifest_hash: createHash("sha256").update(stableStringify(manifest)).digest("hex"),
               archive_sha256: config.release.sha256,
               source_commit: config.release.source_commit,
               application_version: manifest.application_version
@@ -550,17 +586,8 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
         }
 
         if (operation.id.includes("probe-release")) {
-          const probes = await adapter.probeCommands(parsed.applicationDir, manifest, config);
-          if (!probes.runnerVerifyHelpOk || !probes.runnerStopHelpOk) {
-            throw setupError({
-              exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
-              code: "s05_runner_probe_failed",
-              publicMessage: "Required runner offline probes (--help) failed after deploy.",
-              nextAction: "Provide valid M0/M1 release with runnable runner_verify/runner_stop commands.",
-              stage: "S05",
-              evidenceRef: probes.details.join(";")
-            });
-          }
+          const probeContext = { ...ctx, completedOperationReceipts: [...(ctx.completedOperationReceipts ?? []), ...receipts] };
+          const probes = await checkedProbes(probeContext, await snapshot(config));
           receipts.push({
             operationId: operation.id,
             stageId: "S05",
@@ -571,6 +598,7 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
               runner_stop_help_ok: probes.runnerStopHelpOk
             },
             versions: {
+              release_manifest_hash: createHash("sha256").update(stableStringify(manifest)).digest("hex"),
               archive_sha256: config.release.sha256,
               source_commit: config.release.source_commit,
               application_version: manifest.application_version
@@ -602,6 +630,7 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
         ok = ok && current.checkout.deployedSourceCommit === ctx.config.release.source_commit
           && (await adapter.verifyContentHashes(ctx.config.paths.application_dir, manifest!.content_hashes)).length === 0;
       } else if (receipt.resourceId === "application-release") {
+        await checkDeployment(ctx, current);
         ok = ok && receipt.checks.runner_verify_help_ok === true && receipt.checks.runner_stop_help_ok === true
           && receipt.versions.archive_sha256 === ctx.config.release.sha256 && receipt.versions.source_commit === ctx.config.release.source_commit;
       } else ok = false;
@@ -620,17 +649,7 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
           stage: "S05"
         });
       }
-      if (!hasDeployedReleaseProof(ctx)) throw setupError({ exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence, code: "s05_release_trust_evidence_missing",
-        publicMessage: "Offline executable probes require a journal-bound reviewed deployment receipt.",
-        nextAction: "Review a fresh S05 plan and approve release gates before running probes.", stage: "S05" });
-      const manifest = observedSnapshot.release.manifest!;
-      const mismatches = await adapter.verifyContentHashes(ctx.config.paths.application_dir, manifest.content_hashes);
-      const probes = await adapter.probeCommands(ctx.config.paths.application_dir, manifest, ctx.config);
-      if (mismatches.length > 0 || !probes.runnerVerifyHelpOk || !probes.runnerStopHelpOk) {
-        throw setupError({ exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence, code: "s05_runner_probe_failed",
-          publicMessage: "Deployed release content or mandatory offline commands failed verification.",
-          nextAction: "Repair the reviewed release and rerun verification.", stage: "S05" });
-      }
+      await checkedProbes(ctx, observedSnapshot);
       return [
         {
           operationId: "s05-verify",

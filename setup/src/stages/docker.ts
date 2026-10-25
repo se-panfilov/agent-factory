@@ -83,7 +83,11 @@ function checksFromObservation(
     docker_daemon_config_symlink: observation.daemonConfig.isSymlink,
     docker_group_exists: observation.dockerGroup.exists,
     docker_group_current_user_member: observation.dockerGroup.currentUserInGroup,
+    docker_group_account_user_member: observation.dockerGroup.accountUserInGroup ?? observation.dockerGroup.currentUserInGroup,
     docker_relogin_required: observation.reloginRequired,
+    docker_workload_inspection: observation.workloads.inspection ?? "legacy-adapter-explicit-counts",
+    docker_socket_inspection_verified: observation.dockerSocket.inspectionVerified ?? true,
+    docker_tcp_inspection_verified: observation.tcpApi.inspectionVerified ?? true,
     docker_resource_cpu_count: observation.resources.cpuCount,
     docker_resource_memory_bytes: observation.resources.memoryBytes,
     docker_resource_pids_limit_supported: observation.resources.pidsLimitSupported,
@@ -253,7 +257,7 @@ function parsePlanPreconditions(plan: StagePlan): ParsedPlanPreconditions {
 
 function validateBlockedPreconditions(
   observation: DockerRuntimeObservation,
-  options: { allowUnmanagedInstalledTransition?: boolean } = {}
+  options: { allowUnmanagedInstalledTransition?: boolean; sessionPreparation?: boolean } = {}
 ): void {
   if (!observation.sudoAvailable) {
     throw setupError({
@@ -366,6 +370,20 @@ function validateBlockedPreconditions(
       evidenceRef: observation.workloads.foreignContainerIds.join(",")
     });
   }
+  if (observation.tcpApi.inspectionVerified === false || observation.dockerSocket.inspectionVerified === false) {
+    throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s04_boundary_inspection_unknown",
+      publicMessage: "Docker socket or TCP exposure inspection is unavailable.", nextAction: "Restore trustworthy read-only boundary inspection before changes.", stage: "S04" });
+  }
+  if (observation.dockerSocket.exists && observation.dockerSocket.uid !== 0) {
+    throw setupError({ exitCode: ExitCode.SecurityBoundaryViolation, code: "s04_socket_owner_unsafe",
+      publicMessage: "Docker socket is not owned by root.", nextAction: "Inspect socket ownership; automatic adoption is forbidden.", stage: "S04" });
+  }
+  const unknownWorkloads = observation.workloads.inspection !== undefined && observation.workloads.inspection !== "verified";
+  if (unknownWorkloads && (observation.dockerInstalled ? options.sessionPreparation !== true : observation.dockerSocket.exists)) {
+    throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s04_workloads_unknown",
+      publicMessage: "Docker workloads are unknown; configuration/restart cannot assume an empty daemon.", nextAction: "Observe workloads in an active owner session before daemon changes.", stage: "S04" });
+  }
+
 }
 
 function validateProbeResult(probe: DockerFixtureProbeResult): void {
@@ -407,6 +425,23 @@ function validateProbeResult(probe: DockerFixtureProbeResult): void {
       })
     });
   }
+}
+
+const SESSION_RESOURCES = new Set(["docker-daemon-log-config", "docker-daemon-service", "docker-fixture-probe", "docker-managed-installation"]);
+function assertOwnerRuntime(observed: DockerRuntimeObservation): void {
+  if (observed.daemonAccess === "malformed") throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s04_daemon_observation_malformed",
+    publicMessage: "Docker daemon observation is malformed.", nextAction: "Restore valid daemon/version evidence before effects.", stage: "S04" });
+  if (observed.reloginRequired || !observed.dockerGroup.currentUserInGroup) throw setupError({ exitCode: ExitCode.ManualActionRequired, code: "s04_relogin_required",
+    publicMessage: "The current process lacks active Docker group access.", nextAction: "Open a new owner login session, replan/review remaining operations and resume.", stage: "S04" });
+  if (observed.daemonAccess === "permission_denied") throw setupError({ exitCode: ExitCode.UnsupportedHostOrMissingPrivileges, code: "s04_owner_daemon_access_denied",
+    publicMessage: "The active owner session still cannot access the protected Docker daemon.", nextAction: "Inspect socket/group permissions without sudo docker, chmod 666 or root installer.", stage: "S04" });
+  if (!observed.daemonReachable) throw setupError({ exitCode: ExitCode.OperationOrVerificationFailed, code: "s04_daemon_unreachable",
+    publicMessage: "Docker daemon is unavailable in the active owner session.", nextAction: "Inspect daemon health; this is not a relogin acknowledgement.", stage: "S04" });
+  if (!observed.apiCompatible) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s04_client_daemon_incompatible",
+    publicMessage: "Docker API/version evidence is incompatible or malformed.", nextAction: "Reconcile Docker API/version evidence before changes.", stage: "S04" });
+  if (observed.firewallBackend !== "iptables") throw setupError({ exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence, code: "s04_firewall_backend_unsupported",
+    publicMessage: "Daemon firewall backend evidence is missing or unsupported.", nextAction: "Verify the reviewed iptables backend before daemon changes.", stage: "S04" });
+
 }
 
 function completedResources(ctx: StageContext, observation: DockerRuntimeObservation): string[] {
@@ -468,6 +503,14 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
         candidatePins.push({ name: packageName, version: candidate });
       }
 
+      const completed = String(observed.checks.s04_completed_resources ?? "").split(",");
+      if (completed.includes("docker-group-membership") && observed.checks.docker_group_current_user_member !== true) {
+        if (observed.checks.docker_group_account_user_member !== true) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s04_group_membership_drift",
+          publicMessage: "Previously confirmed Docker account membership is no longer present.", nextAction: "Reconcile group ownership and account membership before resuming.", stage: "S04" });
+        throw setupError({ exitCode: ExitCode.ManualActionRequired, code: "s04_relogin_required",
+          publicMessage: "Completed group update is not active in this process session.", nextAction: "Open a new owner login session, then generate/review the remaining plan and resume.", stage: "S04" });
+      }
+
       if (observed.status === "verified") {
         return {
           stageId: "S04",
@@ -502,6 +545,18 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
           retryable: false
         },
         {
+          id: operationId("docker-group-membership", observationHash),
+          stageId: "S04",
+          kind: "mutate",
+          resourceId: "docker-group-membership",
+          risk: "critical",
+          gateIds: ["s04-docker-group-root-equivalent-ack"],
+          preconditions,
+          sideEffects: ["add owner user to docker group (root-equivalent)"],
+          timeoutSec: 120,
+          retryable: false
+        },
+        {
           id: operationId("daemon-log-config-merge", observationHash),
           stageId: "S04",
           kind: "mutate",
@@ -523,18 +578,6 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
           preconditions,
           sideEffects: ["validate and restart Docker daemon"],
           timeoutSec: 180,
-          retryable: false
-        },
-        {
-          id: operationId("docker-group-membership", observationHash),
-          stageId: "S04",
-          kind: "mutate",
-          resourceId: "docker-group-membership",
-          risk: "critical",
-          gateIds: ["s04-docker-group-root-equivalent-ack"],
-          preconditions,
-          sideEffects: ["add owner user to docker group (root-equivalent)"],
-          timeoutSec: 120,
           retryable: false
         },
         {
@@ -573,12 +616,10 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
     },
     async admitOperation(ctx, operation) {
       const observation = await dockerAdapter.observe(ctx);
-      validateBlockedPreconditions(observation, { allowUnmanagedInstalledTransition: completedResources(ctx, observation).includes("docker-package-set") });
-      if (operation.resourceId === "docker-fixture-probe" && (observation.reloginRequired || !observation.dockerGroup.currentUserInGroup)) {
-        throw setupError({ exitCode: ExitCode.ManualActionRequired, code: "s04_relogin_required",
-          publicMessage: "Docker group account membership is recorded but not active in this process.",
-          nextAction: "Open a new owner login session and resume.", stage: "S04" });
-      }
+      const owned = completedResources(ctx, observation).includes("docker-package-set");
+      if (SESSION_RESOURCES.has(operation.resourceId)) assertOwnerRuntime(observation);
+      validateBlockedPreconditions(observation, { allowUnmanagedInstalledTransition: owned,
+        sessionPreparation: operation.resourceId === "docker-group-membership" && owned });
     },
     async apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]> {
       let observation = await dockerAdapter.observe(ctx);
@@ -591,7 +632,8 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
       const currentOperation = approvedPlan.operations[0]!;
       const currentOperationId = currentOperation.id;
       const allowUnmanagedInstalledTransition = completedResources(ctx, observation).includes("docker-package-set");
-      validateBlockedPreconditions(observation, { allowUnmanagedInstalledTransition });
+      validateBlockedPreconditions(observation, { allowUnmanagedInstalledTransition,
+        sessionPreparation: currentOperation.resourceId === "docker-group-membership" && allowUnmanagedInstalledTransition });
 
       const plannedPins = plannedPinsFromObservation(observation);
       if (currentOperationId.startsWith("s04-install-packages-")) {
@@ -636,8 +678,12 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
       ctx = { ...ctx, completedOperationReceipts: [...(ctx.completedOperationReceipts ?? [])] };
       const receipts: StageReceipt[] = [];
       for (const operation of approvedPlan.operations) {
+        if (SESSION_RESOURCES.has(operation.resourceId)) {
+          observation = await dockerAdapter.observe(ctx); assertOwnerRuntime(observation);
+          validateBlockedPreconditions(observation, { allowUnmanagedInstalledTransition: completedResources(ctx, observation).includes("docker-package-set") });
+        }
         if (operation.id.includes("install-packages")) {
-          await dockerAdapter.installPinnedPackages(plannedPins);
+          if (!(observation.managedByInstaller && pinsMatchInstalled(observation, plannedPins))) await dockerAdapter.installPinnedPackages(plannedPins);
         } else if (operation.id.includes("daemon-log-config-merge")) {
           await dockerAdapter.mergeOwnedDaemonLogConfig(DEFAULT_LOG_CONFIG);
         } else if (operation.id.includes("daemon-validate-restart")) {
@@ -712,7 +758,8 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
     },
     async verifyOperation(ctx, receipt) {
       const observed = await dockerAdapter.observe(ctx);
-      validateBlockedPreconditions(observed, { allowUnmanagedInstalledTransition: receipt.resourceId === "docker-package-set" || completedResources(ctx, observed).includes("docker-package-set") });
+      validateBlockedPreconditions(observed, { allowUnmanagedInstalledTransition: receipt.resourceId === "docker-package-set" || completedResources(ctx, observed).includes("docker-package-set"),
+        sessionPreparation: receipt.resourceId === "docker-package-set" || receipt.resourceId === "docker-group-membership" });
       let ok = false;
       if (receipt.resourceId === "docker-package-set") ok = pinsMatchInstalled(observed, plannedPinsFromObservation(observed));
       if (receipt.resourceId === "docker-daemon-log-config") ok = observed.daemonConfig.contentHash === receipt.versions.docker_daemon_config_hash;

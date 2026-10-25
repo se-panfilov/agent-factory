@@ -680,10 +680,48 @@ async function readBooleanMarker(fsAdapter: FilesystemAdapter, filePath: string)
   return value === "1" || value === "true" || value === "yes" || value === "ok";
 }
 
+const STANDARD_SSH_INCLUDE = "/etc/ssh/sshd_config.d/*.conf";
+function includeUnsupported(file: string): never {
+  throw setupError({ exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence, code: "s03_include_unsupported",
+    publicMessage: "SSH Include is outside the supported global standard Ubuntu layout.",
+    nextAction: "Support is limited to one global Include /etc/ssh/sshd_config.d/*.conf in the main file; nested/conditional/relative/other patterns and multiple paths require separate reviewed support.", stage: "S03", evidenceRef: file });
+}
+/** Deliberately limited policy B: never infer an incomplete Include graph. */
+function inspectSshIncludes(file: string, text: string): boolean {
+  let inMatch = false, included = false;
+  for (const line of text.split(/\r?\n/)) {
+    const directive = /^\s*([a-z][a-z0-9]*)(?=[\s=#]|$)(.*)$/i.exec(line);
+    if (directive === null) {
+      if (/^\s*["']?include(?:[^a-z0-9]|$)/i.test(line)) includeUnsupported(file);
+      continue;
+    }
+    const key = directive[1]!.toLowerCase();
+    if (key === "match") inMatch = true;
+    if (key !== "include") continue;
+    if (file !== "/etc/ssh/sshd_config" || inMatch || included) includeUnsupported(file);
+    const args = directive[2]!, tokens: string[] = [];
+    let token = "", quote = "", started = false;
+    for (let i = 0; i < args.length; i++) {
+      const ch = args[i]!;
+      if (ch === "\\" || ch === "=" || ch === "\0") includeUnsupported(file);
+      if (quote !== "") { if (ch === quote) quote = ""; else token += ch; started = true; continue; }
+      if (ch === "#" && (i === 0 || /\s/.test(args[i - 1]!))) break;
+      if (ch === '"' || ch === "'") { quote = ch; started = true; continue; }
+      if (/\s/.test(ch)) { if (started) { tokens.push(token); token = ""; started = false; } }
+      else { token += ch; started = true; }
+    }
+    if (quote !== "") includeUnsupported(file);
+    if (started) tokens.push(token);
+    if (tokens.length !== 1 || tokens[0] !== STANDARD_SSH_INCLUDE) includeUnsupported(file);
+    included = true;
+  }
+  return included;
+}
+
 /** Bounded raw inputs plus ownership proof; injected FS only, no privileged commands. */
 export async function observeAccessInputProof(fsAdapter: FilesystemAdapter, ownerUid: number, manualRoot: string): Promise<AccessRuntimeObservation["securityInputs"]> {
   const content: Array<[string, string]> = [], ownership: Array<[string, number, number, number, string]> = [];
-  let totalBytes = 0;
+  let totalBytes = 0, mainHasInclude = false;
   async function inspect(file: string, expectedUid: number, required = false, expectedType: "file" | "directory" = "file"): Promise<boolean> {
     let stat: Awaited<ReturnType<FilesystemAdapter["lstat"]>>;
     try { stat = await fsAdapter.lstat(file); }
@@ -705,16 +743,32 @@ export async function observeAccessInputProof(fsAdapter: FilesystemAdapter, owne
       totalBytes += read.bytesRead;
       if (read.truncated || totalBytes > 2 * 1024 * 1024) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s03_security_input_oversized",
         publicMessage: "Access inputs exceed the bounded review limit.", nextAction: "Review access input inventory and regenerate a bounded plan.", stage: "S03", evidenceRef: file });
+      if (file === "/etc/ssh/sshd_config" || file.startsWith("/etc/ssh/sshd_config.d/")) {
+        if (read.text.includes("\0") || read.text.includes("\ufffd")) throw setupError({ exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence, code: "s03_security_input_encoding_unsupported",
+          publicMessage: "SSH input encoding is outside the supported text policy.", nextAction: "Provide UTF-8 SSH configuration without NUL/replacement characters before review.", stage: "S03", evidenceRef: file });
+      }
       content.push([file, stableHash(read.text)]);
+      if (file === "/etc/ssh/sshd_config" || file.startsWith("/etc/ssh/sshd_config.d/")) {
+        const included = inspectSshIncludes(file, read.text);
+        if (file === "/etc/ssh/sshd_config") mainHasInclude = included;
+      }
     }
     return stat.isDirectory();
   }
+  await inspect("/etc", 0, true, "directory");
+  await inspect("/etc/ssh", 0, true, "directory");
   await inspect("/etc/ssh/sshd_config", 0, true);
-  if (await inspect("/etc/ssh/sshd_config.d", 0, false, "directory")) {
-    const entries = (await fsAdapter.readdir("/etc/ssh/sshd_config.d")).sort();
+  if (await inspect("/etc/ssh/sshd_config.d", 0, mainHasInclude, "directory")) {
+    let entries: string[];
+    try { entries = (await fsAdapter.readdir("/etc/ssh/sshd_config.d")).sort(); }
+    catch { throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s03_security_input_unreadable",
+      publicMessage: "SSH include directory cannot be inspected.", nextAction: "Restore trustworthy directory read access without automatic permission changes.", stage: "S03", evidenceRef: "/etc/ssh/sshd_config.d" }); }
     if (entries.length > 64 || entries.some(name => name !== path.basename(name) || name === "." || name === "..")) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s03_security_input_inventory_unsafe",
       publicMessage: "SSH include inventory is outside review bounds.", nextAction: "Review SSH includes before planning cutover.", stage: "S03" });
-    for (const name of entries) await inspect(path.join("/etc/ssh/sshd_config.d", name), 0, true);
+    const matches = entries.filter(name => name.endsWith(".conf"));
+    content.push([STANDARD_SSH_INCLUDE, stableHash(matches)]);
+    // Read every accepted drop-in, including Match bodies, without recursion.
+    for (const name of matches) await inspect(path.join("/etc/ssh/sshd_config.d", name), 0, true);
   }
   for (const file of ["/etc/default/ufw", "/etc/ufw/ufw.conf", "/etc/ufw/user.rules", "/etc/ufw/user6.rules", "/etc/ufw/before.rules", "/etc/ufw/before6.rules", "/etc/ufw/after.rules", "/etc/ufw/after6.rules", "/etc/systemd/system/access-rollback.timer", "/etc/systemd/system/access-rollback.service"]) await inspect(file, 0);
   if (await inspect(manualRoot, ownerUid, false, "directory")) for (const name of Object.values(MANUAL_EVIDENCE_FILES)) await inspect(path.join(manualRoot, name), ownerUid);
