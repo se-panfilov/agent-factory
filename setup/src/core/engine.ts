@@ -30,6 +30,7 @@ import { setupError, toSetupError } from "./errors";
 import { approveGate, ensureGateApproved, ensureNonInteractiveGates, expireGates, upsertPlanGates } from "./gates";
 import { acquireLock, consumeCancelRequest, recoverLockOnly, requestCancel, type LockOwner } from "./lock";
 import { assertPlanTime, buildStageClosure, createPlanFile, createRegistry, loadPlan, validatePlanConsistency, type StageRegistry } from "./plan";
+import { carryOperationProgress, restoreOperationProgress } from "./progress";
 import { assertCompletionPolicy, assertContinuingPolicy, assertProducerPolicy, policyFingerprint, readPolicyBasis, withPolicyBasis, type PolicyBasis } from "./policy";
 import {
   appendEvent,
@@ -1022,21 +1023,31 @@ export class SetupEngine {
         });
       }
       const stageId = options.stageId ?? null;
-      for (const id of buildStageClosure(this.registry,stageId===null?config.selected_stages:[stageId])) readPolicyBasis(state,this.registry.byId.get(id)!);
-      result = await createPlanFile(this.deps.fsAdapter, config, this.registry, stageId, this.deps.clock,
-        (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations?.filter(e => e.config_hash === hashConfig(config)).map(e => e.receipt) ?? []);
+      const progressContexts = new Map<StageId, StageContext>();
+      const admittedBases = new Map<StageId, PolicyBasis | null>();
+      const boundReceipts = (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations
+        ?.filter(entry => entry.config_hash === hashConfig(config)).map(entry => entry.receipt) ?? [];
+      for (const id of buildStageClosure(this.registry, stageId === null ? config.selected_stages : [stageId])) {
+        const stage = this.registry.byId.get(id)!;
+        const ctx = { ...this.stageContext(config, hashConfig(config), "planning"), completedOperationReceipts: boundReceipts };
+        const previous = await restoreOperationProgress(this.deps.fsAdapter, stage, ctx, readPolicyBasis(state, stage));
+        progressContexts.set(id, ctx);
+        admittedBases.set(id, previous);
+      }
+      result = await createPlanFile(this.deps.fsAdapter, config, this.registry, stageId, this.deps.clock, boundReceipts, progressContexts);
       state = expireGates(state, this.deps.clock);
       for (const stagePlan of result.plan.stages) {
         const stage = this.registry.byId.get(stagePlan.stage_id)!;
-        const ctx = this.stageContext(config, result.plan.desired_hash, result.plan.plan_hash);
+        const ctx = { ...progressContexts.get(stage.id)!, ...this.stageContext(config, result.plan.desired_hash, result.plan.plan_hash) };
         ctx.completedOperationReceipts = (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations?.filter(e => e.config_hash === hashConfig(config)).map(e => e.receipt) ?? [];
         const observed = await this.policyObservation(stage, ctx);
         const source = result.observations.get(stage.id)!;
         assertProducerPolicy(stage, config, stagePlan, source);
-        const previous = readPolicyBasis(state,stage);
-        const completed: string[] = [];
+        const previous = admittedBases.get(stage.id) ?? null;
+        const carried = stage.verifyProgress && previous ? carryOperationProgress(stage, ctx, previous, source) : undefined;
+        const completed: string[] = carried?.map(entry => entry.currentId) ?? [];
         const prior = previous?.configHash === hashConfig(config) ? stage.plan(config,previous.source) : null;
-        for (const operation of stage.plan(config,source).operations) {
+        for (const operation of carried === undefined ? stage.plan(config,source).operations : []) {
           const old = prior?.operations.find(o=>o.id===operation.id);
           const receipt = ctx.completedOperationReceipts.find(r=>r.operationId===operation.id && r.stageId===stage.id && r.resourceId===operation.resourceId);
           const samePolicy = previous === null || (old !== undefined && previous.completed.includes(operation.id) && stableStringify(old)===stableStringify(operation));
@@ -1052,8 +1063,8 @@ export class SetupEngine {
             // Unknown journal outcomes were already rejected by ordinary evidence admission.
           }
         }
-        state = withPolicyBasis(state, stage, {version:1,planHash:result.plan.plan_hash,configHash:hashConfig(config),source,
-          expected:policyFingerprint(stage, config, observed),completed});
+        state = withPolicyBasis(state, stage, {version:stage.verifyProgress ? 2 : 1,planHash:result.plan.plan_hash,configHash:hashConfig(config),source,
+          expected:policyFingerprint(stage, config, observed),completed, ...(stage.verifyProgress ? {progress:carried ?? []} : {})});
         for (const gateId of stagePlan.required_gates) {
           state = upsertPlanGates(
             state,
@@ -1131,14 +1142,14 @@ export class SetupEngine {
         const stage = this.registry.byId.get(proposed.stage_id)!;
         const ctx = this.stageContext(config, plan.desired_hash, plan.plan_hash);
         ctx.completedOperationReceipts = (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations?.filter(e => e.config_hash === hashConfig(config)).map(e => e.receipt) ?? [];
-        const existing = readPolicyBasis(state, stage);
+        const existing = await restoreOperationProgress(this.deps.fsAdapter, stage, ctx, readPolicyBasis(state, stage));
         if (existing===null && proposed.operations.length>0 && ctx.completedOperationReceipts.some(r=>r.stageId===stage.id)) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,
           code:"legacy_policy_review_required",publicMessage:"Legacy known progress needs an explicit current producer review before further actions.",nextAction:"Generate/review a plan; matching committed operations will be reverified rather than replayed.",stage:stage.id});
         const observed = await this.policyObservation(stage, ctx);
         const basis: PolicyBasis = existing ?? {version:1,planHash:plan.plan_hash,configHash:hashConfig(config),source:observed,expected:policyFingerprint(stage, config, observed),completed:[]};
         assertProducerPolicy(stage, config, proposed, basis.source);
         if (basis.planHash !== plan.plan_hash || basis.configHash !== hashConfig(config)) reviewMismatch = true;
-        if (basis.completed.some(id => !proposed.operations.some(o => o.id === id))) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_progress_invalid",publicMessage:"Committed progress is outside the reviewed operation sequence.",nextAction:"Preserve state and reconcile progress."});
+        if (!stage.verifyProgress && basis.completed.some(id => !proposed.operations.some(o => o.id === id))) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_progress_invalid",publicMessage:"Committed progress is outside the reviewed operation sequence.",nextAction:"Preserve state and reconcile progress."});
         const first = proposed.operations.find(o => !basis.completed.includes(o.id));
         if (first) await stage.admitOperation?.(ctx, {id:first.id,resourceId:first.resource_id,preconditions:first.preconditions});
         if (policyFingerprint(stage, config, observed)!==basis.expected) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_observation_drift",publicMessage:"Significant producer policy inputs changed since review or verified progress.",nextAction:"Generate/review a new plan; no new operation was admitted.",stage:stage.id});
@@ -1164,6 +1175,7 @@ export class SetupEngine {
         await this.consumeCancelOrThrow(config, lock.owner);
         const stageCtx = this.stageContext(config, plan.desired_hash, plan.plan_hash);
         stageCtx.completedOperationReceipts = (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations?.filter(e => e.config_hash === hashConfig(config)).map(e => e.receipt) ?? [];
+        await restoreOperationProgress(this.deps.fsAdapter, stage, stageCtx, policies.get(stage.id)!);
         const observation = await stage.observe(stageCtx);
         if (
           state.stages.some(
@@ -1277,9 +1289,18 @@ export class SetupEngine {
               message: `verify:postconditions:${receipt.resourceId}:${receiptHash(receipt)}`,
               attempt_id: attemptId
             });
-            const progressCtx = {...stageCtx,completedOperationReceipts:[...(stageCtx.completedOperationReceipts ?? []),receipt]};
+            const canonical = stage.progressPolicyPlan?.(config, basis.source) ?? stage.plan(config, basis.source);
+            const completedIds = [...basis.completed, operation.id];
+            const progressCtx: StageContext = { ...stageCtx, completedOperationReceipts: [...(stageCtx.completedOperationReceipts ?? []), receipt] };
+            if (stage.verifyProgress) progressCtx.operationProgress = {
+              completed: canonical.operations.filter(item => completedIds.includes(item.id)), total: canonical.operations.length
+            };
             const confirmed = await this.policyObservation(stage, progressCtx);
-            basis = {...basis,expected:policyFingerprint(stage, config, confirmed),completed:[...basis.completed,operation.id]};
+            const publication = canonical.operations.find(item => item.id === operation.id)!;
+            basis = { ...basis, expected: policyFingerprint(stage, config, confirmed), completed: completedIds,
+              ...(stage.verifyProgress ? { version: 2, progress: [...(basis.progress ?? []), {
+                currentId: operation.id, operation: publication, attemptId, receiptHash: receiptHash(receipt)
+              }] } : {}) };
             policies.set(stage.id, basis);
             state = withPolicyBasis(state, stage, basis);
             state = withInFlightOperation(state, null);
@@ -1303,6 +1324,7 @@ export class SetupEngine {
             });
             persistFailure = false;
             stageCtx.previousOperationReceipt = receipt;
+            if (progressCtx.operationProgress) stageCtx.operationProgress = progressCtx.operationProgress;
             stageCtx.completedOperationReceipts = [...(stageCtx.completedOperationReceipts ?? []), receipt];
             if (receipt.checks.manual_pause_required === true) {
               state = updateObservedStage(state, { stageId: stagePlan.stage_id, status: "awaiting_manual", checks: receipt.checks,

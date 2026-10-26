@@ -1,0 +1,18 @@
+[
+  {
+    "path": "audit/copilot-q1a-r2-1-1-task.ru.md",
+    "sha256": "edb6a834a8927cb2638fa0a6264183c21db6bc942e16cfe82d17201b96db0a63"
+  },
+  {
+    "path": "audit/evidence/agent-factory-r21-review-evidence-d8728f5.zip",
+    "sha256": "7a4de11b9eb4420dc4b0b29d5acb950cd2f3ad0ac9a8d825fefc2bc0184c88e2"
+  },
+  {
+    "path": "audit/evidence/agent-factory-r21-review-evidence-d8728f5.zip.sha256",
+    "sha256": "2699472c07f1a292d89d9aa82d81c36d928a15975f02554fca72b9222ace3f93"
+  },
+  {
+    "path": "audit/reviews/agent-factory-r21-audit-d8728f5.ru.md",
+    "sha256": "c7d661e891a63d1dfaff7dd7bf5002fecd56aee07b09c18f6f8c90fb075902e7"
+  }
+]

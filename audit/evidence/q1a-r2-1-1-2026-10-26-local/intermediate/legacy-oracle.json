@@ -1,0 +1,204 @@
+{
+  "expectation": "fixed",
+  "cases": 13,
+  "product_pass": 13,
+  "product_fail": 0,
+  "failures": [],
+  "rows": [
+    {
+      "id": "S03-none-control",
+      "desired_product_pass": true,
+      "exit": 0,
+      "error": null,
+      "counts": {
+        "install": 1,
+        "stage": 1,
+        "arm": 1,
+        "cutover": 1,
+        "tailnet": 1,
+        "disarm": 1,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-install-resume",
+      "desired_product_pass": true,
+      "exit": 0,
+      "error": null,
+      "counts": {
+        "install": 1,
+        "stage": 1,
+        "arm": 1,
+        "cutover": 1,
+        "tailnet": 1,
+        "disarm": 1,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-install-replan",
+      "desired_product_pass": true,
+      "exit": 0,
+      "error": null,
+      "counts": {
+        "install": 1,
+        "stage": 1,
+        "arm": 1,
+        "cutover": 1,
+        "tailnet": 1,
+        "disarm": 1,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-stage-resume",
+      "desired_product_pass": true,
+      "exit": 0,
+      "error": null,
+      "counts": {
+        "install": 1,
+        "stage": 1,
+        "arm": 1,
+        "cutover": 1,
+        "tailnet": 1,
+        "disarm": 1,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-stage-replan",
+      "desired_product_pass": true,
+      "exit": 0,
+      "error": null,
+      "counts": {
+        "install": 1,
+        "stage": 1,
+        "arm": 1,
+        "cutover": 1,
+        "tailnet": 1,
+        "disarm": 1,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-arm-resume",
+      "desired_product_pass": true,
+      "exit": 0,
+      "error": null,
+      "counts": {
+        "install": 1,
+        "stage": 1,
+        "arm": 1,
+        "cutover": 1,
+        "tailnet": 1,
+        "disarm": 1,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-arm-replan",
+      "desired_product_pass": true,
+      "exit": 0,
+      "error": null,
+      "counts": {
+        "install": 1,
+        "stage": 1,
+        "arm": 1,
+        "cutover": 1,
+        "tailnet": 1,
+        "disarm": 1,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-cutover-resume",
+      "desired_product_pass": true,
+      "exit": 0,
+      "error": null,
+      "counts": {
+        "install": 1,
+        "stage": 1,
+        "arm": 1,
+        "cutover": 1,
+        "tailnet": 1,
+        "disarm": 1,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-cutover-replan",
+      "desired_product_pass": true,
+      "exit": 0,
+      "error": null,
+      "counts": {
+        "install": 1,
+        "stage": 1,
+        "arm": 1,
+        "cutover": 1,
+        "tailnet": 1,
+        "disarm": 1,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-tailnet-resume",
+      "desired_product_pass": true,
+      "exit": 0,
+      "error": null,
+      "counts": {
+        "install": 1,
+        "stage": 1,
+        "arm": 1,
+        "cutover": 1,
+        "tailnet": 1,
+        "disarm": 1,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-tailnet-replan",
+      "desired_product_pass": true,
+      "exit": 0,
+      "error": null,
+      "counts": {
+        "install": 1,
+        "stage": 1,
+        "arm": 1,
+        "cutover": 1,
+        "tailnet": 1,
+        "disarm": 1,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-disarm-resume",
+      "desired_product_pass": true,
+      "exit": 0,
+      "error": null,
+      "counts": {
+        "install": 1,
+        "stage": 1,
+        "arm": 1,
+        "cutover": 1,
+        "tailnet": 1,
+        "disarm": 1,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-disarm-replan",
+      "desired_product_pass": true,
+      "exit": 0,
+      "error": null,
+      "counts": {
+        "install": 1,
+        "stage": 1,
+        "arm": 1,
+        "cutover": 1,
+        "tailnet": 1,
+        "disarm": 1,
+        "rollback": 0
+      }
+    }
+  ]
+}

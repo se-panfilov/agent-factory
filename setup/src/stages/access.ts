@@ -74,6 +74,8 @@ export interface AccessAdapter {
   validateSshdCandidate(ctx: StageContext): Promise<void>;
   stageManagedCutover(ctx: StageContext, managedHash: string): Promise<void>;
   armRollbackTimer(ctx: StageContext, minutes: number): Promise<void>;
+  /** Read-only proof of the staged, reviewed target bytes; optional adapters may only preserve current hashes. */
+  stagedContentProof?(ctx: StageContext): Promise<{ contentHash: string; sshConfigHash: string; firewallRulesHash: string }>;
   applyCutover(ctx: StageContext): Promise<void>;
   verifyPrivateTailnetAccess(ctx: StageContext): Promise<boolean>;
   disarmRollbackTimer(ctx: StageContext): Promise<void>;
@@ -122,6 +124,18 @@ function versionsFromObservation(observation: AccessRuntimeObservation): Record<
     ufw_rules_hash: observation.firewall.rulesHash,
     ufw_manager: observation.firewall.manager
   };
+}
+
+function cutoverContent(observation: AccessRuntimeObservation) {
+  return { contentHash: observation.securityInputs.contentHash, sshConfigHash: observation.ssh.configHash,
+    firewallRulesHash: observation.firewall.rulesHash };
+}
+
+function cutoverInvariants(observation: AccessRuntimeObservation): string {
+  return JSON.stringify({ ownership: observation.securityInputs.ownershipHash, manual: observation.manual,
+    diff: observation.diff, candidate: observation.tailscale.candidateVersion,
+    installed: observation.tailscale.installedVersion, login: observation.tailscale.loginState,
+    templates: [observation.rollback.timerTemplatePresent, observation.rollback.serviceTemplatePresent] });
 }
 
 function inferStatus(observation: AccessRuntimeObservation): StageObservation["status"] {
@@ -251,10 +265,13 @@ function verifyRollbackReadiness(observation: AccessRuntimeObservation): void {
   }
 }
 
-export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
-  let lastObservation: StageObservation | null = null;
+function hasPartialSequence(ctx: StageContext): boolean {
+  const progress = ctx.operationProgress;
+  return progress !== undefined && progress.completed.length > 0 && progress.completed.length < progress.total;
+}
 
-  return {
+export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
+  const stage: StageModule = {
     id: "S03",
     dependencies: ["S02"],
     supportedProfiles: ["supervised", "service"],
@@ -264,12 +281,11 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
       const runtimeObservation = await accessAdapter.observe(ctx);
       const observation: StageObservation = {
         stageId: "S03",
-        status: inferStatus(runtimeObservation),
-        checks: checksFromObservation(runtimeObservation),
+        status: hasPartialSequence(ctx) ? "planned" : inferStatus(runtimeObservation),
+        checks: { ...checksFromObservation(runtimeObservation), ...(hasPartialSequence(ctx) ? { s03_sequence_pending: true } : {}) },
         versions: versionsFromObservation(runtimeObservation),
         observedAt: new Date().toISOString()
       };
-      lastObservation = observation;
       return observation;
     },
     reconcilePolicyOperation(ctx, reviewed, current) {
@@ -295,10 +311,8 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
         });
       }
 
-      const observationHash = stableHash({
-        checks: observed.checks,
-        versions: observed.versions
-      });
+      const { s03_sequence_pending: _coreProgress, ...reviewedChecks } = observed.checks;
+      const observationHash = stableHash({ checks: reviewedChecks, versions: observed.versions });
       const preconditions = operationPreconditions(
         {
           securityInputs: { contentHash: String(observed.checks.security_input_content_hash ?? "missing"), ownershipHash: String(observed.checks.security_input_ownership_hash ?? "missing") },
@@ -440,6 +454,32 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
         requiredGates: [...new Set(operations.flatMap((operation) => operation.gateIds))]
       };
     },
+    progressPolicyPlan(desired, source) {
+      return stage.plan(desired, { ...source, status: "planned" });
+    },
+    async verifyProgress(ctx, source) {
+      const previous = ctx.previousOperationReceipt;
+      if (!previous || !ctx.operationProgress || ctx.operationProgress.completed.length === 0) {
+        throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s03_predecessor_missing",
+          publicMessage: "Access continuation requires the exact published predecessor.", nextAction: "Preserve and reconcile checkpoint evidence.", stage: "S03" });
+      }
+      await stage.verifyOperation!(ctx, previous);
+      const current = await accessAdapter.observe(ctx);
+      verifyManualReadiness(current);
+      verifyRollbackReadiness(current);
+      const checks = checksFromObservation(current);
+      const immutable = ["security_input_ownership_hash", "provider_console_confirmed", "second_session_validated", "second_session_has_sudo",
+        "tailscale_login_confirmed", "cutover_ack_confirmed", "rollback_timer_template_present", "rollback_service_template_present",
+        "sshd_diff_preview", "firewall_diff_preview"];
+      const sameInputs = immutable.every(key => checks[key] === source.checks[key]);
+      const samePin = current.tailscale.candidateVersion === source.versions.tailscale_candidate
+        && current.tailscale.installedVersion === current.tailscale.candidateVersion;
+      if (!sameInputs || !samePin) {
+        throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s03_progress_input_drift",
+          publicMessage: "Access ownership, manual readiness, reviewed diff or package pin changed after published progress.",
+          nextAction: "Reconcile the external drift before reviewing a separate action.", stage: "S03" });
+      }
+    },
     async admitOperation(ctx, operation) {
       const observation = await accessAdapter.observe(ctx);
       verifyRollbackReadiness(observation); verifyManualReadiness(observation);
@@ -499,16 +539,27 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
           nextAction: "Review current SSH/firewall inputs and approve a new plan.", stage: "S03" });
       }
       const receipts: StageReceipt[] = [];
+      let targetProof = ctx.previousOperationReceipt?.versions.s03_staged_content_proof;
       let rollbackPrepared = observation.rollback.armed;
       let cutoverApplied = false;
       try {
         for (const operation of approvedPlan.operations) {
           const beforeInputs = checksFromObservation(observation).reviewed_inputs_hash;
+          const beforeCutover = observation;
           if (operation.id.startsWith("s03-install-tailscale-")) {
             await accessAdapter.installPinnedTailscale(planPreconditions.tailscalePin);
           } else if (operation.id.startsWith("s03-stage-sshd-firewall-")) {
             await accessAdapter.stageManagedCutover(ctx, planPreconditions.observationHash);
             await accessAdapter.validateSshdCandidate(ctx);
+            if (accessAdapter.stagedContentProof) {
+              const proof = await accessAdapter.stagedContentProof(ctx);
+              if (Object.keys(proof).sort().join(",") !== "contentHash,firewallRulesHash,sshConfigHash"
+                || Object.values(proof).some(value => !/^[0-9a-f]{64}$/.test(value))) {
+                throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s03_staged_proof_invalid",
+                  publicMessage: "Staged cutover content proof is invalid.", nextAction: "Preserve and review staged bytes.", stage: "S03" });
+              }
+              targetProof = JSON.stringify({ contentHash: proof.contentHash, sshConfigHash: proof.sshConfigHash, firewallRulesHash: proof.firewallRulesHash });
+            }
           } else if (operation.id.startsWith("s03-disarm-rollback-")) {
             observation = await accessAdapter.observe(ctx);
             if (!observation.manual.cutoverAckConfirmed) {
@@ -562,7 +613,15 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
           }
 
           observation = await accessAdapter.observe(ctx);
-          if (!operation.id.startsWith("s03-cutover-") && checksFromObservation(observation).reviewed_inputs_hash !== beforeInputs) {
+          if (operation.id.startsWith("s03-cutover-")) {
+            const actual = cutoverContent(observation);
+            const expected = targetProof ?? JSON.stringify(cutoverContent(beforeCutover));
+            if (JSON.stringify(actual) !== expected || cutoverInvariants(beforeCutover) !== cutoverInvariants(observation)) {
+              throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s03_cutover_postcondition_unproven",
+                publicMessage: "Cutover changed inputs beyond the confirmed staged target.",
+                nextAction: "Preserve rollback evidence and review external changes.", stage: "S03" });
+            }
+          } else if (checksFromObservation(observation).reviewed_inputs_hash !== beforeInputs) {
             throw setupError({ exitCode: ExitCode.ManualActionRequired, code: "s03_observation_drifted",
               publicMessage: "SSH/firewall review inputs changed during an operation that cannot change them.",
               nextAction: "Review inputs and approve a new access plan.", stage: "S03" });
@@ -573,7 +632,7 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
             resourceId: operation.resourceId,
             observedAt: new Date().toISOString(),
             checks: { ...checksFromObservation(observation), s03_postcondition_hash: stableHash({ checks: checksFromObservation(observation), versions: versionsFromObservation(observation) }) },
-            versions: versionsFromObservation(observation),
+            versions: { ...versionsFromObservation(observation), ...(targetProof ? { s03_staged_content_proof: targetProof } : {}) },
             artifacts: []
           });
         }
@@ -661,6 +720,7 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
       return this.verify(ctx);
     }
   };
+  return stage;
 }
 
 function parseAptPolicyVersion(output: string): { installed: string | null; candidate: string | null } {

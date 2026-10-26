@@ -1,0 +1,92 @@
+[
+  {
+    "id": "R21-F01",
+    "status": "PASS",
+    "scope": "local fake adapters/FS/owned processes",
+    "evidence": "logs/access-fixed-oracle.json; q1a-r211-access.test.ts same-plan checkpoint assertions"
+  },
+  {
+    "id": "R21-F02",
+    "status": "PASS",
+    "scope": "local fake adapters/FS/owned processes",
+    "evidence": "logs/access-fixed.jsonl; logs/r211-measurements.json R211_BOUNDARY effect/intents counts"
+  },
+  {
+    "id": "A211-01",
+    "status": "PASS",
+    "scope": "local fake adapters/FS/owned processes",
+    "evidence": "logs/access-baseline-oracle.json 3/10; access-fixed-oracle.json 13/0"
+  },
+  {
+    "id": "A211-02",
+    "status": "PASS",
+    "scope": "local fake adapters/FS/owned processes",
+    "evidence": "R211_BOUNDARY mode=resume six phases, exact counts, intents=6, timer=false and final verified asserted"
+  },
+  {
+    "id": "A211-03",
+    "status": "PASS",
+    "scope": "local fake adapters/FS/owned processes",
+    "evidence": "R211_BOUNDARY mode=replan six phases, exact counts, no replay"
+  },
+  {
+    "id": "A211-04",
+    "status": "PASS",
+    "scope": "local fake adapters/FS/owned processes",
+    "evidence": "original happy/disarm rows; fault-off control; repeat no-op assertions"
+  },
+  {
+    "id": "A211-05",
+    "status": "PASS",
+    "scope": "local fake adapters/FS/owned processes",
+    "evidence": "R211_PROCESS separate review/apply-cancel/resume/re-review PIDs and disk facts"
+  },
+  {
+    "id": "A211-06",
+    "status": "PASS",
+    "scope": "local fake adapters/FS/owned processes",
+    "evidence": "test sequential stops: counts allOnce and intents6 after alternating reviews"
+  },
+  {
+    "id": "A211-07",
+    "status": "PASS",
+    "scope": "local fake adapters/FS/owned processes",
+    "evidence": "test checkpoint/TTL: old resume4 and evidence unchanged; fresh review no replay"
+  },
+  {
+    "id": "A211-08",
+    "status": "PASS",
+    "scope": "local fake adapters/FS/owned processes",
+    "evidence": "R211_DRIFT 10 rows: byte hashes unchanged and counts; raw own cutover and unsafe-cutover rollback assertions"
+  },
+  {
+    "id": "A211-09",
+    "status": "PASS",
+    "scope": "local fake adapters/FS/owned processes",
+    "evidence": "R211_PROOF_NEGATIVE 8 variants, exact legacy plan controls, genuine access-legacy-oracle.json13/0"
+  },
+  {
+    "id": "A211-10",
+    "status": "PASS",
+    "scope": "local fake adapters/FS/owned processes",
+    "evidence": "R211_CRASH3 actual IPC phases and fault-off control; actual-fault-crash-matrix.json inherited faults"
+  },
+  {
+    "id": "A211-11",
+    "status": "PASS",
+    "scope": "local fake adapters/FS/owned processes",
+    "evidence": "test submitted and producer policy change: exit2/no effects; new gate requires review/approval"
+  },
+  {
+    "id": "A211-12",
+    "status": "PARTIAL",
+    "scope": "local fake adapters/FS/owned processes",
+    "evidence": "final-test.log446/446; comparisons oracles33/37/39; before/after hashes equal; additional-s03-recovery-baseline/fixed.jsonl: resume2 after primary recovery, desired_acceptance=false, no replay; explicit review0"
+  },
+  {
+    "id": "additional-S03-recovery-policy-reconciliation",
+    "status": "OPEN",
+    "scope": "baseline and fixed; no unsafe effects",
+    "evidence": "additional-s03-recovery-*-desired-red.log and measurements, 4 desired failures"
+  }
+]

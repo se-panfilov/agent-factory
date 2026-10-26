@@ -1,0 +1,32 @@
+[
+  {
+    "path": "docs/audits/remediation-q1a-r2-1-1-2026-10-26.md",
+    "sha256": "164aa35686d578d55cec3203bbdaaab1b335b139f5daeff2513f482c5083091d",
+    "included_in_patch": true
+  },
+  {
+    "path": "setup/docs/access-continuation-r211.md",
+    "sha256": "aaa51b35680b76222e1082096c7cc4370f7b337e8d9e1ac0fe5db9e2ad0085ae",
+    "included_in_patch": true
+  },
+  {
+    "path": "setup/src/core/progress.ts",
+    "sha256": "a83dcb3e60114a3052b1d2d3c3068b154073c39e854e75938ec70fcd48370fa7",
+    "included_in_patch": true
+  },
+  {
+    "path": "setup/tests/helpers/r211-access.ts",
+    "sha256": "3324881aaff7a872315ca6de8603dd9fe64da4408bb9e9364c43317e77ec93fc",
+    "included_in_patch": true
+  },
+  {
+    "path": "setup/tests/helpers/r211-child.ts",
+    "sha256": "981f3e427b9663cd20e5fbcdb4340d5bef8bf7995249ea42a5311357d1258f24",
+    "included_in_patch": true
+  },
+  {
+    "path": "setup/tests/integration/q1a-r211-access.test.ts",
+    "sha256": "70cbcb2e40ffff63588a8c7bc133510074390ddffec9529f88a3dfe3ed51f93c",
+    "included_in_patch": true
+  }
+]

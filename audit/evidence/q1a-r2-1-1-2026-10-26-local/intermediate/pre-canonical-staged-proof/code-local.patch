@@ -1,0 +1,1064 @@
+diff --git a/setup/docs/plan-admission-r21.md b/setup/docs/plan-admission-r21.md
+index a8ada2b..c97309b 100644
+--- a/setup/docs/plan-admission-r21.md
++++ b/setup/docs/plan-admission-r21.md
+@@ -59,3 +59,7 @@ Bounded request snapshots (1 MiB each, unambiguous UTF-8 JSON without NUL/replac
+ Policy/TTL refusal before a new effect does not clear receipts, append a target intent, repair history or mark known progress unknown. Its error is returned without rewriting state evidence. Existing gate-approve expiry publication can mark gates expired without changing their expiry dates or receipts. Effects whose outcome is unknown retain the existing in-flight/recovery blocker. Optional failure status uses the trusted module's optional policy, not a forged client flag.
+ 
+ This package does not claim cryptographic plan authentication or protection against an owner who changes the trusted installer. Full generated_at/expires_at serialization, host/session/version-lock/release/public observations binding, other concurrency cases, Q1B/Q2–Q6 and production qualification remain OPEN/NOT RUN.
++
++## R2.1.1 correction (2026-10-26)
++
++The original R2.1 continuation claim was too broad for S03: same-plan restart lost the predecessor, and explicit re-plan could replay completed observation-derived IDs. See [access-continuation-r211.md](access-continuation-r211.md) for the v2 publication/alias proof and strict full-operation reconciliation. This correction does not retroactively claim that the original A21-08 validation covered these cases.
+diff --git a/setup/src/core/engine.ts b/setup/src/core/engine.ts
+index 92ff6a7..faaff85 100644
+--- a/setup/src/core/engine.ts
++++ b/setup/src/core/engine.ts
+@@ -30,6 +30,7 @@ import { setupError, toSetupError } from "./errors";
+ import { approveGate, ensureGateApproved, ensureNonInteractiveGates, expireGates, upsertPlanGates } from "./gates";
+ import { acquireLock, consumeCancelRequest, recoverLockOnly, requestCancel, type LockOwner } from "./lock";
+ import { assertPlanTime, buildStageClosure, createPlanFile, createRegistry, loadPlan, validatePlanConsistency, type StageRegistry } from "./plan";
++import { carryOperationProgress, restoreOperationProgress } from "./progress";
+ import { assertCompletionPolicy, assertContinuingPolicy, assertProducerPolicy, policyFingerprint, readPolicyBasis, withPolicyBasis, type PolicyBasis } from "./policy";
+ import {
+   appendEvent,
+@@ -1022,21 +1023,31 @@ export class SetupEngine {
+         });
+       }
+       const stageId = options.stageId ?? null;
+-      for (const id of buildStageClosure(this.registry,stageId===null?config.selected_stages:[stageId])) readPolicyBasis(state,this.registry.byId.get(id)!);
+-      result = await createPlanFile(this.deps.fsAdapter, config, this.registry, stageId, this.deps.clock,
+-        (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations?.filter(e => e.config_hash === hashConfig(config)).map(e => e.receipt) ?? []);
++      const progressContexts = new Map<StageId, StageContext>();
++      const admittedBases = new Map<StageId, PolicyBasis | null>();
++      const boundReceipts = (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations
++        ?.filter(entry => entry.config_hash === hashConfig(config)).map(entry => entry.receipt) ?? [];
++      for (const id of buildStageClosure(this.registry, stageId === null ? config.selected_stages : [stageId])) {
++        const stage = this.registry.byId.get(id)!;
++        const ctx = { ...this.stageContext(config, hashConfig(config), "planning"), completedOperationReceipts: boundReceipts };
++        const previous = await restoreOperationProgress(this.deps.fsAdapter, stage, ctx, readPolicyBasis(state, stage));
++        progressContexts.set(id, ctx);
++        admittedBases.set(id, previous);
++      }
++      result = await createPlanFile(this.deps.fsAdapter, config, this.registry, stageId, this.deps.clock, boundReceipts, progressContexts);
+       state = expireGates(state, this.deps.clock);
+       for (const stagePlan of result.plan.stages) {
+         const stage = this.registry.byId.get(stagePlan.stage_id)!;
+-        const ctx = this.stageContext(config, result.plan.desired_hash, result.plan.plan_hash);
++        const ctx = { ...progressContexts.get(stage.id)!, ...this.stageContext(config, result.plan.desired_hash, result.plan.plan_hash) };
+         ctx.completedOperationReceipts = (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations?.filter(e => e.config_hash === hashConfig(config)).map(e => e.receipt) ?? [];
+         const observed = await this.policyObservation(stage, ctx);
+         const source = result.observations.get(stage.id)!;
+         assertProducerPolicy(stage, config, stagePlan, source);
+-        const previous = readPolicyBasis(state,stage);
+-        const completed: string[] = [];
++        const previous = admittedBases.get(stage.id) ?? null;
++        const carried = stage.verifyProgress && previous ? carryOperationProgress(stage, ctx, previous, source) : undefined;
++        const completed: string[] = carried?.map(entry => entry.currentId) ?? [];
+         const prior = previous?.configHash === hashConfig(config) ? stage.plan(config,previous.source) : null;
+-        for (const operation of stage.plan(config,source).operations) {
++        for (const operation of carried === undefined ? stage.plan(config,source).operations : []) {
+           const old = prior?.operations.find(o=>o.id===operation.id);
+           const receipt = ctx.completedOperationReceipts.find(r=>r.operationId===operation.id && r.stageId===stage.id && r.resourceId===operation.resourceId);
+           const samePolicy = previous === null || (old !== undefined && previous.completed.includes(operation.id) && stableStringify(old)===stableStringify(operation));
+@@ -1052,8 +1063,8 @@ export class SetupEngine {
+             // Unknown journal outcomes were already rejected by ordinary evidence admission.
+           }
+         }
+-        state = withPolicyBasis(state, stage, {version:1,planHash:result.plan.plan_hash,configHash:hashConfig(config),source,
+-          expected:policyFingerprint(stage, config, observed),completed});
++        state = withPolicyBasis(state, stage, {version:stage.verifyProgress ? 2 : 1,planHash:result.plan.plan_hash,configHash:hashConfig(config),source,
++          expected:policyFingerprint(stage, config, observed),completed, ...(stage.verifyProgress ? {progress:carried ?? []} : {})});
+         for (const gateId of stagePlan.required_gates) {
+           state = upsertPlanGates(
+             state,
+@@ -1131,14 +1142,14 @@ export class SetupEngine {
+         const stage = this.registry.byId.get(proposed.stage_id)!;
+         const ctx = this.stageContext(config, plan.desired_hash, plan.plan_hash);
+         ctx.completedOperationReceipts = (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations?.filter(e => e.config_hash === hashConfig(config)).map(e => e.receipt) ?? [];
+-        const existing = readPolicyBasis(state, stage);
++        const existing = await restoreOperationProgress(this.deps.fsAdapter, stage, ctx, readPolicyBasis(state, stage));
+         if (existing===null && proposed.operations.length>0 && ctx.completedOperationReceipts.some(r=>r.stageId===stage.id)) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,
+           code:"legacy_policy_review_required",publicMessage:"Legacy known progress needs an explicit current producer review before further actions.",nextAction:"Generate/review a plan; matching committed operations will be reverified rather than replayed.",stage:stage.id});
+         const observed = await this.policyObservation(stage, ctx);
+         const basis: PolicyBasis = existing ?? {version:1,planHash:plan.plan_hash,configHash:hashConfig(config),source:observed,expected:policyFingerprint(stage, config, observed),completed:[]};
+         assertProducerPolicy(stage, config, proposed, basis.source);
+         if (basis.planHash !== plan.plan_hash || basis.configHash !== hashConfig(config)) reviewMismatch = true;
+-        if (basis.completed.some(id => !proposed.operations.some(o => o.id === id))) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_progress_invalid",publicMessage:"Committed progress is outside the reviewed operation sequence.",nextAction:"Preserve state and reconcile progress."});
++        if (!stage.verifyProgress && basis.completed.some(id => !proposed.operations.some(o => o.id === id))) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_progress_invalid",publicMessage:"Committed progress is outside the reviewed operation sequence.",nextAction:"Preserve state and reconcile progress."});
+         const first = proposed.operations.find(o => !basis.completed.includes(o.id));
+         if (first) await stage.admitOperation?.(ctx, {id:first.id,resourceId:first.resource_id,preconditions:first.preconditions});
+         if (policyFingerprint(stage, config, observed)!==basis.expected) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_observation_drift",publicMessage:"Significant producer policy inputs changed since review or verified progress.",nextAction:"Generate/review a new plan; no new operation was admitted.",stage:stage.id});
+@@ -1164,6 +1175,7 @@ export class SetupEngine {
+         await this.consumeCancelOrThrow(config, lock.owner);
+         const stageCtx = this.stageContext(config, plan.desired_hash, plan.plan_hash);
+         stageCtx.completedOperationReceipts = (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations?.filter(e => e.config_hash === hashConfig(config)).map(e => e.receipt) ?? [];
++        await restoreOperationProgress(this.deps.fsAdapter, stage, stageCtx, policies.get(stage.id)!);
+         const observation = await stage.observe(stageCtx);
+         if (
+           state.stages.some(
+@@ -1277,9 +1289,18 @@ export class SetupEngine {
+               message: `verify:postconditions:${receipt.resourceId}:${receiptHash(receipt)}`,
+               attempt_id: attemptId
+             });
+-            const progressCtx = {...stageCtx,completedOperationReceipts:[...(stageCtx.completedOperationReceipts ?? []),receipt]};
++            const canonical = stage.progressPolicyPlan?.(config, basis.source) ?? stage.plan(config, basis.source);
++            const completedIds = [...basis.completed, operation.id];
++            const progressCtx: StageContext = { ...stageCtx, completedOperationReceipts: [...(stageCtx.completedOperationReceipts ?? []), receipt] };
++            if (stage.verifyProgress) progressCtx.operationProgress = {
++              completed: canonical.operations.filter(item => completedIds.includes(item.id)), total: canonical.operations.length
++            };
+             const confirmed = await this.policyObservation(stage, progressCtx);
+-            basis = {...basis,expected:policyFingerprint(stage, config, confirmed),completed:[...basis.completed,operation.id]};
++            const publication = canonical.operations.find(item => item.id === operation.id)!;
++            basis = { ...basis, expected: policyFingerprint(stage, config, confirmed), completed: completedIds,
++              ...(stage.verifyProgress ? { version: 2, progress: [...(basis.progress ?? []), {
++                currentId: operation.id, operation: publication, attemptId, receiptHash: receiptHash(receipt)
++              }] } : {}) };
+             policies.set(stage.id, basis);
+             state = withPolicyBasis(state, stage, basis);
+             state = withInFlightOperation(state, null);
+@@ -1303,6 +1324,7 @@ export class SetupEngine {
+             });
+             persistFailure = false;
+             stageCtx.previousOperationReceipt = receipt;
++            if (progressCtx.operationProgress) stageCtx.operationProgress = progressCtx.operationProgress;
+             stageCtx.completedOperationReceipts = [...(stageCtx.completedOperationReceipts ?? []), receipt];
+             if (receipt.checks.manual_pause_required === true) {
+               state = updateObservedStage(state, { stageId: stagePlan.stage_id, status: "awaiting_manual", checks: receipt.checks,
+diff --git a/setup/src/core/plan.ts b/setup/src/core/plan.ts
+index 14101b8..3c9ab7a 100644
+--- a/setup/src/core/plan.ts
++++ b/setup/src/core/plan.ts
+@@ -96,7 +96,8 @@ export async function createPlanFile(
+   registry: StageRegistry,
+   stageTarget: StageId | null,
+   clock: Clock,
+-  completedOperationReceipts: import("./types").StageReceipt[] = []
++  completedOperationReceipts: import("./types").StageReceipt[] = [],
++  progressContexts: ReadonlyMap<StageId, import("./types").StageContext> = new Map()
+ ): Promise<{ plan: InstallerPlan; planPath: string; stageClosure: StageId[]; observations: Map<StageId, import("./types").StageObservation> }> {
+   const stageIds = stageTarget === null ? config.selected_stages : [stageTarget];
+   const closure = buildStageClosure(registry, stageIds);
+@@ -115,6 +116,7 @@ export async function createPlanFile(
+       });
+     }
+     const observation = await stage.observe({
++      ...progressContexts.get(stageId),
+       installationId: config.installation_id,
+       contractVersion: "1.0.0",
+       profile: config.profile,
+diff --git a/setup/src/core/policy.ts b/setup/src/core/policy.ts
+index 423b1a2..cf11371 100644
+--- a/setup/src/core/policy.ts
++++ b/setup/src/core/policy.ts
+@@ -1,19 +1,49 @@
+ import { createHash } from "node:crypto";
+ import { stableStringify } from "./config";
+ import { setupError } from "./errors";
+-import { ExitCode, type InstallerPlan, type SetupConfig, type SetupState, type StageModule, type StageObservation, type StageContext } from "./types";
++import { OPERATION_KINDS, OPERATION_RISK_LEVELS, ExitCode, type InstallerPlan, type SetupConfig, type SetupState, type StageModule, type StageObservation, type StageContext, type StageOperation } from "./types";
+ import { serializeStagePlan } from "./plan";
+ 
+ /** Core-owned, schema-validated internal metadata in existing versions storage, not a sidecar. */
+ export const POLICY_BASIS_KEY = "setup_policy_basis_v1";
+ export interface PolicyBasis {
+-  version: 1;
++  version: 1 | 2;
+   planHash: string;
+   configHash: string;
+   source: StageObservation;
+   expected: string;
+   completed: string[];
++  progress?: PublishedOperation[];
+ }
++/** Semantic operation and exact journal publication retained across reviewed ID changes. */
++export interface PublishedOperation {
++  currentId: string;
++  operation: StageOperation;
++  attemptId: string;
++  receiptHash: string;
++}
++
++function validateProgressRecord(value: unknown, stage: StageModule): PublishedOperation {
++  if (value === null || typeof value !== "object" || Array.isArray(value)) throw Error("progress shape");
++  const entry = value as Record<string, unknown>;
++  if (Object.keys(entry).sort().join(",") !== "attemptId,currentId,operation,receiptHash"
++    || typeof entry.currentId !== "string" || entry.currentId.length === 0
++    || typeof entry.attemptId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(entry.attemptId)
++    || typeof entry.receiptHash !== "string" || !/^[0-9a-f]{64}$/.test(entry.receiptHash)) throw Error("publication binding");
++  if (entry.operation === null || typeof entry.operation !== "object" || Array.isArray(entry.operation)) throw Error("operation shape");
++  const op = entry.operation as Record<string, unknown>;
++  if (Object.keys(op).sort().join(",") !== "gateIds,id,kind,preconditions,resourceId,retryable,risk,sideEffects,stageId,timeoutSec"
++    || typeof op.id !== "string" || op.id.length === 0 || op.stageId !== stage.id
++    || typeof op.resourceId !== "string" || op.resourceId.length === 0
++    || !OPERATION_KINDS.some(kind => kind === op.kind) || !OPERATION_RISK_LEVELS.some(risk => risk === op.risk)
++    || typeof op.retryable !== "boolean" || typeof op.timeoutSec !== "number" || !Number.isInteger(op.timeoutSec) || op.timeoutSec <= 0) throw Error("operation identity");
++  for (const key of ["gateIds", "preconditions", "sideEffects"]) {
++    const values = op[key];
++    if (!Array.isArray(values) || values.some(item => typeof item !== "string")) throw Error("operation policy");
++  }
++  return value as PublishedOperation;
++}
++
+ function refuse(message: string): never {throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"plan_policy_mismatch",publicMessage:message,nextAction:"Generate a new plan with the trusted producer, review it and approve its required gates."});}
+ export function policyFingerprint(stage: StageModule, config: SetupConfig, observed: StageObservation): string {
+   const view = stage.policyInputs ? {status:observed.status,inputs:stage.policyInputs(observed)}
+@@ -28,7 +58,8 @@ export function readPolicyBasis(state: SetupState, stage: StageModule): PolicyBa
+     const p: unknown = JSON.parse(raw);
+     if (p===null || typeof p!=="object" || Array.isArray(p)) throw Error("shape");
+     const v=p as Record<string,unknown>;
+-    if (Object.keys(v).sort().join(",")!=="completed,configHash,expected,planHash,source,version" || v.version!==1
++    const fields = v.version === 2 ? "completed,configHash,expected,planHash,progress,source,version" : "completed,configHash,expected,planHash,source,version";
++    if (Object.keys(v).sort().join(",")!==fields || (v.version!==1 && v.version!==2)
+       || [v.planHash,v.configHash,v.expected].some(h=>typeof h!=="string" || !/^[0-9a-f]{64}$/.test(h))) throw Error("binding");
+     if (!Array.isArray(v.completed) || v.completed.some(id=>typeof id!=="string") || new Set(v.completed).size!==v.completed.length) throw Error("progress");
+     if (v.source===null || typeof v.source!=="object" || Array.isArray(v.source)) throw Error("source");
+@@ -37,6 +68,13 @@ export function readPolicyBasis(state: SetupState, stage: StageModule): PolicyBa
+       || typeof obs.status!=="string" || !["pending","planned","applying","installed","verified","awaiting_manual","blocked","failed","skipped","interrupted","drifted"].includes(String(obs.status))) throw Error("observation");
+     for(const key of ["checks","versions"]){const values=obs[key];if(values===null||typeof values!=="object"||Array.isArray(values))throw Error("record");
+       for(const value of Object.values(values)){if(key==="versions"?typeof value!=="string":!(typeof value==="string"||typeof value==="boolean"||(typeof value==="number"&&Number.isFinite(value))))throw Error("value");}}
++    if (v.version === 2) {
++      if (!Array.isArray(v.progress) || v.progress.length !== v.completed.length) throw Error("progress length");
++      const completed = v.completed as string[];
++      const entries = v.progress.map(entry => validateProgressRecord(entry, stage));
++      if (entries.some((entry, index) => entry.currentId !== completed[index])
++        || new Set(entries.map(entry => entry.attemptId)).size !== entries.length) throw Error("progress order");
++    }
+     return p as PolicyBasis;
+   } catch {throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_policy_basis_invalid",publicMessage:"Committed policy basis is malformed or unsupported.",nextAction:"Preserve evidence and generate a reviewed plan after reconciliation.",stage:stage.id});}
+ }
+@@ -60,7 +98,7 @@ export function assertContinuingPolicy(stage: StageModule, config: SetupConfig,
+   // Re-open only this producer catalog after proven progress, never blocked/manual readiness.
+   const planning = basis.completed.length>0 && observed.status==="verified" ? {...observed,status:basis.source.status} : observed;
+   const fresh = stage.plan(config,planning);
+-  const proofCtx = {...ctx,completedOperationReceipts:(ctx.completedOperationReceipts ?? []).filter(r=>basis.completed.includes(r.operationId))};
++  const proofCtx = {...ctx,completedOperationReceipts:policyReceipts(ctx, basis)};
+   const operations = fresh.operations.map(op=>basis.completed.length>0 && stage.reconcilePolicyOperation
+     ? {...op,...stage.reconcilePolicyOperation(proofCtx,original,op)} : op).filter(op=>!basis.completed.includes(op.id));
+   if (fresh.stageId!==original.stageId || fresh.optional!==original.optional
+@@ -73,7 +111,7 @@ export function assertContinuingPolicy(stage: StageModule, config: SetupConfig,
+ /** Stage-wide verify is not permission to publish success with newly discovered requirements. */
+ export function assertCompletionPolicy(stage: StageModule, config: SetupConfig, ctx: StageContext, basis: PolicyBasis, observed: StageObservation): void {
+   const original=stage.plan(config,basis.source),fresh=stage.plan(config,observed);
+-  const proofCtx={...ctx,completedOperationReceipts:(ctx.completedOperationReceipts ?? []).filter(r=>basis.completed.includes(r.operationId))};
++  const proofCtx={...ctx,completedOperationReceipts:policyReceipts(ctx, basis)};
+   const operations=fresh.operations.map(op=>basis.completed.length>0 && stage.reconcilePolicyOperation
+     ? {...op,...stage.reconcilePolicyOperation(proofCtx,original,op)} : op);
+   const compatible=fresh.stageId===original.stageId && fresh.optional===original.optional
+@@ -87,3 +125,9 @@ export function assertCompletionPolicy(stage: StageModule, config: SetupConfig,
+   if (!compatible) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_completion_policy_drift",
+     publicMessage:"Verified resources reveal additional unreviewed stage requirements.",nextAction:"Review a new plan before publishing stage completion; completed operation evidence remains known.",stage:stage.id});
+ }
++
++
++export function policyReceipts(ctx: StageContext, basis: PolicyBasis) {
++  const publishedIds = new Set(basis.progress?.map(entry => entry.operation.id) ?? basis.completed);
++  return (ctx.completedOperationReceipts ?? []).filter(receipt => publishedIds.has(receipt.operationId));
++}
+diff --git a/setup/src/core/types.ts b/setup/src/core/types.ts
+index 3245574..6caa046 100644
+--- a/setup/src/core/types.ts
++++ b/setup/src/core/types.ts
+@@ -136,6 +136,8 @@ export interface StageContext {
+   /** Core supplies only the previous durably checkpointed operation in this stage. */
+   previousOperationReceipt?: StageReceipt;
+   completedOperationReceipts?: StageReceipt[];
++  /** Core-validated reviewed prefix, never supplied by submitted plan data. */
++  operationProgress?: { completed: StageOperation[]; total: number };
+ }
+ 
+ export interface StageModule {
+@@ -152,6 +154,10 @@ export interface StageModule {
+   policyInputs?(observed: StageObservation): {checks: StageObservation["checks"]; versions: StageObservation["versions"]};
+   /** Only rebase observation-derived identity/preconditions after core-proven own progress. Never gates/effects. */
+   reconcilePolicyOperation?(ctx: StageContext, reviewed: StagePlan, current: StageOperation): Pick<StageOperation,"id"|"preconditions">;
++  /** Confirm the current frontier and immutable review invariants of an admitted prefix. */
++  verifyProgress?(ctx: StageContext, source: StageObservation): Promise<void>;
++  /** Same producer catalog, including completed historical steps when the public plan is a no-op. */
++  progressPolicyPlan?(desired: unknown, source: StageObservation): StagePlan;
+   /** Read-only prerequisite check before in-flight/intent publication. */
+   admitOperation?(ctx: StageContext, operation: Pick<StageOperation, "id" | "resourceId" | "preconditions">): Promise<void>;
+   apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]>;
+diff --git a/setup/src/stages/access.ts b/setup/src/stages/access.ts
+index e6a27a6..e079139 100644
+--- a/setup/src/stages/access.ts
++++ b/setup/src/stages/access.ts
+@@ -74,6 +74,8 @@ export interface AccessAdapter {
+   validateSshdCandidate(ctx: StageContext): Promise<void>;
+   stageManagedCutover(ctx: StageContext, managedHash: string): Promise<void>;
+   armRollbackTimer(ctx: StageContext, minutes: number): Promise<void>;
++  /** Read-only proof of the staged, reviewed target bytes; optional adapters may only preserve current hashes. */
++  stagedContentProof?(ctx: StageContext): Promise<{ contentHash: string; sshConfigHash: string; firewallRulesHash: string }>;
+   applyCutover(ctx: StageContext): Promise<void>;
+   verifyPrivateTailnetAccess(ctx: StageContext): Promise<boolean>;
+   disarmRollbackTimer(ctx: StageContext): Promise<void>;
+@@ -124,6 +126,18 @@ function versionsFromObservation(observation: AccessRuntimeObservation): Record<
+   };
+ }
+ 
++function cutoverContent(observation: AccessRuntimeObservation) {
++  return { contentHash: observation.securityInputs.contentHash, sshConfigHash: observation.ssh.configHash,
++    firewallRulesHash: observation.firewall.rulesHash };
++}
++
++function cutoverInvariants(observation: AccessRuntimeObservation): string {
++  return JSON.stringify({ ownership: observation.securityInputs.ownershipHash, manual: observation.manual,
++    diff: observation.diff, candidate: observation.tailscale.candidateVersion,
++    installed: observation.tailscale.installedVersion, login: observation.tailscale.loginState,
++    templates: [observation.rollback.timerTemplatePresent, observation.rollback.serviceTemplatePresent] });
++}
++
+ function inferStatus(observation: AccessRuntimeObservation): StageObservation["status"] {
+   if (observation.firewall.manager !== "ufw") {
+     return "blocked";
+@@ -251,10 +265,13 @@ function verifyRollbackReadiness(observation: AccessRuntimeObservation): void {
+   }
+ }
+ 
+-export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
+-  let lastObservation: StageObservation | null = null;
++function hasPartialSequence(ctx: StageContext): boolean {
++  const progress = ctx.operationProgress;
++  return progress !== undefined && progress.completed.length > 0 && progress.completed.length < progress.total;
++}
+ 
+-  return {
++export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
++  const stage: StageModule = {
+     id: "S03",
+     dependencies: ["S02"],
+     supportedProfiles: ["supervised", "service"],
+@@ -264,12 +281,11 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
+       const runtimeObservation = await accessAdapter.observe(ctx);
+       const observation: StageObservation = {
+         stageId: "S03",
+-        status: inferStatus(runtimeObservation),
+-        checks: checksFromObservation(runtimeObservation),
++        status: hasPartialSequence(ctx) ? "planned" : inferStatus(runtimeObservation),
++        checks: { ...checksFromObservation(runtimeObservation), ...(hasPartialSequence(ctx) ? { s03_sequence_pending: true } : {}) },
+         versions: versionsFromObservation(runtimeObservation),
+         observedAt: new Date().toISOString()
+       };
+-      lastObservation = observation;
+       return observation;
+     },
+     reconcilePolicyOperation(ctx, reviewed, current) {
+@@ -295,10 +311,8 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
+         });
+       }
+ 
+-      const observationHash = stableHash({
+-        checks: observed.checks,
+-        versions: observed.versions
+-      });
++      const { s03_sequence_pending: _coreProgress, ...reviewedChecks } = observed.checks;
++      const observationHash = stableHash({ checks: reviewedChecks, versions: observed.versions });
+       const preconditions = operationPreconditions(
+         {
+           securityInputs: { contentHash: String(observed.checks.security_input_content_hash ?? "missing"), ownershipHash: String(observed.checks.security_input_ownership_hash ?? "missing") },
+@@ -440,6 +454,32 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
+         requiredGates: [...new Set(operations.flatMap((operation) => operation.gateIds))]
+       };
+     },
++    progressPolicyPlan(desired, source) {
++      return stage.plan(desired, { ...source, status: "planned" });
++    },
++    async verifyProgress(ctx, source) {
++      const previous = ctx.previousOperationReceipt;
++      if (!previous || !ctx.operationProgress || ctx.operationProgress.completed.length === 0) {
++        throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s03_predecessor_missing",
++          publicMessage: "Access continuation requires the exact published predecessor.", nextAction: "Preserve and reconcile checkpoint evidence.", stage: "S03" });
++      }
++      await stage.verifyOperation!(ctx, previous);
++      const current = await accessAdapter.observe(ctx);
++      verifyManualReadiness(current);
++      verifyRollbackReadiness(current);
++      const checks = checksFromObservation(current);
++      const immutable = ["security_input_ownership_hash", "provider_console_confirmed", "second_session_validated", "second_session_has_sudo",
++        "tailscale_login_confirmed", "cutover_ack_confirmed", "rollback_timer_template_present", "rollback_service_template_present",
++        "sshd_diff_preview", "firewall_diff_preview"];
++      const sameInputs = immutable.every(key => checks[key] === source.checks[key]);
++      const samePin = current.tailscale.candidateVersion === source.versions.tailscale_candidate
++        && current.tailscale.installedVersion === current.tailscale.candidateVersion;
++      if (!sameInputs || !samePin) {
++        throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s03_progress_input_drift",
++          publicMessage: "Access ownership, manual readiness, reviewed diff or package pin changed after published progress.",
++          nextAction: "Reconcile the external drift before reviewing a separate action.", stage: "S03" });
++      }
++    },
+     async admitOperation(ctx, operation) {
+       const observation = await accessAdapter.observe(ctx);
+       verifyRollbackReadiness(observation); verifyManualReadiness(observation);
+@@ -499,16 +539,27 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
+           nextAction: "Review current SSH/firewall inputs and approve a new plan.", stage: "S03" });
+       }
+       const receipts: StageReceipt[] = [];
++      let targetProof = ctx.previousOperationReceipt?.versions.s03_staged_content_proof;
+       let rollbackPrepared = observation.rollback.armed;
+       let cutoverApplied = false;
+       try {
+         for (const operation of approvedPlan.operations) {
+           const beforeInputs = checksFromObservation(observation).reviewed_inputs_hash;
++          const beforeCutover = observation;
+           if (operation.id.startsWith("s03-install-tailscale-")) {
+             await accessAdapter.installPinnedTailscale(planPreconditions.tailscalePin);
+           } else if (operation.id.startsWith("s03-stage-sshd-firewall-")) {
+             await accessAdapter.stageManagedCutover(ctx, planPreconditions.observationHash);
+             await accessAdapter.validateSshdCandidate(ctx);
++            if (accessAdapter.stagedContentProof) {
++              const proof = await accessAdapter.stagedContentProof(ctx);
++              if (Object.keys(proof).sort().join(",") !== "contentHash,firewallRulesHash,sshConfigHash"
++                || Object.values(proof).some(value => !/^[0-9a-f]{64}$/.test(value))) {
++                throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s03_staged_proof_invalid",
++                  publicMessage: "Staged cutover content proof is invalid.", nextAction: "Preserve and review staged bytes.", stage: "S03" });
++              }
++              targetProof = JSON.stringify(proof);
++            }
+           } else if (operation.id.startsWith("s03-disarm-rollback-")) {
+             observation = await accessAdapter.observe(ctx);
+             if (!observation.manual.cutoverAckConfirmed) {
+@@ -562,7 +613,15 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
+           }
+ 
+           observation = await accessAdapter.observe(ctx);
+-          if (!operation.id.startsWith("s03-cutover-") && checksFromObservation(observation).reviewed_inputs_hash !== beforeInputs) {
++          if (operation.id.startsWith("s03-cutover-")) {
++            const actual = cutoverContent(observation);
++            const expected = targetProof ?? JSON.stringify(cutoverContent(beforeCutover));
++            if (JSON.stringify(actual) !== expected || cutoverInvariants(beforeCutover) !== cutoverInvariants(observation)) {
++              throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "s03_cutover_postcondition_unproven",
++                publicMessage: "Cutover changed inputs beyond the confirmed staged target.",
++                nextAction: "Preserve rollback evidence and review external changes.", stage: "S03" });
++            }
++          } else if (checksFromObservation(observation).reviewed_inputs_hash !== beforeInputs) {
+             throw setupError({ exitCode: ExitCode.ManualActionRequired, code: "s03_observation_drifted",
+               publicMessage: "SSH/firewall review inputs changed during an operation that cannot change them.",
+               nextAction: "Review inputs and approve a new access plan.", stage: "S03" });
+@@ -573,7 +632,7 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
+             resourceId: operation.resourceId,
+             observedAt: new Date().toISOString(),
+             checks: { ...checksFromObservation(observation), s03_postcondition_hash: stableHash({ checks: checksFromObservation(observation), versions: versionsFromObservation(observation) }) },
+-            versions: versionsFromObservation(observation),
++            versions: { ...versionsFromObservation(observation), ...(targetProof ? { s03_staged_content_proof: targetProof } : {}) },
+             artifacts: []
+           });
+         }
+@@ -661,6 +720,7 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
+       return this.verify(ctx);
+     }
+   };
++  return stage;
+ }
+ 
+ function parseAptPolicyVersion(output: string): { installed: string | null; candidate: string | null } {
+diff --git a/setup/docs/access-continuation-r211.md b/setup/docs/access-continuation-r211.md
+new file mode 100644
+index 0000000..b6aa9f1
+--- /dev/null
++++ b/setup/docs/access-continuation-r211.md
+@@ -0,0 +1,61 @@
++# R2.1.1: admitted S03 progress and explicit review
++
++Local protocol clarification, 2026-10-26. Public contract 1.0.0, CLI/config/state/plan shapes and recovery protocol are unchanged. Real SSH/firewall/timer execution remains a Q2 code blocker; fake adapter results are not host qualification.
++
++## Identity and predecessor
++
++The public producer keeps observation-derived operation IDs for compatibility. Core reconciles the **full semantic operation**, not a resource name or hash suffix. The stage can normalize only observation-derived ID/hash constraints and, after a proven cutover receipt, the two public-exposure constraints. Core compares parent, kind, resource, risk, gates, all other preconditions, effects, timeout and retry exactly. Arm and disarm remain distinct semantic operations even though they share a resource.
++
++`restoreOperationProgress` runs only after ordinary state/journal/manifest admission under the lock. Both explicit planning and all-stage apply admission invoke it, as does execution context construction. It reconstructs an exact ordered prefix from the trusted producer catalog and selects its exact frontier. It never selects an arbitrary last receipt or all receipts for a resource.
++
++A frontier needs a retained config-bound manifest receipt with matching stage, resource, original operation ID, attempt, receipt hash, checkpoint sequence and state hash. Every prefix publication needs the corresponding ordered journal checkpoint binding. Then S03 reobserves and checks the frontier's full postcondition hash, manual readiness, rollback templates, ownership, reviewed diff and pin invariants. No effect/intent is admitted on failure. The fingerprint expected after the previous operation is checked independently by existing policy admission.
++
++Historical intermediate observations need not equal current bytes after subsequent legitimate effects. Their exact published semantic operations and ordered checkpoint bindings prove history; the frontier receipt proves current facts. This permits the manifest's existing per-stage/resource compaction: an arm receipt may be superseded by disarm, but its distinct checkpoint publication must remain provable. A disarm receipt cannot stand in for an arm publication.
++
++## Internal metadata v2
++
++The existing reserved `versions.setup_policy_basis_v1` key accepts versions 1 and 2 (key retained for compatibility). Version 2 adds `progress`, aligned one-to-one with `completed`:
++
++- `currentId`: alias in the current reviewed catalog;
++- `operation`: complete immutable originally published operation;
++- `attemptId`: original attempt UUID;
++- `receiptHash`: original durable receipt SHA-256.
++
++No state hash is embedded recursively. Strict parsing checks exact field sets, operation enums/types/stage, ordered aliases, unique IDs/attempts and hashes, with the existing 64 KiB bound. The original source observation preserves JSON key order, since legacy producer IDs use it. This is core-owned metadata, not submitted authorization or a second persistence store.
++
++Before publication, a new operation's postconditions are actually verified. Its new metadata record and expected current-policy fingerprint enter the same state snapshot used by the existing operation checkpoint and manifest binding. The publication is usable only after ordinary evidence admission and matching journal/manifest proof; metadata alone is insufficient.
++
++| Boundary | Meaning after interruption |
++|---|---|
++| Before effect admission | TTL, request bytes, trusted policy, gates and current S03 admission still apply; no progress invented |
++| In-flight / intent / effect before verified publication | Unknown outcome blocks, no replay |
++| Postcondition verify / state snapshot before checkpoint | Existing partial-publication rules apply; no standalone metadata authorization |
++| Checkpoint append before manifest binding | Journal uncertainty/generation rules block unsafe continuation |
++| Manifest binding durable | Exact completed prefix can be restored in a new process |
++| Cancel after a completed checkpoint | Exit 130, null in-flight; next command restores predecessor before admission |
++| Final verification / clean proof | Existing stage-wide verify and final publication protocol; operation progress is not stage success |
++| Metadata-only plan/gate changes | Retain original publication identity and prefix; ordinary clean proof rules remain authoritative |
++
++SIGKILL tests cover effect-before-verify, checkpoint-before-binding and binding-durable boundaries with genuine S03 engine writers. Existing initial/operation/final publication fault matrices remain part of the suite. Physical power-loss durability is NOT RUN.
++
++## Resume and explicit re-plan
++
++Ordinary resume uses the same still-valid plan and gates; no implicit re-plan, TTL renewal or process-local stage memory. Before every remaining operation, its admission compares current raw observation with the confirmed predecessor, not the original pre-install snapshot.
++
++Explicit re-plan first restores/validates existing progress, then compares the old/new trusted catalogs. Completion carries only across full semantic equivalence and current frontier invariants. It retains the original publication operation/attempt/hash and records the new reviewed alias separately. The public plan can still present the complete catalog; the core-validated internal completion prefix unambiguously identifies the remaining executable suffix. A fully completed installation produces a public no-op while retaining the complete internal historical catalog. A resource-level `verified` observation cannot erase unfinished orchestration.
++
++Every new plan has its own identity and requires its own approvals; remaining security requirements never inherit old approvals. Changed completed semantics are a blocker requiring explicit reconciliation, not replay. External content/ownership/pin/manual/diff drift is refused before plan publication or target intent. A new review does not normalize an unresolved security violation.
++
++## Expected own cutover changes
++
++The injected access adapter may provide a bounded staged target content proof after staging/validation: inventory, SSH and firewall hashes. The stage receipt carries that proof through arm/cutover/tailnet/disarm; the core supplies only the admitted predecessor. Cutover may produce those exact hashes while preserving ownership, manual readiness, pins/login, templates and reviewed diff. Without this proof, cutover must preserve current content hashes. Other operations cannot change reviewed access inputs. Unexpected cutover changes trigger rollback and retain uncertainty, never a successful next checkpoint.
++
++This optional adapter method does not implement a real privileged executor. The real NodeAccessAdapter still has its existing cutover/timer blocker. No assertion of OS-level atomic cutover or full TOCTOU protection is made.
++
++## Legacy policy
++
++Version-1 R2.1 basis first requires the exact schema-valid old plan, with its self-hash matching the admitted basis plan hash and its whole stage policy matching the trusted producer from the original source. This bounded read is historical proof, not TTL renewal or new authorization. Missing/replaced plan or changed producer semantics block. It can be upgraded in memory only when its completed IDs are an exact prefix, each publication is unambiguous in the admitted journal and the frontier is retained/matching/current. Missing historical intermediate receipts are acceptable only with the exact ordered journal binding (including arm/disarm distinction). The next normal core publication persists v2; no repair writes are performed merely to admit it. Missing/ambiguous/foreign/unsupported proof blocks without deletion.
++
++R1.6/basisless known S03 progress is explicitly unsupported for automatic transfer: no reviewed source policy means no safe semantic enrollment. Likewise a retained publication with an empty claimed prefix blocks. Preserve evidence for a separately reviewed migration/reconciliation; never call it fresh or reset it. Existing version-1 handling of other stages is unchanged.
++
++R2.2 full C13 serialization/context binding, R3/Q1B/Q2–Q6 and production remain OPEN. No commits/push/branches/worktree/PR/release/deploy are authorized by this document or any generated follow-up prompt.
+diff --git a/setup/src/core/progress.ts b/setup/src/core/progress.ts
+new file mode 100644
+index 0000000..cc607d4
+--- /dev/null
++++ b/setup/src/core/progress.ts
+@@ -0,0 +1,132 @@
++import path from "node:path";
++import { stableStringify, hashConfig } from "./config";
++import { setupError } from "./errors";
++import { type FilesystemAdapter } from "../adapters/filesystem";
++import { inspectJournalEvidence, readStateCommitManifest, receiptHash } from "./state";
++import { serializeStagePlan, validatePlanConsistency } from "./plan";
++import { validateContractSchema } from "./validators";
++import { type PolicyBasis, type PublishedOperation, policyReceipts } from "./policy";
++import { ExitCode, type InstallerPlan, type StageContext, type StageModule, type StageOperation, type StagePlan } from "./types";
++
++function blocked(stage: StageModule, message: string): never {
++  throw setupError({
++    exitCode: ExitCode.DriftOrRecoveryRequired,
++    code: "operation_progress_unproven",
++    publicMessage: message,
++    nextAction: "Preserve evidence and reconcile the published operation sequence before continuing.",
++    stage: stage.id
++  });
++}
++
++function sameOperation(stage: StageModule, ctx: StageContext, reviewed: StagePlan, current: StageOperation, expected: StageOperation): boolean {
++  const identity = stage.reconcilePolicyOperation?.(ctx, reviewed, current);
++  return stableStringify(identity ? { ...current, ...identity } : current) === stableStringify(expected);
++}
++
++/** Only called after ordinary state/generation/journal/manifest admission under the lock. */
++export async function restoreOperationProgress(
++  fs: FilesystemAdapter, stage: StageModule, ctx: StageContext, basis: PolicyBasis | null
++): Promise<PolicyBasis | null> {
++  if (!stage.verifyProgress) return basis;
++  const manifest = await readStateCommitManifest(fs, ctx.config);
++  const retained = (manifest?.completed_operations ?? []).filter(entry => entry.config_hash === hashConfig(ctx.config) && entry.receipt.stageId === stage.id);
++  if (basis === null) {
++    if (retained.length > 0) blocked(stage, "Legacy access progress has no committed reviewed source policy.");
++    return null;
++  }
++  if (basis.configHash !== hashConfig(ctx.config)) blocked(stage, "Progress belongs to another reviewed configuration.");
++  const reviewed = stage.progressPolicyPlan?.(ctx.config, basis.source) ?? stage.plan(ctx.config, basis.source);
++  const prefix = reviewed.operations.slice(0, basis.completed.length);
++  if (prefix.length !== basis.completed.length || prefix.some((op, index) => op.id !== basis.completed[index])) {
++    blocked(stage, "Completed operations are not the exact ordered prefix of the reviewed policy.");
++  }
++  ctx.operationProgress = { completed: prefix, total: reviewed.operations.length };
++  if (prefix.length === 0) {
++    if (retained.length > 0) blocked(stage, "Retained access publications have no proven completion prefix.");
++    return basis;
++  }
++
++  if (basis.version === 1) {
++    // v1 has no immutable operation snapshots. Recover them only from the exact
++    // plan bound by the already admitted core-owned basis, never a new proposal.
++    try {
++      const file = await fs.readTextBounded(path.join(ctx.config.paths.setup_state_dir, "plan.json"), 1024 * 1024);
++      const parsed: unknown = JSON.parse(file.text);
++      if (file.truncated || !validateContractSchema("plan", parsed).ok) throw Error("unsupported legacy plan");
++      const plan = parsed as InstallerPlan;
++      validatePlanConsistency(ctx.config, plan);
++      const old = plan.stages.find(item => item.stage_id === stage.id);
++      if (plan.plan_hash !== basis.planHash || !old
++        || stableStringify(old) !== stableStringify(serializeStagePlan(stage.plan(ctx.config, basis.source)))) {
++        throw Error("legacy policy changed");
++      }
++    } catch {
++      blocked(stage, "Legacy completion needs its exact bound reviewed plan and unchanged producer policy.");
++    }
++  }
++
++  const journal = await inspectJournalEvidence(fs, ctx.config);
++  if (journal.parseError || journal.unknownOrder || journal.oversized || journal.legacyFormat || journal.unresolvedOperationIds.length > 0) {
++    blocked(stage, "Journal cannot prove a complete ordered prefix.");
++  }
++  const bindings = journal.receiptBindings ?? [];
++  const entries: PublishedOperation[] = [];
++  let previousSequence = 0;
++  for (const [index, operation] of prefix.entries()) {
++    let entry = basis.progress?.[index];
++    if (!entry) {
++      const record = retained.find(item => item.receipt.operationId === operation.id && item.receipt.resourceId === operation.resourceId);
++      const candidates = bindings.filter(binding => binding.stage === stage.id && binding.operationId === operation.id);
++      const binding = record
++        ? candidates.find(item => item.attemptId === record.checkpoint.attempt_id && item.sequence === record.checkpoint.sequence)
++        : candidates.length === 1 ? candidates[0] : undefined;
++      if (!binding) blocked(stage, "Legacy publication is missing or ambiguous; resource aliases are insufficient.");
++      entry = { currentId: operation.id, operation, attemptId: binding.attemptId, receiptHash: binding.receiptHash };
++    }
++    const binding = bindings.find(item => item.stage === stage.id && item.operationId === entry.operation.id
++      && item.attemptId === entry.attemptId && item.receiptHash === entry.receiptHash);
++    if (!binding || binding.sequence <= previousSequence) blocked(stage, "Operation publication does not match the ordered checkpoint chain.");
++    previousSequence = binding.sequence;
++    entries.push(entry);
++  }
++
++  const upgraded: PolicyBasis = { ...basis, version: 2, progress: entries };
++  const proofCtx = { ...ctx, completedOperationReceipts: policyReceipts(ctx, upgraded) };
++  const published: StagePlan = { ...reviewed, operations: entries.map(entry => entry.operation) };
++  for (const [index, operation] of prefix.entries()) {
++    const entry = entries[index]!;
++    if (entry.currentId !== operation.id || !sameOperation(stage, proofCtx, published, operation, entry.operation)) {
++      blocked(stage, "Published operation differs from the reviewed semantic action/security policy.");
++    }
++  }
++  const frontier = entries.at(-1)!;
++  const record = retained.find(item => item.receipt.operationId === frontier.operation.id
++    && item.receipt.resourceId === frontier.operation.resourceId && item.checkpoint.attempt_id === frontier.attemptId
++    && receiptHash(item.receipt) === frontier.receiptHash);
++  const frontierBinding = bindings.find(item => item.attemptId === frontier.attemptId && item.operationId === frontier.operation.id);
++  if (!record || !frontierBinding || record.checkpoint.stage !== stage.id
++    || record.checkpoint.operation_id !== frontier.operation.id || record.checkpoint.sequence !== frontierBinding.sequence
++    || record.checkpoint.state_hash !== frontierBinding.stateHash) {
++    blocked(stage, "The current frontier receipt is not retained with its exact publication binding.");
++  }
++  ctx.previousOperationReceipt = record.receipt;
++  await stage.verifyProgress(ctx, basis.source);
++  return upgraded;
++}
++
++/** Rebind a proven prefix to a newly reviewed catalog, comparing the whole semantic operation. */
++export function carryOperationProgress(stage: StageModule, ctx: StageContext, previous: PolicyBasis, source: PolicyBasis["source"]): PublishedOperation[] {
++  const oldPlan = stage.progressPolicyPlan?.(ctx.config, previous.source) ?? stage.plan(ctx.config, previous.source);
++  const newPlan = stage.progressPolicyPlan?.(ctx.config, source) ?? stage.plan(ctx.config, source);
++  if (previous.completed.length === 0 || newPlan.operations.length === 0) return [];
++  const proofCtx = { ...ctx, completedOperationReceipts: policyReceipts(ctx, previous) };
++  return previous.completed.map((id, index) => {
++    const old = oldPlan.operations[index];
++    const current = newPlan.operations[index];
++    const publication = previous.progress?.[index];
++    if (!old || old.id !== id || !current || !publication || !sameOperation(stage, proofCtx, oldPlan, current, old)) {
++      blocked(stage, "A new review changes a completed action or its security requirements; explicit reconciliation is required.");
++    }
++    return { ...publication, currentId: current.id };
++  });
++}
+diff --git a/setup/tests/helpers/r211-access.ts b/setup/tests/helpers/r211-access.ts
+new file mode 100644
+index 0000000..3d68f40
+--- /dev/null
++++ b/setup/tests/helpers/r211-access.ts
+@@ -0,0 +1,63 @@
++// Actual engine/S03; all external effects are disk-backed fake facts, never host commands.
++import fs from "node:fs/promises";
++import path from "node:path";
++import { createHash } from "node:crypto";
++import { SetupEngine } from "../../src/core/engine";
++import { createRegistry } from "../../src/core/plan";
++import { requestCancel } from "../../src/core/lock";
++import { NodeFilesystemAdapter, type FilesystemAdapter } from "../../src/adapters/filesystem";
++import { createAccessStage, type AccessAdapter, type AccessRuntimeObservation } from "../../src/stages/access";
++import { r14Fixture, r14Noop, r14Process } from "./r14-engine";
++import { baseObservation } from "./r15-access-adapter";
++import { type StageModule, type SetupConfig } from "../../src/core/types";
++
++export const phases = ["install", "stage", "arm", "cutover", "tailnet", "disarm"] as const;
++export type Phase = typeof phases[number];
++export type Facts = { observation: AccessRuntimeObservation; counts: Record<Phase | "rollback", number> };
++const hash = (s: string) => createHash("sha256").update(s).digest("hex");
++export const target = { contentHash: hash("managed content"), sshConfigHash: hash("managed ssh"), firewallRulesHash: hash("managed firewall") };
++export async function readFacts(root: string): Promise<Facts> { return JSON.parse(await fs.readFile(path.join(root, "facts.json"), "utf8")) as Facts; }
++export async function writeFacts(root: string, facts: Facts) { await fs.writeFile(path.join(root, "facts.json"), JSON.stringify(facts)); }
++export async function accessFixture() {
++  const x = await r14Fixture("S03"), observation = baseObservation();
++  observation.publicExposure = { ipv4SshReachable: true, ipv6SshReachable: true };
++  await writeFacts(x.root, { observation, counts: { install: 0, stage: 0, arm: 0, cutover: 0, tailnet: 0, disarm: 0, rollback: 0 } });
++  return x;
++}
++export function accessEngine(root: string, config: SetupConfig, options: {
++  pause?: Phase; now?: () => Date; fs?: FilesystemAdapter; afterEffect?: (phase: Phase) => Promise<void>;
++  unsafeCutover?: "ownership" | "content"; stagePolicy?: (stage: StageModule) => void;
++} = {}) {
++  const f = options.fs ?? new NodeFilesystemAdapter();
++  let cancelled = false;
++  const effect = async (phase: Phase, change?: (facts: Facts) => void) => {
++    const facts = await readFacts(root); facts.counts[phase]++; change?.(facts); await writeFacts(root, facts);
++    await options.afterEffect?.(phase);
++    if (options.pause === phase && !cancelled) { cancelled = true; await requestCancel(f, config); }
++  };
++  const adapter: AccessAdapter = {
++    observe: async () => (await readFacts(root)).observation,
++    installPinnedTailscale: async version => effect("install", facts => { facts.observation.tailscale.installedVersion = version; }),
++    stageManagedCutover: async () => effect("stage"), validateSshdCandidate: async () => {},
++    stagedContentProof: async () => target,
++    armRollbackTimer: async () => effect("arm", facts => { facts.observation.rollback.armed = true; }),
++    applyCutover: async () => effect("cutover", facts => {
++      const o = facts.observation;
++      o.securityInputs.contentHash = options.unsafeCutover === "content" ? hash("foreign") : target.contentHash;
++      o.ssh.configHash = target.sshConfigHash; o.firewall.rulesHash = target.firewallRulesHash;
++      o.publicExposure = { ipv4SshReachable: false, ipv6SshReachable: false };
++      if (options.unsafeCutover === "ownership") o.securityInputs.ownershipHash = "foreign ownership";
++    }),
++    verifyPrivateTailnetAccess: async () => { await effect("tailnet"); return true; },
++    disarmRollbackTimer: async () => effect("disarm", facts => { facts.observation.rollback.armed = false; }),
++    rollbackManagedCutover: async () => {
++      const facts = await readFacts(root); facts.counts.rollback++; facts.observation.rollback.armed = false; await writeFacts(root, facts);
++      return { ok: true, details: "fake rollback" };
++    }
++  };
++  const proc = { ...r14Process, isPidAlive: (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } } };
++  const stage = createAccessStage(adapter);
++  options.stagePolicy?.(stage);
++  return new SetupEngine({ fsAdapter: f, processAdapter: proc, clock: { now: options.now ?? (() => new Date("2026-10-26T10:00:00.000Z")) } },
++    createRegistry([r14Noop("S02"), stage]));
++}
+diff --git a/setup/tests/helpers/r211-child.ts b/setup/tests/helpers/r211-child.ts
+new file mode 100644
+index 0000000..5241024
+--- /dev/null
++++ b/setup/tests/helpers/r211-child.ts
+@@ -0,0 +1,61 @@
++// Owned subprocess fixture: disk facts persist across all engine and process instances.
++import fs from "node:fs/promises";
++import path from "node:path";
++import { NodeFilesystemAdapter } from "../../src/adapters/filesystem";
++import { accessEngine, type Phase } from "./r211-access";
++import { type SetupConfig, type InstallerPlan } from "../../src/core/types";
++
++async function main() {
++  const [root, command, pause, barrier] = process.argv.slice(2);
++  if (!root || !command) throw Error("root and command required");
++  const configPath = path.join(root, "config.json");
++  const config = JSON.parse(await fs.readFile(configPath, "utf8")) as SetupConfig;
++  let hit = false;
++  async function stop(phase: string, exactPath: string) {
++    if (hit || phase !== barrier) return;
++    hit = true;
++    process.send?.({ type: "barrier", phase, path: exactPath, pid: process.pid });
++    await new Promise<void>(resolve => process.once("message", () => resolve()));
++  }
++  const delegate = new NodeFilesystemAdapter();
++  const proxy = new Proxy(delegate, { get(target, key) {
++    if (key === "fsyncFile") return async (p: string) => {
++      await target.fsyncFile(p);
++      if (p.endsWith("events.jsonl")) {
++        const events = (await fs.readFile(p, "utf8")).trim().split("\n").map(line => JSON.parse(line) as {code: string});
++        if (events.at(-1)?.code === "checkpoint") await stop("checkpoint", p);
++      }
++    };
++    if (key === "fsyncDir") return async (p: string) => {
++      await target.fsyncDir(p);
++      const manifestPath = path.join(config.paths.setup_state_dir, "state-commit.json");
++      try {
++        const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8")) as {completed_operations?: unknown[]};
++        if (manifest.completed_operations?.length === 1) await stop("binding", manifestPath);
++      } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
++    };
++    const value: unknown = Reflect.get(target, key);
++    return typeof value === "function" ? value.bind(target) : value;
++  } });
++  const engine = accessEngine(root, config, {
++    fs: proxy,
++    ...(pause && pause !== "none" ? { pause: pause as Phase } : {}),
++    afterEffect: async phase => {
++      if (barrier === phase) {
++        await stop(phase, path.join(root, "facts.json"));
++      }
++    }
++  });
++  const result = await engine.run(command === "review" ? "plan" : command === "unlock" ? "recover" : command,
++    { configPath, ...(command === "apply" ? { planPath: path.join(config.paths.setup_state_dir, "plan.json") } : {}),
++      ...(command === "unlock" ? { lockOnly: true } : {}) });
++  if (command === "review" && result.exitCode === 0) {
++    const p = JSON.parse(await fs.readFile(path.join(config.paths.setup_state_dir, "plan.json"), "utf8")) as InstallerPlan;
++    for (const id of new Set(p.stages.flatMap(s => s.required_gates))) {
++      const approved = await engine.run("gate-approve", { configPath, gateId: id, planHash: p.plan_hash });
++      if (approved.exitCode !== 0) throw Error(JSON.stringify(approved));
++    }
++  }
++  console.log(JSON.stringify({ pid: process.pid, result }));
++}
++main().catch(error => { console.error(error); process.exitCode = 1; });
+diff --git a/setup/tests/integration/q1a-r211-access.test.ts b/setup/tests/integration/q1a-r211-access.test.ts
+new file mode 100644
+index 0000000..b689d3b
+--- /dev/null
++++ b/setup/tests/integration/q1a-r211-access.test.ts
+@@ -0,0 +1,263 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import fs from "node:fs/promises";
++import path from "node:path";
++import { fork } from "node:child_process";
++import { once } from "node:events";
++import { accessFixture, accessEngine, readFacts, writeFacts, phases, target, type Phase } from "../helpers/r211-access";
++import { evidence, readPlan, writePlan } from "../helpers/r21-admission";
++import { type StageId } from "../../src/core/types";
++
++const allOnce = { install: 1, stage: 1, arm: 1, cutover: 1, tailnet: 1, disarm: 1, rollback: 0 };
++async function intents(x: Awaited<ReturnType<typeof accessFixture>>) {
++  const body = await fs.readFile(path.join(x.config.paths.setup_state_dir, "events.jsonl"), "utf8");
++  return body.split("\n").filter(line => line.includes('"code":"intent"')).length;
++}
++async function paused(phase: Phase) {
++  const x = await accessFixture();
++  await x.planAndApprove(accessEngine(x.root, x.config));
++  const first = await accessEngine(x.root, x.config, { pause: phase }).run("apply", x.applyOptions);
++  assert.equal(first.exitCode, 130, JSON.stringify(first));
++  assert.equal((await x.state()).in_flight_operation, null);
++  return x;
++}
++async function finished(x: Awaited<ReturnType<typeof accessFixture>>) {
++  const facts = await readFacts(x.root);
++  assert.deepEqual(facts.counts, allOnce);
++  assert.equal(facts.observation.rollback.armed, false);
++  assert.equal(facts.observation.securityInputs.contentHash, target.contentHash);
++  assert.equal((await x.state()).stages.find(s => s.id === "S03")?.status, "verified");
++  assert.equal(await intents(x), 6, "exactly six intents, no replay");
++}
++for (const mode of ["resume", "replan"] as const) test(`A211-02/03/04 actual S03 ${mode}, six checkpoint boundaries, staged raw hash cutover`, async () => {
++  for (const phase of phases) {
++    const x = await paused(phase), before = (await readFacts(x.root)).counts;
++    if (mode === "replan") await x.planAndApprove(accessEngine(x.root, x.config));
++    const result = await accessEngine(x.root, x.config).run("resume", { configPath: x.configPath });
++    assert.equal(result.exitCode, 0, `${phase}: ${JSON.stringify(result)}`);
++    await finished(x);
++    const snapshot = await evidence(x.config);
++    assert.equal((await accessEngine(x.root, x.config).run("status", { configPath: x.configPath })).exitCode, 0);
++    assert.deepEqual(await evidence(x.config), snapshot, "plain status read-only");
++    assert.equal((await accessEngine(x.root, x.config).run("resume", { configPath: x.configPath })).exitCode, 0);
++    await finished(x);
++    console.log("R211_BOUNDARY " + JSON.stringify({ phase, mode, exit: result.exitCode, before, after: (await readFacts(x.root)).counts, intents: await intents(x) }));
++  }
++});
++test("A211-06 sequential stops accumulate a published prefix across re-plan and resume", async () => {
++  const x = await paused("install");
++  for (const [phase, review] of [["arm", false], ["cutover", true], ["tailnet", true]] as const) {
++    if (review) await x.planAndApprove(accessEngine(x.root, x.config));
++    assert.equal((await accessEngine(x.root, x.config, { pause: phase }).run("resume", { configPath: x.configPath })).exitCode, 130);
++    assert.equal((await x.state()).in_flight_operation, null);
++  }
++  assert.equal((await accessEngine(x.root, x.config).run("resume", { configPath: x.configPath })).exitCode, 0);
++  await finished(x);
++});
++test("A211-07 checkpoint then plan TTL: refusal preserves progress, explicit review continues without replay", async () => {
++  const x = await paused("cutover"), state = await x.state(), before = await evidence(x.config), counts = (await readFacts(x.root)).counts;
++  const late = () => new Date("2026-10-26T10:30:00.000Z");
++  const expired = await accessEngine(x.root, x.config, { now: late }).run("resume", { configPath: x.configPath });
++  assert.equal(expired.exitCode, 4); assert.equal(expired.envelope.error?.code, "plan_expired");
++  assert.deepEqual(await evidence(x.config), before); assert.deepEqual((await readFacts(x.root)).counts, counts);
++  assert.deepEqual((await x.state()).pending_gates, state.pending_gates, "expiry cannot renew stored gates");
++  await x.planAndApprove(accessEngine(x.root, x.config, { now: late }));
++  assert.equal((await accessEngine(x.root, x.config, { now: late }).run("resume", { configPath: x.configPath })).exitCode, 0);
++  await finished(x);
++});
++for (const mode of ["resume", "replan"] as const) test(`A211-08 ${mode}: external content/ownership/pin/manual drift never becomes own progress`, async () => {
++  for (const change of ["content", "ownership", "pin", "manual", "diff"] as const) {
++    const x = await paused("cutover"), facts = await readFacts(x.root);
++    if (change === "content") facts.observation.ssh.configHash = "foreign bytes";
++    if (change === "ownership") facts.observation.securityInputs.ownershipHash = "foreign owner";
++    if (change === "pin") facts.observation.tailscale.candidateVersion = "2.0.0";
++    if (change === "manual") facts.observation.manual.secondSessionHasSudo = false;
++    if (change === "diff") facts.observation.diff.sshd += "foreign diff";
++    await writeFacts(x.root, facts);
++    const before = await evidence(x.config), initialIntents = await intents(x);
++    const result = await accessEngine(x.root, x.config).run(mode === "replan" ? "plan" : "resume", { configPath: x.configPath });
++    assert.notEqual(result.exitCode, 0, `${mode}/${change}`); assert.ok(result.envelope.error?.code);
++    assert.deepEqual(await evidence(x.config), before); assert.deepEqual((await readFacts(x.root)).counts, facts.counts);
++    assert.equal(await intents(x), initialIntents);
++    console.log("R211_DRIFT " + JSON.stringify({ mode, change, exit: result.exitCode, code: result.envelope.error?.code, before, after: await evidence(x.config), counts: facts.counts }));
++  }
++});
++test("A211-08 cutover target proof is narrow: unrelated ownership/content change triggers rollback, no next intent", async () => {
++  for (const unsafeCutover of ["ownership", "content"] as const) {
++    const x = await accessFixture(); await x.planAndApprove(accessEngine(x.root, x.config));
++    const result = await accessEngine(x.root, x.config, { unsafeCutover }).run("apply", x.applyOptions);
++    assert.equal(result.exitCode, 8); assert.equal(result.envelope.error?.code, "s03_cutover_postcondition_unproven");
++    const facts = await readFacts(x.root); assert.equal(facts.counts.rollback, 1); assert.equal(facts.counts.tailnet, 0);
++    assert.notEqual((await x.state()).stages.find(s => s.id === "S03")?.status, "verified");
++    const before = facts.counts;
++    assert.notEqual((await accessEngine(x.root, x.config).run("resume", { configPath: x.configPath })).exitCode, 0);
++    assert.deepEqual((await readFacts(x.root)).counts, before);
++  }
++});
++test("A211-11 submitted policy tampering after own progress preserves independent producer refusal", async () => {
++  for (const edit of ["gates", "resource", "risk", "constraints"] as const) {
++    const x = await paused("arm"), p = await readPlan(x), op = p.stages.find(s => s.stage_id === "S03")!.operations[3]!;
++    if (edit === "gates") { op.gate_ids = []; p.stages.find(s => s.stage_id === "S03")!.required_gates = []; }
++    if (edit === "resource") op.resource_id = "harmless";
++    if (edit === "risk") op.risk = "low";
++    if (edit === "constraints") op.preconditions = [];
++    await writePlan(x, p); const before = await evidence(x.config), counts = (await readFacts(x.root)).counts;
++    const result = await accessEngine(x.root, x.config).run("resume", { configPath: x.configPath });
++    assert.equal(result.exitCode, 2, JSON.stringify(result)); assert.deepEqual(await evidence(x.config), before);
++    assert.deepEqual((await readFacts(x.root)).counts, counts);
++  }
++});
++
++async function childCommand(root: string, command: string, pause: Phase | "none" = "none") {
++  const child = fork(path.join(__dirname, "../helpers/r211-child.js"), [root, command, pause], { silent: true });
++  let stdout = "", stderr = "";
++  child.stdout!.on("data", data => { stdout += data; }); child.stderr!.on("data", data => { stderr += data; });
++  const timer = setTimeout(() => child.kill("SIGKILL"), 20_000);
++  const [code, signal] = await once(child, "exit"); clearTimeout(timer);
++  assert.equal(code, 0, `${command}: ${stderr}; ${stdout}; ${signal}`);
++  const row = JSON.parse(stdout.trim()) as { pid: number; result: { exitCode: number } };
++  console.log("R211_PROCESS " + JSON.stringify({ command, pause, ...row }));
++  return row;
++}
++test("A211-05 separate owned processes plan/approve/apply-cancel/resume and explicit re-plan use only disk evidence", async () => {
++  const pids = new Set<number>();
++  for (const mode of ["resume", "replan"] as const) for (const phase of ["install", "cutover", "tailnet"] as const) {
++    const x = await accessFixture();
++    let row = await childCommand(x.root, "review"); assert.equal(row.result.exitCode, 0); pids.add(row.pid);
++    row = await childCommand(x.root, "apply", phase); assert.equal(row.result.exitCode, 130); pids.add(row.pid);
++    if (mode === "replan") { row = await childCommand(x.root, "review"); assert.equal(row.result.exitCode, 0); pids.add(row.pid); }
++    row = await childCommand(x.root, "resume"); assert.equal(row.result.exitCode, 0); pids.add(row.pid);
++    await finished(x);
++  }
++  assert.ok(pids.size >= 18, "distinct OS processes, no shared instance state");
++});
++
++test("A211-09 synthetic metadata corruption via real core writer cannot fabricate a predecessor or alias arm/disarm", async () => {
++  const { saveState } = await import("../../src/core/state");
++  const { POLICY_BASIS_KEY } = await import("../../src/core/policy");
++  for (const mutation of ["missing", "stage", "config", "operation", "attempt", "receipt", "collision", "empty"] as const) {
++    const x = await paused(mutation === "collision" ? "disarm" : "arm");
++    const state = await x.state(), entry = state.stages.find(s => s.id === "S03")!;
++    const basis = JSON.parse(entry.versions[POLICY_BASIS_KEY]!) as import("../../src/core/policy").PolicyBasis;
++    if (mutation === "missing") delete entry.versions[POLICY_BASIS_KEY];
++    else {
++      if (mutation === "stage") basis.progress!.at(-1)!.operation.stageId = "S02" as StageId;
++      if (mutation === "config") basis.configHash = "f".repeat(64);
++      if (mutation === "attempt") basis.progress!.at(-1)!.attemptId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
++      if (mutation === "receipt") basis.progress!.at(-1)!.receiptHash = "0".repeat(64);
++      if (mutation === "operation") basis.progress!.at(-1)!.operation.resourceId = "wrong";
++      if (mutation === "collision") basis.progress!.at(-1)!.operation = structuredClone(basis.progress![2]!.operation);
++      if (mutation === "empty") { basis.completed = []; basis.progress = []; }
++      entry.versions[POLICY_BASIS_KEY] = JSON.stringify(basis);
++    }
++    // Deliberately corrupt only internal policy metadata, using genuine publication APIs.
++    // All receipts/checkpoints stay engine-generated. This is synthetic negative evidence.
++    await saveState(x.f, x.config, state);
++    const before = await evidence(x.config), counts = (await readFacts(x.root)).counts;
++    const result = await accessEngine(x.root, x.config).run("resume", { configPath: x.configPath });
++    assert.equal(result.exitCode, 8, `${mutation}: ${JSON.stringify(result)}`);
++    assert.deepEqual(await evidence(x.config), before); assert.deepEqual((await readFacts(x.root)).counts, counts);
++    console.log("R211_PROOF_NEGATIVE " + JSON.stringify({ mutation, exit: result.exitCode, code: result.envelope.error?.code, counts }));
++  }
++});
++test("A211-09 synthetic legacy v1 metadata retains exact engine-created checkpoint prefix, including compacted arm", async () => {
++  const { saveState } = await import("../../src/core/state");
++  const { POLICY_BASIS_KEY } = await import("../../src/core/policy");
++  for (const phase of ["arm", "cutover", "disarm"] as const) {
++    const x = await paused(phase), state = await x.state(), entry = state.stages.find(s => s.id === "S03")!;
++    const basis = JSON.parse(entry.versions[POLICY_BASIS_KEY]!) as import("../../src/core/policy").PolicyBasis;
++    basis.version = 1; delete basis.progress; entry.versions[POLICY_BASIS_KEY] = JSON.stringify(basis);
++    await saveState(x.f, x.config, state);
++    assert.equal((await accessEngine(x.root, x.config).run("resume", { configPath: x.configPath })).exitCode, 0);
++    await finished(x);
++  }
++});
++for (const barrier of ["install", "checkpoint", "binding"] as const) test(`A211-10 S03 owned child SIGKILL at ${barrier}: reader/lock/unknown controls`, async () => {
++  const x = await accessFixture(); await x.planAndApprove(accessEngine(x.root, x.config));
++  const child = fork(path.join(__dirname, "../helpers/r211-child.js"), [x.root, "apply", "none", barrier], { silent: true });
++  let stderr = ""; child.stderr!.on("data", data => { stderr += data; });
++  let deadline: ReturnType<typeof setTimeout> | undefined;
++  const reached = new Promise<{type: string; path: string; pid: number; phase: string}>((resolve, reject) => {
++    deadline = setTimeout(() => reject(Error(`barrier timeout: ${barrier}: ${stderr}`)), 20_000);
++    child.once("exit", code => reject(Error(`before barrier ${barrier}: ${code}: ${stderr}`)));
++    child.on("message", value => { clearTimeout(deadline); resolve(value as {type: string; path: string; pid: number; phase: string}); });
++  });
++  try {
++    const message = await reached; assert.equal(message.phase, barrier); assert.equal(message.pid, child.pid);
++    const before = await evidence(x.config), counts = (await readFacts(x.root)).counts;
++    await accessEngine(x.root, x.config).run("status", { configPath: x.configPath });
++    assert.deepEqual(await evidence(x.config), before);
++    assert.notEqual((await accessEngine(x.root, x.config).run("recover", { configPath: x.configPath })).exitCode, 0, "live foreign writer owns lock");
++    assert.deepEqual(await evidence(x.config), before);
++    const ended = once(child, "exit"); child.kill("SIGKILL"); const [code, signal] = await ended;
++    assert.equal(code, null); assert.equal(signal, "SIGKILL");
++    const unlocked = await accessEngine(x.root, x.config).run("recover", { configPath: x.configPath, lockOnly: true });
++    assert.equal(unlocked.exitCode, 0, JSON.stringify(unlocked)); assert.deepEqual(await evidence(x.config), before);
++    const recovered = await accessEngine(x.root, x.config).run("recover", { configPath: x.configPath });
++    const resumed = await accessEngine(x.root, x.config).run("resume", { configPath: x.configPath });
++    if (barrier === "binding") {
++      assert.equal(recovered.exitCode, 0, JSON.stringify(recovered)); assert.equal(resumed.exitCode, 0, JSON.stringify(resumed)); await finished(x);
++    } else {
++      assert.equal(resumed.exitCode, 8, JSON.stringify(resumed)); assert.deepEqual((await readFacts(x.root)).counts, counts);
++      assert.notEqual((await x.state()).stages.find(s => s.id === "S03")?.status, "verified");
++    }
++    console.log("R211_CRASH " + JSON.stringify({ barrier, path: message.path, pid: message.pid, signal, before, after: await evidence(x.config), countsBefore: counts, countsAfter: (await readFacts(x.root)).counts, recover: recovered.exitCode, resume: resumed.exitCode }));
++  } finally { clearTimeout(deadline); if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL"); }
++});
++test("A211-10 fault-off control executes the same S03 publication route to completion", async () => {
++  const x = await accessFixture(); await x.planAndApprove(accessEngine(x.root, x.config));
++  assert.equal((await accessEngine(x.root, x.config).run("apply", x.applyOptions)).exitCode, 0); await finished(x);
++});
++
++test("A211-11 producer policy change after progress requires a new review and cannot transfer approvals", async () => {
++  for (const field of ["gate", "resource", "risk", "constraint"] as const) {
++    const x = await paused("arm"), counts = (await readFacts(x.root)).counts;
++    const stagePolicy = (stage: import("../../src/core/types").StageModule) => {
++      const original = stage.plan.bind(stage);
++      stage.plan = (desired, observed) => {
++        const p = original(desired, observed), cutover = p.operations[3];
++        if (cutover) {
++          if (field === "gate") { cutover.gateIds = [...cutover.gateIds, "s03-new-reviewed-policy"]; p.requiredGates.push("s03-new-reviewed-policy"); }
++          if (field === "resource") cutover.resourceId = "different-cutover-resource";
++          if (field === "risk") cutover.risk = "high";
++          if (field === "constraint") cutover.preconditions = [...cutover.preconditions, "new-security-constraint:true"];
++        }
++        return p;
++      };
++    };
++    const before = await evidence(x.config);
++    const rejected = await accessEngine(x.root, x.config, { stagePolicy }).run("resume", { configPath: x.configPath });
++    assert.equal(rejected.exitCode, 2); assert.deepEqual(await evidence(x.config), before);
++    assert.deepEqual((await readFacts(x.root)).counts, counts);
++    if (field === "gate") {
++      const proposed = await accessEngine(x.root, x.config, { stagePolicy }).run("plan", { configPath: x.configPath });
++      assert.equal(proposed.exitCode, 0, JSON.stringify(proposed));
++      const notApproved = await accessEngine(x.root, x.config, { stagePolicy }).run("resume", { configPath: x.configPath });
++      assert.equal(notApproved.exitCode, 4, "new plan cannot inherit old approvals");
++      assert.deepEqual((await readFacts(x.root)).counts, counts);
++      await x.planAndApprove(accessEngine(x.root, x.config, { stagePolicy }));
++      assert.equal((await accessEngine(x.root, x.config, { stagePolicy }).run("resume", { configPath: x.configPath })).exitCode, 0);
++      await finished(x);
++    }
++  }
++});
++
++test("A211-09 legacy v1 requires the exact bound plan; absent or recomputed policy is not proof", async () => {
++  const { saveState } = await import("../../src/core/state");
++  const { POLICY_BASIS_KEY } = await import("../../src/core/policy");
++  for (const mutation of ["missing-plan", "changed-policy"] as const) {
++    const x = await paused("arm"), state = await x.state(), entry = state.stages.find(s => s.id === "S03")!;
++    const basis = JSON.parse(entry.versions[POLICY_BASIS_KEY]!) as import("../../src/core/policy").PolicyBasis;
++    basis.version = 1; delete basis.progress; entry.versions[POLICY_BASIS_KEY] = JSON.stringify(basis);
++    await saveState(x.f, x.config, state);
++    if (mutation === "missing-plan") await fs.rename(x.applyOptions.planPath, x.applyOptions.planPath + ".preserved");
++    else {
++      const plan = await readPlan(x); plan.stages.find(s => s.stage_id === "S03")!.operations[0]!.risk = "low";
++      await writePlan(x, plan);
++    }
++    const before = await evidence(x.config), counts = (await readFacts(x.root)).counts;
++    const refused = await accessEngine(x.root, x.config).run("plan", { configPath: x.configPath });
++    assert.equal(refused.exitCode, 8, JSON.stringify(refused)); assert.equal(refused.envelope.error?.code, "operation_progress_unproven");
++    assert.deepEqual(await evidence(x.config), before); assert.deepEqual((await readFacts(x.root)).counts, counts);
++  }
++});

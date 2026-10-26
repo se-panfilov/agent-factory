@@ -1,0 +1,215 @@
+{
+  "expectation": "fixed",
+  "cases": 13,
+  "product_pass": 3,
+  "product_fail": 10,
+  "failures": [
+    "S03-install-resume",
+    "S03-install-replan",
+    "S03-stage-resume",
+    "S03-stage-replan",
+    "S03-arm-resume",
+    "S03-arm-replan",
+    "S03-cutover-resume",
+    "S03-cutover-replan",
+    "S03-tailnet-resume",
+    "S03-tailnet-replan"
+  ],
+  "rows": [
+    {
+      "id": "S03-none-control",
+      "desired_product_pass": true,
+      "exit": 0,
+      "error": null,
+      "counts": {
+        "install": 1,
+        "stage": 1,
+        "arm": 1,
+        "cutover": 1,
+        "tailnet": 1,
+        "disarm": 1,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-install-resume",
+      "desired_product_pass": false,
+      "exit": 4,
+      "error": "s03_observation_drifted",
+      "counts": {
+        "install": 1,
+        "stage": 0,
+        "arm": 0,
+        "cutover": 0,
+        "tailnet": 0,
+        "disarm": 0,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-install-replan",
+      "desired_product_pass": false,
+      "exit": 0,
+      "error": null,
+      "counts": {
+        "install": 2,
+        "stage": 1,
+        "arm": 1,
+        "cutover": 1,
+        "tailnet": 1,
+        "disarm": 1,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-stage-resume",
+      "desired_product_pass": false,
+      "exit": 4,
+      "error": "s03_observation_drifted",
+      "counts": {
+        "install": 1,
+        "stage": 1,
+        "arm": 0,
+        "cutover": 0,
+        "tailnet": 0,
+        "disarm": 0,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-stage-replan",
+      "desired_product_pass": false,
+      "exit": 0,
+      "error": null,
+      "counts": {
+        "install": 2,
+        "stage": 2,
+        "arm": 1,
+        "cutover": 1,
+        "tailnet": 1,
+        "disarm": 1,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-arm-resume",
+      "desired_product_pass": false,
+      "exit": 4,
+      "error": "s03_observation_drifted",
+      "counts": {
+        "install": 1,
+        "stage": 1,
+        "arm": 1,
+        "cutover": 0,
+        "tailnet": 0,
+        "disarm": 0,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-arm-replan",
+      "desired_product_pass": false,
+      "exit": 0,
+      "error": null,
+      "counts": {
+        "install": 2,
+        "stage": 2,
+        "arm": 2,
+        "cutover": 1,
+        "tailnet": 1,
+        "disarm": 1,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-cutover-resume",
+      "desired_product_pass": false,
+      "exit": 4,
+      "error": "s03_observation_drifted",
+      "counts": {
+        "install": 1,
+        "stage": 1,
+        "arm": 1,
+        "cutover": 1,
+        "tailnet": 0,
+        "disarm": 0,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-cutover-replan",
+      "desired_product_pass": false,
+      "exit": 0,
+      "error": null,
+      "counts": {
+        "install": 2,
+        "stage": 2,
+        "arm": 2,
+        "cutover": 2,
+        "tailnet": 1,
+        "disarm": 1,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-tailnet-resume",
+      "desired_product_pass": false,
+      "exit": 4,
+      "error": "s03_observation_drifted",
+      "counts": {
+        "install": 1,
+        "stage": 1,
+        "arm": 1,
+        "cutover": 1,
+        "tailnet": 1,
+        "disarm": 0,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-tailnet-replan",
+      "desired_product_pass": false,
+      "exit": 0,
+      "error": null,
+      "counts": {
+        "install": 2,
+        "stage": 2,
+        "arm": 2,
+        "cutover": 2,
+        "tailnet": 2,
+        "disarm": 1,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-disarm-resume",
+      "desired_product_pass": true,
+      "exit": 0,
+      "error": null,
+      "counts": {
+        "install": 1,
+        "stage": 1,
+        "arm": 1,
+        "cutover": 1,
+        "tailnet": 1,
+        "disarm": 1,
+        "rollback": 0
+      }
+    },
+    {
+      "id": "S03-disarm-replan",
+      "desired_product_pass": true,
+      "exit": 0,
+      "error": null,
+      "counts": {
+        "install": 1,
+        "stage": 1,
+        "arm": 1,
+        "cutover": 1,
+        "tailnet": 1,
+        "disarm": 1,
+        "rollback": 0
+      }
+    }
+  ]
+}

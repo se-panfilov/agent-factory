@@ -136,6 +136,8 @@ export interface StageContext {
   /** Core supplies only the previous durably checkpointed operation in this stage. */
   previousOperationReceipt?: StageReceipt;
   completedOperationReceipts?: StageReceipt[];
+  /** Core-validated reviewed prefix, never supplied by submitted plan data. */
+  operationProgress?: { completed: StageOperation[]; total: number };
 }
 
 export interface StageModule {
@@ -152,6 +154,10 @@ export interface StageModule {
   policyInputs?(observed: StageObservation): {checks: StageObservation["checks"]; versions: StageObservation["versions"]};
   /** Only rebase observation-derived identity/preconditions after core-proven own progress. Never gates/effects. */
   reconcilePolicyOperation?(ctx: StageContext, reviewed: StagePlan, current: StageOperation): Pick<StageOperation,"id"|"preconditions">;
+  /** Confirm the current frontier and immutable review invariants of an admitted prefix. */
+  verifyProgress?(ctx: StageContext, source: StageObservation): Promise<void>;
+  /** Same producer catalog, including completed historical steps when the public plan is a no-op. */
+  progressPolicyPlan?(desired: unknown, source: StageObservation): StagePlan;
   /** Read-only prerequisite check before in-flight/intent publication. */
   admitOperation?(ctx: StageContext, operation: Pick<StageOperation, "id" | "resourceId" | "preconditions">): Promise<void>;
   apply(ctx: StageContext, approvedPlan: StagePlan): Promise<StageReceipt[]>;

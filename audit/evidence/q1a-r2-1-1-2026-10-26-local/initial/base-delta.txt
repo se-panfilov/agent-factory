@@ -1,0 +1,4 @@
+A	audit/copilot-q1a-r2-1-1-task.ru.md
+A	audit/evidence/agent-factory-r21-review-evidence-d8728f5.zip
+A	audit/evidence/agent-factory-r21-review-evidence-d8728f5.zip.sha256
+A	audit/reviews/agent-factory-r21-audit-d8728f5.ru.md

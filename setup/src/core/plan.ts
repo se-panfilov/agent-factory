@@ -96,7 +96,8 @@ export async function createPlanFile(
   registry: StageRegistry,
   stageTarget: StageId | null,
   clock: Clock,
-  completedOperationReceipts: import("./types").StageReceipt[] = []
+  completedOperationReceipts: import("./types").StageReceipt[] = [],
+  progressContexts: ReadonlyMap<StageId, import("./types").StageContext> = new Map()
 ): Promise<{ plan: InstallerPlan; planPath: string; stageClosure: StageId[]; observations: Map<StageId, import("./types").StageObservation> }> {
   const stageIds = stageTarget === null ? config.selected_stages : [stageTarget];
   const closure = buildStageClosure(registry, stageIds);
@@ -115,6 +116,7 @@ export async function createPlanFile(
       });
     }
     const observation = await stage.observe({
+      ...progressContexts.get(stageId),
       installationId: config.installation_id,
       contractVersion: "1.0.0",
       profile: config.profile,

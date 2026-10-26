@@ -1,0 +1,27 @@
+[
+  {
+    "path": "setup/docs/access-continuation-r211.md",
+    "sha256": "86d50c39530d0ad5fc7b9631e75c08c8f228884137f3f0a0e829ef46df62cc43",
+    "included_in_patch": true
+  },
+  {
+    "path": "setup/src/core/progress.ts",
+    "sha256": "fc61533a04f6fce79e3f78024cadc8aba9820038b249b56bc85d72ac80e74d46",
+    "included_in_patch": true
+  },
+  {
+    "path": "setup/tests/helpers/r211-access.ts",
+    "sha256": "8a4413faace53443c0ecb664d9dbed11ef68ec11d040bd828751d567481e119c",
+    "included_in_patch": true
+  },
+  {
+    "path": "setup/tests/helpers/r211-child.ts",
+    "sha256": "981f3e427b9663cd20e5fbcdb4340d5bef8bf7995249ea42a5311357d1258f24",
+    "included_in_patch": true
+  },
+  {
+    "path": "setup/tests/integration/q1a-r211-access.test.ts",
+    "sha256": "003acfe6848ef52165d8e0720b2ec743df998c7f05733b825685a27fb2c842b7",
+    "included_in_patch": true
+  }
+]

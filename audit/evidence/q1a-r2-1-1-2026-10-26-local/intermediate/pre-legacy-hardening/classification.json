@@ -1,0 +1,4 @@
+{
+  "status": "INTERMEDIATE_NOT_FINAL_BYTES",
+  "reason": "445-test successful reconstruction precedes exact-bound-plan legacy hardening and its new negative controls. Source diff and manifest retained. Do not use as final validation."
+}

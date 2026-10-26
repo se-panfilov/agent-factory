@@ -1,19 +1,49 @@
 import { createHash } from "node:crypto";
 import { stableStringify } from "./config";
 import { setupError } from "./errors";
-import { ExitCode, type InstallerPlan, type SetupConfig, type SetupState, type StageModule, type StageObservation, type StageContext } from "./types";
+import { OPERATION_KINDS, OPERATION_RISK_LEVELS, ExitCode, type InstallerPlan, type SetupConfig, type SetupState, type StageModule, type StageObservation, type StageContext, type StageOperation } from "./types";
 import { serializeStagePlan } from "./plan";
 
 /** Core-owned, schema-validated internal metadata in existing versions storage, not a sidecar. */
 export const POLICY_BASIS_KEY = "setup_policy_basis_v1";
 export interface PolicyBasis {
-  version: 1;
+  version: 1 | 2;
   planHash: string;
   configHash: string;
   source: StageObservation;
   expected: string;
   completed: string[];
+  progress?: PublishedOperation[];
 }
+/** Semantic operation and exact journal publication retained across reviewed ID changes. */
+export interface PublishedOperation {
+  currentId: string;
+  operation: StageOperation;
+  attemptId: string;
+  receiptHash: string;
+}
+
+function validateProgressRecord(value: unknown, stage: StageModule): PublishedOperation {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw Error("progress shape");
+  const entry = value as Record<string, unknown>;
+  if (Object.keys(entry).sort().join(",") !== "attemptId,currentId,operation,receiptHash"
+    || typeof entry.currentId !== "string" || entry.currentId.length === 0
+    || typeof entry.attemptId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(entry.attemptId)
+    || typeof entry.receiptHash !== "string" || !/^[0-9a-f]{64}$/.test(entry.receiptHash)) throw Error("publication binding");
+  if (entry.operation === null || typeof entry.operation !== "object" || Array.isArray(entry.operation)) throw Error("operation shape");
+  const op = entry.operation as Record<string, unknown>;
+  if (Object.keys(op).sort().join(",") !== "gateIds,id,kind,preconditions,resourceId,retryable,risk,sideEffects,stageId,timeoutSec"
+    || typeof op.id !== "string" || op.id.length === 0 || op.stageId !== stage.id
+    || typeof op.resourceId !== "string" || op.resourceId.length === 0
+    || !OPERATION_KINDS.some(kind => kind === op.kind) || !OPERATION_RISK_LEVELS.some(risk => risk === op.risk)
+    || typeof op.retryable !== "boolean" || typeof op.timeoutSec !== "number" || !Number.isInteger(op.timeoutSec) || op.timeoutSec <= 0) throw Error("operation identity");
+  for (const key of ["gateIds", "preconditions", "sideEffects"]) {
+    const values = op[key];
+    if (!Array.isArray(values) || values.some(item => typeof item !== "string")) throw Error("operation policy");
+  }
+  return value as PublishedOperation;
+}
+
 function refuse(message: string): never {throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"plan_policy_mismatch",publicMessage:message,nextAction:"Generate a new plan with the trusted producer, review it and approve its required gates."});}
 export function policyFingerprint(stage: StageModule, config: SetupConfig, observed: StageObservation): string {
   const view = stage.policyInputs ? {status:observed.status,inputs:stage.policyInputs(observed)}
@@ -28,7 +58,8 @@ export function readPolicyBasis(state: SetupState, stage: StageModule): PolicyBa
     const p: unknown = JSON.parse(raw);
     if (p===null || typeof p!=="object" || Array.isArray(p)) throw Error("shape");
     const v=p as Record<string,unknown>;
-    if (Object.keys(v).sort().join(",")!=="completed,configHash,expected,planHash,source,version" || v.version!==1
+    const fields = v.version === 2 ? "completed,configHash,expected,planHash,progress,source,version" : "completed,configHash,expected,planHash,source,version";
+    if (Object.keys(v).sort().join(",")!==fields || (v.version!==1 && v.version!==2)
       || [v.planHash,v.configHash,v.expected].some(h=>typeof h!=="string" || !/^[0-9a-f]{64}$/.test(h))) throw Error("binding");
     if (!Array.isArray(v.completed) || v.completed.some(id=>typeof id!=="string") || new Set(v.completed).size!==v.completed.length) throw Error("progress");
     if (v.source===null || typeof v.source!=="object" || Array.isArray(v.source)) throw Error("source");
@@ -37,6 +68,13 @@ export function readPolicyBasis(state: SetupState, stage: StageModule): PolicyBa
       || typeof obs.status!=="string" || !["pending","planned","applying","installed","verified","awaiting_manual","blocked","failed","skipped","interrupted","drifted"].includes(String(obs.status))) throw Error("observation");
     for(const key of ["checks","versions"]){const values=obs[key];if(values===null||typeof values!=="object"||Array.isArray(values))throw Error("record");
       for(const value of Object.values(values)){if(key==="versions"?typeof value!=="string":!(typeof value==="string"||typeof value==="boolean"||(typeof value==="number"&&Number.isFinite(value))))throw Error("value");}}
+    if (v.version === 2) {
+      if (!Array.isArray(v.progress) || v.progress.length !== v.completed.length) throw Error("progress length");
+      const completed = v.completed as string[];
+      const entries = v.progress.map(entry => validateProgressRecord(entry, stage));
+      if (entries.some((entry, index) => entry.currentId !== completed[index])
+        || new Set(entries.map(entry => entry.attemptId)).size !== entries.length) throw Error("progress order");
+    }
     return p as PolicyBasis;
   } catch {throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_policy_basis_invalid",publicMessage:"Committed policy basis is malformed or unsupported.",nextAction:"Preserve evidence and generate a reviewed plan after reconciliation.",stage:stage.id});}
 }
@@ -60,7 +98,7 @@ export function assertContinuingPolicy(stage: StageModule, config: SetupConfig, 
   // Re-open only this producer catalog after proven progress, never blocked/manual readiness.
   const planning = basis.completed.length>0 && observed.status==="verified" ? {...observed,status:basis.source.status} : observed;
   const fresh = stage.plan(config,planning);
-  const proofCtx = {...ctx,completedOperationReceipts:(ctx.completedOperationReceipts ?? []).filter(r=>basis.completed.includes(r.operationId))};
+  const proofCtx = {...ctx,completedOperationReceipts:policyReceipts(ctx, basis)};
   const operations = fresh.operations.map(op=>basis.completed.length>0 && stage.reconcilePolicyOperation
     ? {...op,...stage.reconcilePolicyOperation(proofCtx,original,op)} : op).filter(op=>!basis.completed.includes(op.id));
   if (fresh.stageId!==original.stageId || fresh.optional!==original.optional
@@ -73,7 +111,7 @@ export function assertContinuingPolicy(stage: StageModule, config: SetupConfig, 
 /** Stage-wide verify is not permission to publish success with newly discovered requirements. */
 export function assertCompletionPolicy(stage: StageModule, config: SetupConfig, ctx: StageContext, basis: PolicyBasis, observed: StageObservation): void {
   const original=stage.plan(config,basis.source),fresh=stage.plan(config,observed);
-  const proofCtx={...ctx,completedOperationReceipts:(ctx.completedOperationReceipts ?? []).filter(r=>basis.completed.includes(r.operationId))};
+  const proofCtx={...ctx,completedOperationReceipts:policyReceipts(ctx, basis)};
   const operations=fresh.operations.map(op=>basis.completed.length>0 && stage.reconcilePolicyOperation
     ? {...op,...stage.reconcilePolicyOperation(proofCtx,original,op)} : op);
   const compatible=fresh.stageId===original.stageId && fresh.optional===original.optional
@@ -86,4 +124,10 @@ export function assertCompletionPolicy(stage: StageModule, config: SetupConfig, 
     });
   if (!compatible) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_completion_policy_drift",
     publicMessage:"Verified resources reveal additional unreviewed stage requirements.",nextAction:"Review a new plan before publishing stage completion; completed operation evidence remains known.",stage:stage.id});
+}
+
+
+export function policyReceipts(ctx: StageContext, basis: PolicyBasis) {
+  const publishedIds = new Set(basis.progress?.map(entry => entry.operation.id) ?? basis.completed);
+  return (ctx.completedOperationReceipts ?? []).filter(receipt => publishedIds.has(receipt.operationId));
 }

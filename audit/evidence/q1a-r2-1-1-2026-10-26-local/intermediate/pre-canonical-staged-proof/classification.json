@@ -1,0 +1,4 @@
+{
+  "status": "INTERMEDIATE_NOT_FINAL_BYTES",
+  "reason": "Successful 446-test run precedes canonical key ordering of staged proof; final3 logs and manifest supersede it."
+}

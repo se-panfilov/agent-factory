@@ -1,0 +1,54 @@
+{
+  "package": "Q1A-R2.1.1",
+  "date": "2026-10-26",
+  "base_commit": "6281df5796ec5dd82a6fee95b058bbc970f0ed16",
+  "base_tree": "da6e74b369455fc10b568cb9c3075918c72186cc",
+  "branch": "master",
+  "initial_owner_layer": [],
+  "initial_index_sha256": "1afc4d4d41d717b2f451e0c20ab7c8464825830c278c54ab6da418dade1add82",
+  "final_index_sha256": "1afc4d4d41d717b2f451e0c20ab7c8464825830c278c54ab6da418dade1add82",
+  "tested_commit": null,
+  "tested_tree_identity": {
+    "algorithm": "SHA-256 sorted path/content manifest of all relevant setup inputs",
+    "files": 148,
+    "manifest_sha256": "0665810884ee2a558be71467723b4b3818ca21c47d06b5296479ec81803f18c0"
+  },
+  "runtime": {
+    "node": "v24.12.0",
+    "npm": "11.6.2",
+    "os": "macOS-15.5-arm64-arm-64bit-Mach-O",
+    "arch": "arm64",
+    "uid": 501,
+    "host_qualification": "NOT RUN"
+  },
+  "commands": "logs/commands.json",
+  "reconstruction": "git archive actual base + full-local.patch. Additions already in patch; do not apply new-files.tar twice. No owner layer to apply.",
+  "exclusions": [
+    "setup/dist",
+    "setup/node_modules",
+    "Git metadata",
+    "temporary runtime files",
+    "audit report/packaging (hashed separately)",
+    "secrets (none used)"
+  ],
+  "code_validation": "final ordinary reconstructed source; before/after manifest equal",
+  "real_host_qualification": "NOT RUN",
+  "production": "OPEN",
+  "prohibitions": "No commits/push/branches/worktree/index staging/PR/merge/tag/release/deploy; preserve in any generated follow-up prompts.",
+  "sha256": {
+    "full-local.patch": "1f9b6bac707441d84633eee78e33af9e6604bd621bcf7b17021263bbfd2cfdcf",
+    "agent-delta.patch": "1f9b6bac707441d84633eee78e33af9e6604bd621bcf7b17021263bbfd2cfdcf",
+    "code-local.patch": "bd07488e4891748aa5c98291206f1a4d8cd5282aa22a3d811a8ef0170e07b041",
+    "tested-files.sha256": "0665810884ee2a558be71467723b4b3818ca21c47d06b5296479ec81803f18c0",
+    "report.md": "164aa35686d578d55cec3203bbdaaab1b335b139f5daeff2513f482c5083091d",
+    "new-files.tar": "f019aa6f5d85435c88384c4c22a5196d9e38e5f872e500defcfe2f0bfde1b37a",
+    "new-files.json": "b908efbb89fdfeba2c6bc30942fc5ccc94019abcf3f48ba1c5e3ecc5c5c29fb4",
+    "deletions.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  "package_status": "PARTIAL",
+  "findings": {
+    "R21-F01": "local PASS",
+    "R21-F02": "local PASS",
+    "additional-S03-recovery-policy-reconciliation": "OPEN (pre-existing; no replay)"
+  }
+}

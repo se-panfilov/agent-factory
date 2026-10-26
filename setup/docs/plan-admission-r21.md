@@ -59,3 +59,7 @@ Bounded request snapshots (1 MiB each, unambiguous UTF-8 JSON without NUL/replac
 Policy/TTL refusal before a new effect does not clear receipts, append a target intent, repair history or mark known progress unknown. Its error is returned without rewriting state evidence. Existing gate-approve expiry publication can mark gates expired without changing their expiry dates or receipts. Effects whose outcome is unknown retain the existing in-flight/recovery blocker. Optional failure status uses the trusted module's optional policy, not a forged client flag.
 
 This package does not claim cryptographic plan authentication or protection against an owner who changes the trusted installer. Full generated_at/expires_at serialization, host/session/version-lock/release/public observations binding, other concurrency cases, Q1B/Q2–Q6 and production qualification remain OPEN/NOT RUN.
+
+## R2.1.1 correction (2026-10-26)
+
+The original R2.1 continuation claim was too broad for S03: same-plan restart lost the predecessor, and explicit re-plan could replay completed observation-derived IDs. See [access-continuation-r211.md](access-continuation-r211.md) for the v2 publication/alias proof and strict full-operation reconciliation. This correction does not retroactively claim that the original A21-08 validation covered these cases.

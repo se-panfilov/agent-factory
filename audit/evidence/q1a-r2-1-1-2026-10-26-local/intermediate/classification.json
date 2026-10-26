@@ -1,0 +1,8 @@
+{
+  "initial_baseline": "Original runner before edits: desired product red, oracle exit1/10 failures. Harness completed.",
+  "first-build.log": "TypeScript compile failure (unknown narrowing); emitted JS runner result is intermediate, not successful validation. Fixed subsequently.",
+  "suite": "429 original tests passed before new tests; 15/16/17-test passes are targeted intermediate runs.",
+  "pre-legacy-hardening": "445-test reconstruction and all old comparisons passed; predates exact legacy-plan binding. Not final source bytes.",
+  "final": "Only top-level logs from final reconstructed source plus tested-files.sha256 authorize final claims.",
+  "elapsed": "Initial exploratory logs do not all have command elapsed times; final portable driver records actual argv/cwd/exit/elapsed."
+}
