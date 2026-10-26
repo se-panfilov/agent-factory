@@ -1,0 +1,24 @@
+{
+  "head": "564bb05736406db7bb8f930bf9a6a14195e8f73f",
+  "tree": "3912ceb6a012ab80efd4adf1aab85f799ab9c762",
+  "index_sha256": "6dfc768beb153b5e85126647d712065e8351c9e6010dde0dd0afc281c6a32b13",
+  "delta": "audit-only external commit; no agent git writes",
+  "owner_inputs": [
+    {
+      "path": "AGENTS.md",
+      "matches_initial": true
+    },
+    {
+      "path": "audit/R221-copilot-prompt.md",
+      "matches_initial": true
+    },
+    {
+      "path": "audit/evidence/R22-all-files.zip",
+      "matches_initial": true
+    },
+    {
+      "path": "audit/reviews/R22-audit.md",
+      "matches_initial": true
+    }
+  ]
+}

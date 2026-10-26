@@ -1,0 +1,9 @@
+{
+  "suite-first.log": "513/515; failed two preserved expiry-status assertions, corrected with explicit invalidation only after valid context fence; not final bytes",
+  "new-tests-first.log": "29/30, wrong fixture gate name; corrected to actual producer gate ID, no production bypass",
+  "targeted-second.log": "71/71 before final plan frontier addition",
+  "targeted-third.log": "47/47 S03/new tests before final witness error mapping/path-specific hook corrections",
+  "native-final-targeted.log": "30/30 before final witness error mapping; final suite covers current source",
+  "baseline-driver.log": "expected red desired checker exit1; observed-current0 measures defects, not product PASS",
+  "validation-driver.log": "one original final independent replay; no retries/no tracing, cause of historical incompleteness not reproduced"
+}

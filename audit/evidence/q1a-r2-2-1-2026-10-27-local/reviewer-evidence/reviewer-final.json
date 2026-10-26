@@ -1,0 +1,10 @@
+{
+  "owner_head": "7d845248e7fcd089a36afc8b395b38c7226e09e7",
+  "owner_branch": "master",
+  "owner_status": "?? app/m0-02-runner/.factory-selftest-gC3VLh/",
+  "owner_index_sha256": "126e4cd9fc51b97f6e6e80e9f1d54286eb19f45556c9c50761ebdf66884786fe",
+  "setup_files_unchanged": 157,
+  "all_tracked_snapshot_files_unchanged": 609,
+  "base_vs_previous_setup_delta": "",
+  "base_vs_previous_total_delta": "audit/copilot-q1a-r2-2-task.ru.md\naudit/evidence/agent-factory-r211-review-evidence-117a71e.zip\naudit/evidence/agent-factory-r211-review-evidence-117a71e.zip.sha256\naudit/reviews/agent-factory-r211-audit-117a71e.ru.md"
+}

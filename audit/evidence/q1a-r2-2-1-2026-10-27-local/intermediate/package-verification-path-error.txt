@@ -1,0 +1,1 @@
+Metadata-only verification attempt: saved matrix/hash checks passed; subsequent payload verification stopped with ValueError because a relative bundle Path was passed to relative_to(absolute repository). Corrected by resolving bundle Path. No source edit or product replay; no verification PASS inferred from that failed attempt.

@@ -1,0 +1,39 @@
+{
+  "matrices": [
+    {
+      "file": "context-boundary-probes.jsonl",
+      "meta": {
+        "id": "META",
+        "cases": 10,
+        "passed": 5,
+        "refused_as_required": 0,
+        "real_commands": 0,
+        "source": "/workspace/scratch/d38639edcc79/agent-factory-review-ad84212",
+        "node": "v24.22.1"
+      },
+      "complete": true
+    },
+    {
+      "file": "release-boundary-probes.jsonl",
+      "meta": {
+        "id": "META",
+        "cases": 4,
+        "passed": 1,
+        "real_commands": 0,
+        "node": "v24.22.1",
+        "source": "/workspace/scratch/d38639edcc79/agent-factory-review-ad84212"
+      },
+      "complete": true
+    }
+  ],
+  "desired_oracle": {
+    "cases": 14,
+    "pass": 6,
+    "fail": 8
+  },
+  "findings": [
+    "R221-F01",
+    "R221-F02"
+  ],
+  "known_replay_issue": "R211-O02 OPEN"
+}

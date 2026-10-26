@@ -1,0 +1,115 @@
+[
+  {
+    "argv": [
+      "node",
+      "--version"
+    ],
+    "cwd": "/private/tmp/af-r221/base",
+    "exit": 0,
+    "expected": 0,
+    "elapsed": 0.04698999994434416,
+    "stdout": "node.log",
+    "stderr": "node.log.stderr"
+  },
+  {
+    "argv": [
+      "npm",
+      "--version"
+    ],
+    "cwd": "/private/tmp/af-r221/base",
+    "exit": 0,
+    "expected": 0,
+    "elapsed": 0.13091012503718957,
+    "stdout": "npm.log",
+    "stderr": "npm.log.stderr"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "cwd": "/private/tmp/af-r221/base",
+    "exit": 0,
+    "expected": 0,
+    "elapsed": 0.45103166601620615,
+    "stdout": "ci.log",
+    "stderr": "ci.log.stderr"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "run",
+      "build",
+      "--silent"
+    ],
+    "cwd": "/private/tmp/af-r221/base",
+    "exit": 0,
+    "expected": 0,
+    "elapsed": 1.8023767500417307,
+    "stdout": "build.log",
+    "stderr": "build.log.stderr"
+  },
+  {
+    "argv": [
+      "node",
+      "/private/tmp/af-r221/reviewer/evidence/context-boundary-probes.cjs",
+      "/private/tmp/af-r221/base"
+    ],
+    "cwd": "/private/tmp/af-r221/base",
+    "exit": 0,
+    "expected": 0,
+    "elapsed": 2.073961334011983,
+    "stdout": "context-boundary-probes.jsonl",
+    "stderr": "context-boundary-probes.jsonl.stderr"
+  },
+  {
+    "argv": [
+      "node",
+      "/private/tmp/af-r221/reviewer/evidence/release-boundary-probes.cjs",
+      "/private/tmp/af-r221/base"
+    ],
+    "cwd": "/private/tmp/af-r221/base",
+    "exit": 0,
+    "expected": 0,
+    "elapsed": 1.5553842500085011,
+    "stdout": "release-boundary-probes.jsonl",
+    "stderr": "release-boundary-probes.jsonl.stderr"
+  },
+  {
+    "argv": [
+      "python3",
+      "/private/tmp/af-r221/reviewer/evidence/check-boundary-results.py",
+      "/private/tmp/af-r221/baseline-logs",
+      "--expect",
+      "fixed"
+    ],
+    "cwd": "/private/tmp/af-r221/base",
+    "exit": 1,
+    "expected": 1,
+    "elapsed": 0.07695008302107453,
+    "stdout": "desired.json",
+    "stderr": "desired.json.stderr"
+  },
+  {
+    "argv": [
+      "python3",
+      "/private/tmp/af-r221/reviewer/evidence/check-boundary-results.py",
+      "/private/tmp/af-r221/baseline-logs",
+      "--expect",
+      "observed-current"
+    ],
+    "cwd": "/private/tmp/af-r221/base",
+    "exit": 0,
+    "expected": 0,
+    "elapsed": 0.040519958012737334,
+    "stdout": "observed.json",
+    "stderr": "observed.json.stderr"
+  }
+]

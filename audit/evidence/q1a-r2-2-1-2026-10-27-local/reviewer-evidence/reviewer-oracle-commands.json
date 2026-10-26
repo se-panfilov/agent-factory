@@ -1,0 +1,28 @@
+[
+  {
+    "argv": [
+      "python3",
+      "/workspace/scratch/d38639edcc79/r22-review/evidence/check-boundary-results.py",
+      "/workspace/scratch/d38639edcc79/r22-review/evidence",
+      "--expect",
+      "fixed"
+    ],
+    "cwd": "/workspace/scratch/d38639edcc79",
+    "exit_code": 1,
+    "expected_exit": 1,
+    "elapsed_seconds": 0.032
+  },
+  {
+    "argv": [
+      "python3",
+      "/workspace/scratch/d38639edcc79/r22-review/evidence/check-boundary-results.py",
+      "/workspace/scratch/d38639edcc79/r22-review/evidence",
+      "--expect",
+      "observed-current"
+    ],
+    "cwd": "/workspace/scratch/d38639edcc79",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.03
+  }
+]

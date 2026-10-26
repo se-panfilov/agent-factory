@@ -1,0 +1,6 @@
+ M setup/docs/plan-context-r22.md
+ M setup/src/core/engine.ts
+ M setup/src/core/plan-context.ts
+?? audit/evidence/q1a-r2-2-1-2026-10-27-local/
+?? docs/audits/remediation-q1a-r2-2-1-2026-10-27.md
+?? setup/tests/integration/q1a-r221-final-admission.test.ts

@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "git",
+    "-c",
+    "fetch.writeCommitGraph=false",
+    "fetch",
+    "--no-tags",
+    "--no-write-fetch-head",
+    "origin",
+    "ad84212831892d18ab4dbcaab0d1bfecdc103f1b"
+  ],
+  "exit_code": 0,
+  "elapsed_seconds": 10.7
+}

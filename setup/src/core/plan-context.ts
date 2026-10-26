@@ -45,7 +45,7 @@ export async function checkedJson(fs: FilesystemAdapter, file: string, schema: "
     refuse("version_lock_unavailable", "The actual reviewed version lock is missing or unreadable/invalid.");
   }
 }
-export async function capturePlanContext(fs: FilesystemAdapter, proc: ProcessAdapter, config: SetupConfig, closure: readonly StageId[]): Promise<StaticPlanContext> {
+async function captureContext(fs: FilesystemAdapter, proc: ProcessAdapter, config: SetupConfig, closure: readonly StageId[], witnesses?: FileWitness[]): Promise<StaticPlanContext> {
   if (!Number.isInteger(proc.uid()) || proc.uid() <= 0 || proc.uid() > 4294967294 || proc.username() !== config.host.expected_user) refuse("context_owner_required", "Plan creation/approval/execution requires the ordinary configured owner.", ExitCode.UnsupportedHostOrMissingPrivileges);
   if (!proc.hostIdentity || !proc.loginSessionId) refuse("context_identity_adapter_unavailable", "OS host and owner-session identity are not available.", ExitCode.UnsupportedHostOrMissingPrivileges);
   const actual = await proc.hostIdentity();
@@ -53,12 +53,15 @@ export async function capturePlanContext(fs: FilesystemAdapter, proc: ProcessAda
   if (actual.os !== config.host.os || actual.arch !== config.host.arch) refuse("context_host_mismatch", "Actual OS/architecture differs from reviewed configuration.");
   if (!/^[0-9a-f]{64}$/.test(machine) || machine === createHash("sha256").update("unknown-machine-id").digest("hex") || /^0+$/.test(machine)
     || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(boot) || !login || login.startsWith("unknown") || login.length > 256) refuse("context_identity_invalid", "A checked machine, boot and login-session identity is required.");
+  const lockWitness = await witnessFile(fs, config.version_lock_path);
   const version_lock_hash = await checkedJson(fs, config.version_lock_path, "installer-release");
+  witnesses?.push(lockWitness);
   const applicable = closure.some(id => ["S05", "S06", "S07", "S09", "S10", "S11", "S13"].includes(id));
   let artifact_hash: string | null = null;
   if (applicable) {
     try {
-      await checkedFile(fs, config.release.archive_path);
+      const archiveWitness = await witnessFile(fs, config.release.archive_path);
+      witnesses?.push(archiveWitness);
       if (!fs.hashFile) refuse("context_artifact_reader_unavailable", "Bounded release artifact hashing is unavailable.");
       artifact_hash = await fs.hashFile(config.release.archive_path, 1024 * 1024 * 1024, 120_000);
       if (artifact_hash !== config.release.sha256) refuse("context_release_integrity", "Current release bytes do not match the declared reviewed artifact.", ExitCode.SecurityBoundaryViolation);
@@ -97,4 +100,48 @@ export function assertReview(state: SetupState, plan: InstallerPlan, current: St
     if (r.phase !== "committed") throw Error("prepared review is not authorization");
     return state;
   } catch { refuse("context_review_unproven", "Current submitted plan/context has no matching committed producer review."); }
+}
+
+/** Per-admission, nonpersistent evidence. No cache and no executable authorization by itself. */
+export interface FileWitness { path: string; identity: string }
+export interface ContextCapture { context: StaticPlanContext; files: FileWitness[] }
+function fileIdentity(stat: Awaited<ReturnType<FilesystemAdapter["lstat"]>>): string {
+  return [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs, stat.mode, stat.uid, stat.gid, stat.nlink,
+    stat.isFile(), stat.isSymbolicLink()].join(":");
+}
+export async function witnessFile(fs: FilesystemAdapter, file: string): Promise<FileWitness> {
+  try {
+    await checkedFile(fs, file);
+    return { path: file, identity: fileIdentity(await fs.lstat(file)) };
+  } catch (error) {
+    if (error && typeof error === "object" && "exitCode" in error) throw error;
+    refuse("admission_input_unavailable", "An input disappeared or became unreadable during final admission.");
+  }
+}
+/** Final bounded metadata fence, after all content/identity reads; never hashes an archive twice. */
+export async function assertFileWitnesses(fs: FilesystemAdapter, files: readonly FileWitness[]): Promise<void> {
+  const current = await Promise.all(files.map(file => witnessFile(fs, file.path)));
+  if (current.some((file, index) => file.identity !== files[index]!.identity)) {
+    refuse("admission_file_changed", "An input file identity/metadata changed during final admission.");
+  }
+}
+export async function capturePlanContext(fs: FilesystemAdapter, proc: ProcessAdapter, config: SetupConfig, closure: readonly StageId[]): Promise<StaticPlanContext> {
+  return captureContext(fs, proc, config, closure);
+}
+export async function captureContextEvidence(fs: FilesystemAdapter, proc: ProcessAdapter, config: SetupConfig, closure: readonly StageId[]): Promise<ContextCapture> {
+  const files: FileWitness[] = [];
+  const context = await captureContext(fs, proc, config, closure, files);
+  return { context, files };
+}
+/** Revalidate bounded inputs read before expensive hashing/probes. No archive reread. */
+export async function revalidateContextEvidence(fs: FilesystemAdapter, proc: ProcessAdapter, config: SetupConfig, capture: ContextCapture): Promise<void> {
+  const owner = { uid: proc.uid(), owner: proc.username(), boot_id: await proc.bootId(), login: await proc.loginSessionId() };
+  if (owner.uid <= 0 || owner.owner !== config.host.expected_user) refuse("context_owner_required", "Ordinary configured owner is required.", ExitCode.UnsupportedHostOrMissingPrivileges);
+  const actual = { host_fingerprint: { machine_id_hash: await proc.machineIdHash(), ...await proc.hostIdentity() },
+    owner_session: { uid: owner.uid, owner: owner.owner, boot_id: owner.boot_id, login_session_hash: canonicalHash({uid:owner.uid,login:owner.login,boot:owner.boot_id}) } };
+  if (stableStringify(actual.host_fingerprint) !== stableStringify(capture.context.host_fingerprint)) refuse("context_foreign_host", "Physical host identity changed during admission.");
+  if (stableStringify(actual.owner_session) !== stableStringify(capture.context.owner_session)) refuse("context_session_changed", "Owner login/boot changed during admission.", ExitCode.ManualActionRequired);
+  if (await checkedJson(fs, config.version_lock_path, "installer-release") !== capture.context.version_lock_hash) {
+    refuse("context_version_lock_drift", "Version lock changed during final context hashing/probes.");
+  }
 }

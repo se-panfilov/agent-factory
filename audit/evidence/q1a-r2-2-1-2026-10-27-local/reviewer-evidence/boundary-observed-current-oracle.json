@@ -1,0 +1,80 @@
+{
+  "expect": "observed-current",
+  "complete": true,
+  "cases": 14,
+  "desired_pass": 6,
+  "desired_fail": 8,
+  "oracle_pass": 14,
+  "rows": [
+    {
+      "id": "gate-after-probe-lock-control",
+      "desired_acceptance": true,
+      "oracle_acceptance": true
+    },
+    {
+      "id": "gate-after-probe-lock-fault",
+      "desired_acceptance": false,
+      "oracle_acceptance": true
+    },
+    {
+      "id": "gate-after-probe-config-control",
+      "desired_acceptance": true,
+      "oracle_acceptance": true
+    },
+    {
+      "id": "gate-after-probe-config-fault",
+      "desired_acceptance": false,
+      "oracle_acceptance": true
+    },
+    {
+      "id": "gate-after-probe-plan-control",
+      "desired_acceptance": true,
+      "oracle_acceptance": true
+    },
+    {
+      "id": "gate-after-probe-plan-fault",
+      "desired_acceptance": false,
+      "oracle_acceptance": true
+    },
+    {
+      "id": "effect-during-final-context-config-control",
+      "desired_acceptance": true,
+      "oracle_acceptance": true
+    },
+    {
+      "id": "effect-during-final-context-config-fault",
+      "desired_acceptance": false,
+      "oracle_acceptance": true
+    },
+    {
+      "id": "effect-during-final-context-plan-control",
+      "desired_acceptance": true,
+      "oracle_acceptance": true
+    },
+    {
+      "id": "effect-during-final-context-plan-fault",
+      "desired_acceptance": false,
+      "oracle_acceptance": true
+    },
+    {
+      "id": "release-final-hash-lock-control",
+      "desired_acceptance": true,
+      "oracle_acceptance": true
+    },
+    {
+      "id": "release-final-hash-lock-fault",
+      "desired_acceptance": false,
+      "oracle_acceptance": true
+    },
+    {
+      "id": "release-final-hash-config-fault",
+      "desired_acceptance": false,
+      "oracle_acceptance": true
+    },
+    {
+      "id": "release-final-hash-plan-fault",
+      "desired_acceptance": false,
+      "oracle_acceptance": true
+    }
+  ]
+}

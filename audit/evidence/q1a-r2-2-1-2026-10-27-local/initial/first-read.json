@@ -1,0 +1,13 @@
+{
+  "provenance": "transcribed from first read-only tool output of this task, before the later complete snapshot; no file-content reconstruction claimed",
+  "head": "ad84212831892d18ab4dbcaab0d1bfecdc103f1b",
+  "tree": "5ceab7c5de2838555f7a3eae12bd01f6c4635832",
+  "branch": "master",
+  "index_sha256": "b30701a29f1dd62b1f88c13c80a90f6c3c008e8bcd9d6b2e55b452405952fa6b",
+  "status": [
+    "AM audit/R221-copilot-prompt.md",
+    "A  audit/evidence/R22-all-files.zip",
+    "AM audit/reviews/R22-audit.md"
+  ],
+  "separate_staged_bytes_not_fully_captured_before_external_commit": true
+}

@@ -1,0 +1,14 @@
+{
+  "commit": "ad84212831892d18ab4dbcaab0d1bfecdc103f1b",
+  "tree": "5ceab7c5de2838555f7a3eae12bd01f6c4635832",
+  "base": "f12791cf8416fc115d45246f0531ce103fa5e2e8",
+  "exact_setup_manifest": 157,
+  "base_matches_previous_setup_files": 148,
+  "all_attachments_match_master": {
+    "remediation-q1a-r2-2-2026-10-26(2).md": "37b8f65bb26baaf3fb219d6e83d265ebf9c3bcf2f7c335a8ae924fcc9e1fb0f9",
+    "full-local(5).patch": "052bfea0e9909e163b98043d23e4166f4063c68338ae99af3b02ea4590f63869",
+    "tested-files(3).sha256": "40750081b9109e98c46fe9bed1a4522d92e19f2ef31e9ef7784184b2dad9bc68",
+    "evidence(6).zip": "bcc9f3a25ae693d4922ed39d5e81755178d20874dfd6d7341fbcbb30941a030e",
+    "evidence.zip(6).sha256": "7d15fc504b1e944250a5790915e73fca061332179098c8738573249df15be3ca"
+  }
+}

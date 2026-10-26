@@ -1,0 +1,85 @@
+{
+  "combined_status": "INCOMPLETE",
+  "observations": [
+    {
+      "file": "baseline-adapter-final.jsonl",
+      "rows": 0,
+      "expected_rows": 5,
+      "row_count_complete": false,
+      "last_id": null
+    },
+    {
+      "file": "baseline-stage-final.jsonl",
+      "rows": 5,
+      "expected_rows": 5,
+      "row_count_complete": true,
+      "last_id": "META"
+    },
+    {
+      "file": "fixed-adapter-final.jsonl",
+      "rows": 5,
+      "expected_rows": 5,
+      "row_count_complete": true,
+      "last_id": "META"
+    },
+    {
+      "file": "fixed-stage-final.jsonl",
+      "rows": 5,
+      "expected_rows": 5,
+      "row_count_complete": true,
+      "last_id": "META"
+    },
+    {
+      "file": "frozen/fixed-new-probes.jsonl",
+      "rows": 2,
+      "expected_rows": 7,
+      "row_count_complete": false,
+      "last_id": "N01_hash_mismatch_verify"
+    },
+    {
+      "file": "frozen/fixed-new-probes-adapted.jsonl",
+      "rows": 7,
+      "expected_rows": 7,
+      "row_count_complete": true,
+      "last_id": "META"
+    },
+    {
+      "file": "frozen/fixed-comparison.jsonl",
+      "rows": 13,
+      "expected_rows": 13,
+      "row_count_complete": true,
+      "last_id": "META"
+    },
+    {
+      "file": "frozen/fixed-full-lifecycle.jsonl",
+      "rows": 1,
+      "expected_rows": 1,
+      "row_count_complete": true,
+      "last_id": "U09_all_real_S00_S07_single_engine"
+    },
+    {
+      "file": "frozen/fixed-lifecycle-controls.jsonl",
+      "rows": 3,
+      "expected_rows": 3,
+      "row_count_complete": true,
+      "last_id": "META"
+    },
+    {
+      "file": "frozen/fixed-s06-noop.jsonl",
+      "rows": 1,
+      "expected_rows": 1,
+      "row_count_complete": true,
+      "last_id": "P05_real_S06_empty_plan_fixed"
+    },
+    {
+      "file": "frozen/fixed-stage-compat.jsonl",
+      "rows": 2,
+      "expected_rows": 5,
+      "row_count_complete": false,
+      "last_id": "S04"
+    }
+  ],
+  "frozen_assertions_emitted": 27,
+  "command_checker_exit": 1,
+  "r2_product_checker": "NOT RUN"
+}

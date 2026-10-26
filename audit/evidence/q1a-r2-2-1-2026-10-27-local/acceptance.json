@@ -1,0 +1,100 @@
+{
+  "overall": "PARTIAL",
+  "R221-F01": "PASS local functional",
+  "R221-F02": "PASS local functional",
+  "A221": [
+    {
+      "id": "A221-01",
+      "status": "PASS local",
+      "assertion_evidence": "Original baseline14 cases/6 desired; fixed14/14; checker IDs/META/hits1; baseline/fixed logs"
+    },
+    {
+      "id": "A221-02",
+      "status": "PASS",
+      "assertion_evidence": "Настоящий S02 apply и fresh-engine resume, config/plan swap на final version-lock read; counters0, target journal пуст, stage не false applying; fault-off1/1/1"
+    },
+    {
+      "id": "A221-03",
+      "status": "PASS",
+      "assertion_evidence": "Настоящий S05, actual hash barrier; lock pin/config/plan/archive/manifest negatives; extraction/materialization/probes0; fault-off2/1/3"
+    },
+    {
+      "id": "A221-04",
+      "status": "PASS",
+      "assertion_evidence": "Approve policy/hash drift config/plan/lock/archive/manifest/session/TTL: durable approval отсутствует, evidence unchanged; unchanged session/control approves"
+    },
+    {
+      "id": "A221-05",
+      "status": "PASS",
+      "assertion_evidence": "Plan final context hash swap и request swap при plan rename: refusal, prepared не committed; positive counterparts; exact produced plan bytes sealed"
+    },
+    {
+      "id": "A221-06",
+      "status": "PASS",
+      "assertion_evidence": "Apply/resume common final helper; explicit synthetic gate-free producer тоже получает refusal до owned counter effect"
+    },
+    {
+      "id": "A221-07",
+      "status": "PASS",
+      "assertion_evidence": "New session после confirmed refresh: checkpoint/no in-flight сохранён, old resume4, fresh review продолжает1/1/1 без replay; прежние late TTL/lock drift controls сохранены"
+    },
+    {
+      "id": "A221-08",
+      "status": "PASS",
+      "assertion_evidence": "Context5/5; original S0313/13; genuine v1 и v2→C13 explicit review13/13 каждый; один законченный original replay"
+    },
+    {
+      "id": "A221-09",
+      "status": "PASS local",
+      "assertion_evidence": "Все485 прежних смысловых assertions сохранены, final515/515; schema/TTL/target/producer/state/crash/S05 command identity guards и composition; frozen33/command37/R2checker39"
+    },
+    {
+      "id": "A221-10",
+      "status": "PASS harness",
+      "assertion_evidence": "Exact IDs/order/unique/count/META/exit/signal contract, product oracles и final predicates; 13 deterministic harness controls, включая early exit/unsettled/empty/partial/duplicate/bad count/product failure; incomplete не PASS"
+    },
+    {
+      "id": "A221-11",
+      "status": "PASS limitation preserved",
+      "assertion_evidence": "Original final recovery desired runner exit1; measurements recover0/repeat0/resume8, explicit review resume0, unchanged S03 counts/checkpoint. O01 остаётся R3"
+    },
+    {
+      "id": "A221-12",
+      "status": "PASS",
+      "assertion_evidence": "Initial base+owner+agent patches фактически восстановлены;158 source hashes и runner/payload hashes проверены; index для packaging не использован"
+    }
+  ],
+  "tests": {
+    "passed": 515,
+    "failed": 0,
+    "skipped": 0
+  },
+  "boundary": {
+    "baseline_complete": 14,
+    "baseline_desired_pass": 6,
+    "baseline_desired_fail": 8,
+    "fixed_desired_pass": 14
+  },
+  "context": 5,
+  "S03": 13,
+  "legacy_v1": 13,
+  "legacy_v2": 13,
+  "overlapping_product_assertions": {
+    "frozen": 33,
+    "command": 37,
+    "R2": 39
+  },
+  "O01": "OPEN/R3, original known-red preserved; explicit review no replay",
+  "O02": {
+    "status": "COMPLETE",
+    "first_incomplete": null,
+    "original_replays": 1,
+    "instrumented_attempts": 0,
+    "cause": "NOT ESTABLISHED",
+    "tracing_is_fix": false,
+    "no_splicing": true
+  },
+  "real_host_privileged_VM_live": "NOT RUN",
+  "initial_snapshot_limitation": "first readad842 with staged owner files; complete pre-edit snapshot already564; initial staged byte split not fully captured before external commit",
+  "completion_date": "2026-10-27 Europe/Amsterdam"
+}

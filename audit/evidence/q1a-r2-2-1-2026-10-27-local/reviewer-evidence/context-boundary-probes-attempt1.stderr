@@ -1,0 +1,5 @@
+Error: ENOENT: no such file or directory, open '/tmp/af-r14-apt0DC/state/events.jsonl'
+    at async open (node:internal/fs/promises:1345:25)
+    at async Object.readFile (node:internal/fs/promises:2003:14)
+    at async effect (/workspace/scratch/d38639edcc79/r22-review/evidence/context-boundary-probes.cjs:59:17)
+    at async /workspace/scratch/d38639edcc79/r22-review/evidence/context-boundary-probes.cjs:67:65

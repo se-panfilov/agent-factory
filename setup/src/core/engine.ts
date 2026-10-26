@@ -32,7 +32,7 @@ import { acquireLock, consumeCancelRequest, recoverLockOnly, requestCancel, type
 import { assertPlanTime, buildStageClosure, createPlanFile, createRegistry, loadPlan, persistPlanFile, validatePlanConsistency, type StageRegistry } from "./plan";
 import { readHistoricalStage } from "./plan-history";
 import { canonicalHash } from "./plan-format";
-import { capturePlanContext, assertReview, publishReview } from "./plan-context";
+import { capturePlanContext, captureContextEvidence, revalidateContextEvidence, witnessFile, assertFileWitnesses, type FileWitness, type StaticPlanContext, assertReview, publishReview } from "./plan-context";
 import { carryOperationProgress, restoreOperationProgress } from "./progress";
 import { assertCompletionPolicy, assertContinuingPolicy, assertProducerPolicy, policyFingerprint, projectedObservationHash, readPolicyBasis, withPolicyBasis, type PolicyBasis } from "./policy";
 import {
@@ -1013,7 +1013,7 @@ export class SetupEngine {
     return stage.observePolicy ? stage.observePolicy(ctx) : stage.observe(ctx);
   }
 
-  private async assertPlanContext(config: SetupConfig, state: SetupState, plan: ExecutionPlan): Promise<SetupState> {
+  private async assertPlanContext(config: SetupConfig, state: SetupState, plan: ExecutionPlan, captured?: StaticPlanContext): Promise<SetupState> {
     if (!plan.native) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "legacy_plan_review_required",
       publicMessage: "Legacy approvals cannot authorize C13 effects.", nextAction: "Explicitly generate/review a fresh C13 plan." });
     this.validateApplyPlanAdmission(config, plan);
@@ -1029,7 +1029,7 @@ export class SetupEngine {
         exitCode: ExitCode.CliOrSchemaError, code: "plan_before_hash_mismatch", publicMessage: "Operation before-hash is not the reviewed projected stage source.", nextAction: "Generate a fresh trusted producer plan." });
       sources.push({ stage: stage.id, fingerprint });
     }
-    const current = await capturePlanContext(this.deps.fsAdapter, this.deps.processAdapter, config, plan.stages.map(stage => stage.stage_id));
+    const current = captured ?? await capturePlanContext(this.deps.fsAdapter, this.deps.processAdapter, config, plan.stages.map(stage => stage.stage_id));
     const admittedState = assertReview(state, plan.native, current);
     if (canonicalHash(sources) !== plan.native.observations_hash) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired,
       code: "context_observations_unproven", publicMessage: "Initial projected observations are not bound to the committed producer review.", nextAction: "Preserve evidence and review a fresh plan." });
@@ -1057,6 +1057,29 @@ export class SetupEngine {
       policies.set(stage.id, basis);
     }
     return policies;
+  }
+
+  /** One final gate for approvals/effects: probes first, checked context, bounded reseal, TTL. */
+  private async finalPlanAdmission(options: CommandOptions, configBytes: string, planBytes: string, config: SetupConfig, state: SetupState, plan: ExecutionPlan): Promise<void> {
+    this.assertOrdinaryOwner(config, "S00");
+    this.validateApplyPlanAdmission(config, plan);
+    await this.admitPlanPolicies(config, state, plan);
+    const capture = await captureContextEvidence(this.deps.fsAdapter, this.deps.processAdapter, config, plan.stages.map(stage => stage.stage_id));
+    await this.assertPlanContext(config, state, plan, capture.context);
+    // Re-observe the frontier after expensive archive hashing. Any input changed
+    // during these probes is caught by the bounded reseal and metadata fence.
+    await this.admitPlanPolicies(config, state, plan);
+    await this.sealAdmissionInputs(options, configBytes, planBytes, config, capture);
+    assertPlanTime(plan, this.deps.clock);
+  }
+
+  /** All potentially long reads finish before the final file-identity fence. */
+  private async sealAdmissionInputs(options: CommandOptions, configBytes: string, planBytes: string | undefined, config: SetupConfig, capture: Awaited<ReturnType<typeof captureContextEvidence>>): Promise<void> {
+    await revalidateContextEvidence(this.deps.fsAdapter, this.deps.processAdapter, config, capture);
+    const requestFiles: FileWitness[] = [await witnessFile(this.deps.fsAdapter, options.configPath)];
+    if (planBytes !== undefined && options.planPath !== undefined) requestFiles.push(await witnessFile(this.deps.fsAdapter, options.planPath));
+    await this.assertRequestUnchanged(options, configBytes, planBytes);
+    await assertFileWitnesses(this.deps.fsAdapter, [...capture.files, ...requestFiles]);
   }
 
   private async runPlan(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
@@ -1161,13 +1184,17 @@ export class SetupEngine {
           state = upsertPlanGates(state, result.plan.plan_hash, operation.id, operation.gate_ids, this.deps.clock);
         }
       }
-      await this.assertRequestUnchanged(options, configBytes);
-      const finalContext = await capturePlanContext(this.deps.fsAdapter, this.deps.processAdapter, config, planningClosure);
-      if (stableStringify(finalContext) !== stableStringify(context)) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired,
+      const finalCapture = await captureContextEvidence(this.deps.fsAdapter, this.deps.processAdapter, config, planningClosure);
+      await this.admitPlanPolicies(config, state, result.plan);
+      await this.sealAdmissionInputs(options, configBytes, undefined, config, finalCapture);
+      if (stableStringify(finalCapture.context) !== stableStringify(context)) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired,
         code: "context_changed_during_plan", publicMessage: "Checked context changed during producer planning.", nextAction: "Revalidate and explicitly review a fresh plan." });
       state = publishReview(state, result.plan.native!, "prepared");
       await saveState(this.deps.fsAdapter, config, state);
       await persistPlanFile(this.deps.fsAdapter, result.planPath, result.plan.native!);
+      const publishedBytes = createHash("sha256").update(`${JSON.stringify(result.plan.native!, null, 2)}\n`).digest("hex");
+      await this.sealAdmissionInputs({...options, planPath: result.planPath}, configBytes, publishedBytes, config, finalCapture);
+      assertPlanTime(result.plan, this.deps.clock);
       state = publishReview(state, result.plan.native!, "committed");
       await saveState(this.deps.fsAdapter, config, state);
     } finally {
@@ -1270,7 +1297,7 @@ export class SetupEngine {
         }
 
         state = withPolicyBasis(state, stage, policies.get(stage.id)!);
-        state = updateObservedStage(state, observation, "applying");
+        // Applying is published only with an admitted in-flight operation below.
         for (const gateId of stagePlan.required_gates) {
           ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, `stage:${stagePlan.stage_id}`);
         }
@@ -1279,7 +1306,6 @@ export class SetupEngine {
             ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, operation.id);
           }
         }
-        await saveState(this.deps.fsAdapter, config, state);
         await this.consumeCancelOrThrow(config, lock.owner);
 
         const executeWithApply = stagePlan.operations.some((operation) => operation.kind !== "verify");
@@ -1300,18 +1326,13 @@ export class SetupEngine {
             assertPlanTime(plan, this.deps.clock);
             for (const gateId of stagePlan.required_gates) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, `stage:${stagePlan.stage_id}`);
             for (const gateId of operation.gate_ids) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, operation.id);
-            state = await this.assertPlanContext(config, state, plan);
-            await this.admitPlanPolicies(config, state, plan);
-            // Read-only producer probes may themselves span an input swap. Recheck
-            // frozen request bytes and static context at the final intent boundary.
-            await this.assertRequestUnchanged(options, configBytes, planBytes);
-            assertPlanTime(plan, this.deps.clock);
-            state = await this.assertPlanContext(config, state, plan);
-            assertPlanTime(plan, this.deps.clock);
+            persistFailure = false;
+            await this.finalPlanAdmission(options, configBytes, planBytes, config, state, plan);
             for (const gateId of stagePlan.required_gates) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, `stage:${stagePlan.stage_id}`);
             for (const gateId of operation.gate_ids) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, operation.id);
             const attemptId = randomUUID();
             persistFailure = true;
+            state = updateObservedStage(state, observation, "applying");
             state = withInFlightOperation(state, {
               id: `${stagePlan.stage_id}:${operation.id}:${attemptId}`,
               stage_id: stagePlan.stage_id,
@@ -1692,6 +1713,7 @@ export class SetupEngine {
         nextAction: "Run gate approve with both --id and --plan-hash."
       });
     }
+    const commandStartedAt = this.deps.clock.now().getTime();
     const configBytes = await this.requestHash(options.configPath);
     const config = await loadConfig(this.deps.fsAdapter, options.configPath);
     let state: SetupState;
@@ -1703,15 +1725,20 @@ export class SetupEngine {
       validatePlanConsistency(config,plan);
       if(plan.plan_hash!==options.planHash) throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"gate_plan_mismatch",publicMessage:"Approval is not for the current reviewed plan.",nextAction:"Review the current plan and approve its exact identity."});
       state = await this.loadStateWithOptions(config, { initializeIfMissing: false });
-      state = await this.assertPlanContext(config, state, plan);
-      await this.admitPlanPolicies(config, state, plan);
-      state = expireGates(state, this.deps.clock);
       try {
-        assertPlanTime(plan,this.deps.clock);
-        state = approveGate(state, options.gateId, options.planHash, this.deps.clock);
-      } finally {
-        await saveState(this.deps.fsAdapter, config, state);
+        await this.finalPlanAdmission({...options, planPath}, configBytes, planBytes, config, state, plan);
+      } catch (error) {
+        // Historical expiry is an explicit metadata-only invalidation, never an approval.
+        // A context failure or expiry reached during probes must publish nothing.
+        if (toSetupError(error).code === "plan_expired" && plan.native
+          && commandStartedAt >= Date.parse(plan.native.expires_at)) {
+          await saveState(this.deps.fsAdapter, config, expireGates(state, this.deps.clock));
+        }
+        throw error;
       }
+      state = expireGates(state, this.deps.clock);
+      state = approveGate(state, options.gateId, options.planHash, this.deps.clock);
+      await saveState(this.deps.fsAdapter, config, state);
     } finally {
       await lock.release();
     }
