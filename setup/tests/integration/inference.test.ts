@@ -34,6 +34,8 @@ class FakeProcessAdapter implements ProcessAdapter {
     return "factory";
   }
 
+  async hostIdentity(): Promise<{ os: "ubuntu-24.04"; arch: "amd64" }> { return { os: "ubuntu-24.04", arch: "amd64" }; }
+  async loginSessionId(): Promise<string> { return "injected-test-login"; }
   async bootId(): Promise<string> {
     return "boot-id";
   }
@@ -188,10 +190,10 @@ function applyPlan(): StagePlan {
     optional: true,
     requiredCapabilities: [],
     operations: [
-      {
+      { action: "fixture.counter" as const,
         id: "s12-op",
         stageId: "S12",
-        kind: "mutate",
+         kind: "mutate",
         resourceId: "s12-ollama-private-serving",
         risk: "high",
         gateIds: ["s12-inference-apply-approved"],

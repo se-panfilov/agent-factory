@@ -1,0 +1,492 @@
+diff --git a/setup/schemas/plan.schema.json b/setup/schemas/plan.schema.json
+index 5f72315..2af9a3f 100644
+--- a/setup/schemas/plan.schema.json
++++ b/setup/schemas/plan.schema.json
+@@ -348,12 +348,22 @@
+             "type": "object",
+             "additionalProperties": false,
+             "required": [
+-              "reviewed_constraints"
++              "reviewed_constraints",
++              "source_observation",
++              "version_lock"
+             ],
+             "properties": {
+               "reviewed_constraints": {
+                 "type": "string",
+                 "pattern": "^[0-9a-f]{64}$"
++              },
++              "source_observation": {
++                "type": "string",
++                "pattern": "^[0-9a-f]{64}$"
++              },
++              "version_lock": {
++                "type": "string",
++                "pattern": "^[0-9a-f]{64}$"
+               }
+             }
+           },
+@@ -362,7 +372,8 @@
+             "additionalProperties": false,
+             "required": [
+               "verifier",
+-              "action"
++              "action",
++              "checks"
+             ],
+             "properties": {
+               "verifier": {
+@@ -402,6 +413,17 @@
+                   "update.prepare",
+                   "fixture.counter"
+                 ]
++              },
++              "checks": {
++                "type": "array",
++                "minItems": 1,
++                "maxItems": 32,
++                "uniqueItems": true,
++                "items": {
++                  "type": "string",
++                  "minLength": 1,
++                  "maxLength": 128
++                }
+               }
+             }
+           },
+@@ -444,11 +466,14 @@
+           },
+           "unknown_effects": {
+             "type": "array",
+-            "maxItems": 0,
++            "maxItems": 16,
++            "uniqueItems": true,
+             "items": {
+-              "type": "string",
+-              "minLength": 1,
+-              "maxLength": 4096
++              "enum": [
++                "package-maintainer-script-effects-not-privileged-qualified",
++                "image-build-effects-not-live-qualified",
++                "privileged-access-implementation-remains-Q2-blocked"
++              ]
+             }
+           },
+           "risk": {
+diff --git a/setup/src/adapters/process.ts b/setup/src/adapters/process.ts
+index 0b9a8d3..8d712bb 100644
+--- a/setup/src/adapters/process.ts
++++ b/setup/src/adapters/process.ts
+@@ -59,6 +59,23 @@ function trimToBytes(content: string, maxBytes: number): string {
+   return `${buffer.subarray(0, maxBytes).toString("utf8")}\n...[truncated]`;
+ }
+ 
++export function parseSupportedHost(release: string, platform: string, architecture: string): { os: "ubuntu-24.04"; arch: "amd64" | "arm64" } {
++  const fields = new Map<string, string>();
++  for (const line of release.split("\n")) {
++    if (!/^(ID|VERSION_ID)=/.test(line)) continue;
++    const match = line.match(/^(ID|VERSION_ID)=(?:"([^"\\]*)"|([A-Za-z0-9._-]+))$/);
++    if (!match || fields.has(match[1]!)) throw setupError({ exitCode: ExitCode.UnsupportedHostOrMissingPrivileges,
++      code: "context_host_unsupported", publicMessage: "OS release identity is malformed or ambiguous.", nextAction: "Restore OS-owned release identity and revalidate." });
++    fields.set(match[1]!, match[2] ?? match[3]!);
++  }
++  const arch = architecture === "x64" ? "amd64" : architecture === "arm64" ? "arm64" : null;
++  if (platform !== "linux" || fields.get("ID") !== "ubuntu" || fields.get("VERSION_ID") !== "24.04" || !arch) {
++    throw setupError({ exitCode: ExitCode.UnsupportedHostOrMissingPrivileges, code: "context_host_unsupported",
++      publicMessage: "Trusted context requires Ubuntu 24.04 and a supported native architecture.", nextAction: "Use a qualified host; do not override host identity with configuration." });
++  }
++  return { os: "ubuntu-24.04", arch };
++}
++
+ export class NodeProcessAdapter implements ProcessAdapter {
+   async runCommand(options: CommandOptions): Promise<CommandResult> {
+     const startedAt = Date.now();
+@@ -156,22 +173,14 @@ export class NodeProcessAdapter implements ProcessAdapter {
+ 
+   async hostIdentity(): Promise<{ os: "ubuntu-24.04"; arch: "amd64" | "arm64" }> {
+     const release = await this.identityText("/etc/os-release", 16384);
+-    const fields = new Map(release.split("\n").map(line => {
+-      const index = line.indexOf("="); return [line.slice(0, index), line.slice(index + 1).replace(/^"|"$/g, "")];
+-    }));
+-    const arch = process.arch === "x64" ? "amd64" : process.arch === "arm64" ? "arm64" : null;
+-    if (process.platform !== "linux" || fields.get("ID") !== "ubuntu" || fields.get("VERSION_ID") !== "24.04" || !arch) {
+-      throw setupError({ exitCode: ExitCode.UnsupportedHostOrMissingPrivileges, code: "context_host_unsupported",
+-        publicMessage: "Trusted context requires Ubuntu 24.04 and a supported native architecture.", nextAction: "Use a qualified host; do not override host identity with configuration." });
+-    }
+-    return { os: "ubuntu-24.04", arch };
++    return parseSupportedHost(release, process.platform, process.arch);
+   }
+ 
+   /** Linux audit login identity survives CLI process changes, but changes with a PAM login. */
+   async loginSessionId(): Promise<string> {
+     const session = (await this.identityText("/proc/self/sessionid", 64)).trim();
+     const loginUid = (await this.identityText("/proc/self/loginuid", 64)).trim();
+-    if (!/^\d+$/.test(session) || !/^\d+$/.test(loginUid) || session === "4294967295"
++    if (!/^(0|[1-9]\d*)$/.test(session) || !/^(0|[1-9]\d*)$/.test(loginUid) || !Number.isSafeInteger(Number(session)) || Number(session) >= 4294967295
+       || Number(loginUid) !== this.uid()) {
+       throw setupError({ exitCode: ExitCode.ManualActionRequired, code: "context_login_session_unavailable",
+         publicMessage: "A verified owner audit login session is required.", nextAction: "Log in as the configured owner through a PAM/audit-enabled login, then generate and review a fresh plan." });
+@@ -195,7 +204,7 @@ export class NodeProcessAdapter implements ProcessAdapter {
+ 
+   async bootId(): Promise<string> {
+     const boot = (await this.identityText("/proc/sys/kernel/random/boot_id", 64)).trim();
+-    if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/.test(boot)) throw setupError({ exitCode: ExitCode.UnsupportedHostOrMissingPrivileges,
++    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(boot)) throw setupError({ exitCode: ExitCode.UnsupportedHostOrMissingPrivileges,
+       code: "host_boot_id_unavailable", publicMessage: "Boot identity is invalid.", nextAction: "Restore the OS boot identity before review." });
+     return boot;
+   }
+diff --git a/setup/src/core/engine.ts b/setup/src/core/engine.ts
+index c2c1b39..121f808 100644
+--- a/setup/src/core/engine.ts
++++ b/setup/src/core/engine.ts
+@@ -25,11 +25,12 @@ import { createUpdateStage } from "../stages/update";
+ import { createBackup, verifyBackup } from "../operations/backup";
+ import { emergencyCancel } from "../operations/emergency";
+ import { hashConfig, initConfig, loadConfig, stableStringify, systemClock, type Clock } from "./config";
+-import { ExitCode, type ExecutionPlan, type JsonEnvelope, type SetupConfig, type SetupState, type StageId, type StageModule, type StageReceipt, type StageContext, type StageStatus } from "./types";
++import { ExitCode, type ExecutionPlan, type JsonEnvelope, type SetupConfig, type SetupState, type StageId, type StageModule, type StageReceipt, type StageContext, type StageStatus, type StagePlan } from "./types";
+ import { setupError, toSetupError } from "./errors";
+ import { approveGate, ensureGateApproved, ensureNonInteractiveGates, expireGates, upsertPlanGates } from "./gates";
+ import { acquireLock, consumeCancelRequest, recoverLockOnly, requestCancel, type LockOwner } from "./lock";
+ import { assertPlanTime, buildStageClosure, createPlanFile, createRegistry, loadPlan, validatePlanConsistency, type StageRegistry } from "./plan";
++import { readHistoricalStage } from "./plan-history";
+ import { canonicalHash } from "./plan-format";
+ import { capturePlanContext, assertReview, publishReview } from "./plan-context";
+ import { carryOperationProgress, restoreOperationProgress } from "./progress";
+@@ -1023,7 +1024,10 @@ export class SetupEngine {
+       if (!basis) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "plan_review_required",
+         publicMessage: "Committed producer source is missing for this plan.", nextAction: "Preserve progress and explicitly generate/review a fresh plan." });
+       assertProducerPolicy(stage, config, proposed, basis.source);
+-      sources.push({ stage: stage.id, fingerprint: projectedObservationHash(stage, config, basis.source) });
++      const fingerprint = projectedObservationHash(stage, config, basis.source);
++      if (plan.native.operations.some(operation => operation.stage_id === stage.id && operation.expected_before_hashes.source_observation !== fingerprint)) throw setupError({
++        exitCode: ExitCode.CliOrSchemaError, code: "plan_before_hash_mismatch", publicMessage: "Operation before-hash is not the reviewed projected stage source.", nextAction: "Generate a fresh trusted producer plan." });
++      sources.push({ stage: stage.id, fingerprint });
+     }
+     const current = await capturePlanContext(this.deps.fsAdapter, this.deps.processAdapter, config, plan.stages.map(stage => stage.stage_id));
+     assertReview(state, plan.native, current);
+@@ -1084,6 +1088,7 @@ export class SetupEngine {
+       const stageId = options.stageId ?? null;
+       const progressContexts = new Map<StageId, StageContext>();
+       const admittedBases = new Map<StageId, PolicyBasis | null>();
++      const historical = new Map<StageId, StagePlan>();
+       const boundReceipts = (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations
+         ?.filter(entry => entry.config_hash === hashConfig(config)).map(entry => entry.receipt) ?? [];
+       for (const id of buildStageClosure(this.registry, stageId === null ? config.selected_stages : [stageId])) {
+@@ -1092,6 +1097,9 @@ export class SetupEngine {
+         const previous = await restoreOperationProgress(this.deps.fsAdapter, stage, ctx, readPolicyBasis(state, stage));
+         progressContexts.set(id, ctx);
+         admittedBases.set(id, previous);
++        if (!stage.verifyProgress && boundReceipts.some(receipt => receipt.stageId === id)) {
++          historical.set(id, await readHistoricalStage(this.deps.fsAdapter, config, state, id, previous?.planHash));
++        }
+       }
+       result = await createPlanFile(this.deps.fsAdapter, config, this.registry, stageId, this.deps.clock, boundReceipts, progressContexts, context);
+       state = expireGates(state, this.deps.clock);
+@@ -1105,11 +1113,15 @@ export class SetupEngine {
+         const previous = admittedBases.get(stage.id) ?? null;
+         const carried = stage.verifyProgress && previous ? carryOperationProgress(stage, ctx, previous, source) : undefined;
+         const completed: string[] = carried?.map(entry => entry.currentId) ?? [];
+-        const prior = previous?.configHash === hashConfig(config) ? stage.plan(config,previous.source) : null;
++        const prior = historical.get(stage.id) ?? (previous?.configHash === hashConfig(config) ? stage.plan(config,previous.source) : null);
+         for (const operation of carried === undefined ? stage.plan(config,source).operations : []) {
+           const old = prior?.operations.find(o=>o.id===operation.id);
+           const receipt = ctx.completedOperationReceipts.find(r=>r.operationId===operation.id && r.stageId===stage.id && r.resourceId===operation.resourceId);
+-          const samePolicy = previous === null || (old !== undefined && previous.completed.includes(operation.id) && stableStringify(old)===stableStringify(operation));
++          const { action: _newAction, ...legacyOperation } = operation;
++          const semanticallyEqual = old !== undefined && stableStringify(old) === stableStringify(old.action === undefined ? legacyOperation : operation);
++          if (receipt && old && !semanticallyEqual) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "completed_policy_changed",
++            publicMessage: "A completed action has different security semantics under the new producer.", nextAction: "Review a separate explicit reconciliation; do not replay known effects.", stage: stage.id });
++          const samePolicy = semanticallyEqual && (previous === null || previous.completed.includes(operation.id));
+           if (!receipt || !samePolicy) continue;
+           try {
+             if (stage.verifyOperation) { await stage.verifyOperation(ctx,receipt); completed.push(operation.id); }
+@@ -1271,6 +1283,14 @@ export class SetupEngine {
+             for (const gateId of operation.gate_ids) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, operation.id);
+             await this.assertPlanContext(config, state, plan);
+             await this.admitPlanPolicies(config, state, plan);
++            // Read-only producer probes may themselves span an input swap. Recheck
++            // frozen request bytes and static context at the final intent boundary.
++            await this.assertRequestUnchanged(options, configBytes, planBytes);
++            assertPlanTime(plan, this.deps.clock);
++            await this.assertPlanContext(config, state, plan);
++            assertPlanTime(plan, this.deps.clock);
++            for (const gateId of stagePlan.required_gates) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, `stage:${stagePlan.stage_id}`);
++            for (const gateId of operation.gate_ids) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, operation.id);
+             const attemptId = randomUUID();
+             persistFailure = true;
+             state = withInFlightOperation(state, {
+diff --git a/setup/src/core/plan-context.ts b/setup/src/core/plan-context.ts
+index bb4c1c9..9a6ae50 100644
+--- a/setup/src/core/plan-context.ts
++++ b/setup/src/core/plan-context.ts
+@@ -1,3 +1,4 @@
++import { parseStrictJson } from "./strict-json";
+ import path from "node:path";
+ import { type FilesystemAdapter } from "../adapters/filesystem";
+ import { type ProcessAdapter } from "../adapters/process";
+@@ -18,8 +19,10 @@ export async function checkedFile(fs: FilesystemAdapter, file: string): Promise<
+   let current = file, first = true;
+   for (let depth = 0; depth < 64; depth++) {
+     const stat = await fs.lstat(current);
+-    const stickyRoot = !first && stat.uid === 0 && (Number(stat.mode) & 0o1000) !== 0;
+-    if (stat.isSymbolicLink() || (first ? !stat.isFile() : !stat.isDirectory()) || ((Number(stat.mode) & 0o022) !== 0 && !stickyRoot)) {
++    const stickyRoot = !first && Number(stat.uid) === 0 && (Number(stat.mode) & 0o1000) !== 0;
++    const uid = Number(stat.uid);
++    const owned = uid === 0 || uid === (typeof process.getuid === "function" ? process.getuid() : -1);
++    if (!owned || stat.isSymbolicLink() || (first ? !stat.isFile() : !stat.isDirectory()) || ((Number(stat.mode) & 0o022) !== 0 && !stickyRoot)) {
+       refuse("context_file_unsafe", "Context input has unsafe type, symlink or writable metadata.", ExitCode.SecurityBoundaryViolation);
+     }
+     const parent = path.dirname(current); if (parent === current) return;
+@@ -34,7 +37,7 @@ export async function checkedJson(fs: FilesystemAdapter, file: string, schema: "
+     const raw = await fs.readTextBounded(file, 1024 * 1024);
+     const after = await fs.lstat(file);
+     if (raw.truncated || raw.text.includes("\ufffd") || raw.text.includes("\0") || before.ino !== after.ino || before.dev !== after.dev || before.size !== after.size || before.mtimeMs !== after.mtimeMs) refuse("version_lock_changed_during_read", "Version lock changed or exceeded bounded UTF-8 input.");
+-    const parsed: unknown = JSON.parse(raw.text);
++    const parsed: unknown = parseStrictJson(raw.text);
+     if (!validateContractSchema(schema, parsed).ok) refuse("version_lock_invalid", "Reviewed version lock fails its strict schema.");
+     return createHash("sha256").update(raw.text).digest("hex");
+   } catch (error) {
+@@ -43,13 +46,13 @@ export async function checkedJson(fs: FilesystemAdapter, file: string, schema: "
+   }
+ }
+ export async function capturePlanContext(fs: FilesystemAdapter, proc: ProcessAdapter, config: SetupConfig, closure: readonly StageId[]): Promise<StaticPlanContext> {
+-  if (proc.uid() === 0 || proc.uid() < 0 || proc.username() !== config.host.expected_user) refuse("context_owner_required", "Plan creation/approval/execution requires the ordinary configured owner.", ExitCode.UnsupportedHostOrMissingPrivileges);
++  if (!Number.isInteger(proc.uid()) || proc.uid() <= 0 || proc.uid() > 4294967294 || proc.username() !== config.host.expected_user) refuse("context_owner_required", "Plan creation/approval/execution requires the ordinary configured owner.", ExitCode.UnsupportedHostOrMissingPrivileges);
+   if (!proc.hostIdentity || !proc.loginSessionId) refuse("context_identity_adapter_unavailable", "OS host and owner-session identity are not available.", ExitCode.UnsupportedHostOrMissingPrivileges);
+   const actual = await proc.hostIdentity();
+   const machine = await proc.machineIdHash(), boot = await proc.bootId(), login = await proc.loginSessionId();
+   if (actual.os !== config.host.os || actual.arch !== config.host.arch) refuse("context_host_mismatch", "Actual OS/architecture differs from reviewed configuration.");
+   if (!/^[0-9a-f]{64}$/.test(machine) || machine === createHash("sha256").update("unknown-machine-id").digest("hex") || /^0+$/.test(machine)
+-    || !/^[0-9a-f]{8}-[0-9a-f-]{27}$/.test(boot) || !login || login.startsWith("unknown") || login.length > 256) refuse("context_identity_invalid", "A checked machine, boot and login-session identity is required.");
++    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(boot) || !login || login.startsWith("unknown") || login.length > 256) refuse("context_identity_invalid", "A checked machine, boot and login-session identity is required.");
+   const version_lock_hash = await checkedJson(fs, config.version_lock_path, "installer-release");
+   const applicable = closure.some(id => ["S05", "S06", "S07", "S09", "S10", "S11", "S13"].includes(id));
+   let artifact_hash: string | null = null;
+@@ -86,7 +89,7 @@ export function assertReview(state: SetupState, plan: InstallerPlan, current: St
+   const raw = state.stages.find(stage => stage.id === "S00")?.versions[REVIEW_KEY];
+   try {
+     if (!raw || Buffer.byteLength(raw) > 4096) throw Error("review absent/oversized");
+-    const record: unknown = JSON.parse(raw);
++    const record: unknown = parseStrictJson(raw);
+     if (!record || typeof record !== "object" || Array.isArray(record)) throw Error("review shape");
+     const r = record as Record<string, unknown>;
+     if (Object.keys(r).sort().join(",") !== "context_hash,plan_hash,version" || r.version !== 1
+diff --git a/setup/src/core/plan-format.ts b/setup/src/core/plan-format.ts
+index e35dec5..9667152 100644
+--- a/setup/src/core/plan-format.ts
++++ b/setup/src/core/plan-format.ts
+@@ -1,3 +1,4 @@
++import { actionPostconditions, actionUnknownEffects } from "./action-postconditions";
+ import { createHash } from "node:crypto";
+ import { stableStringify } from "./config";
+ import { setupError } from "./errors";
+@@ -8,16 +9,16 @@ export function nativePlanHash(plan: Omit<InstallerPlan, "plan_hash"> | Installe
+   const { plan_hash: _ignored, ...body } = plan as InstallerPlan;
+   return canonicalHash(body);
+ }
+-export function wireOperation(operation: StageOperation): PlanOperation {
++export function wireOperation(operation: StageOperation, before?: { source_observation: string; version_lock: string }): PlanOperation {
+   const action = operation.action;
+   if (action === undefined) throw setupError({ exitCode: ExitCode.CliOrSchemaError, code: "producer_action_missing",
+     publicMessage: "Trusted producer must declare a concrete adapter action.", nextAction: "Use a reviewed producer with a closed operation mapping.", stage: operation.stageId });
+   return {
+     operation_id: operation.id, stage_id: operation.stageId, kind: action, resources: [operation.resourceId],
+-    expected_before_hashes: { reviewed_constraints: canonicalHash(operation.preconditions) },
+-    expected_after: { verifier: "operation-postconditions", action }, requires_gates: operation.gateIds,
++    expected_before_hashes: { reviewed_constraints: canonicalHash(operation.preconditions), ...(before ?? {}) },
++    expected_after: { verifier: "operation-postconditions", action, checks: actionPostconditions(action) }, requires_gates: operation.gateIds,
+     retry_policy: { retryable: operation.retryable, timeout_sec: operation.timeoutSec },
+-    estimated_effects: operation.sideEffects, unknown_effects: [], risk: operation.risk,
++    estimated_effects: operation.sideEffects, unknown_effects: actionUnknownEffects(action), risk: operation.risk,
+     constraints: operation.preconditions, execution_kind: operation.kind
+   };
+ }
+@@ -51,5 +52,5 @@ export function encodePlan(view: ExecutionPlan): InstallerPlan {
+       id: operation.id, stageId: operation.stage_id, ...(operation.action ? { action: operation.action } : {}),
+       kind: operation.kind, resourceId: operation.resource_id, risk: operation.risk, gateIds: operation.gate_ids,
+       preconditions: operation.preconditions, sideEffects: operation.side_effects, timeoutSec: operation.timeout_sec, retryable: operation.retryable
+-    }))) };
++    }, { source_observation: view.native!.operations.find(item => item.operation_id === operation.id)?.expected_before_hashes.source_observation ?? view.native!.observations_hash, version_lock: view.native!.version_lock_hash }))) };
+ }
+diff --git a/setup/src/core/plan.ts b/setup/src/core/plan.ts
+index 21a235a..0430c6a 100644
+--- a/setup/src/core/plan.ts
++++ b/setup/src/core/plan.ts
+@@ -1,3 +1,4 @@
++import { parseStrictJson } from "./strict-json";
+ import { createHash } from "node:crypto";
+ import path from "node:path";
+ import { type FilesystemAdapter } from "../adapters/filesystem";
+@@ -153,11 +154,16 @@ export async function createPlanFile(
+     target: { mode: stageTarget === null ? "selected" : "explicit", stage_id: stageTarget },
+     stage_scope: stagePlans.map(stage => ({ stage_id: stage.stage_id, optional: stage.optional,
+       required_capabilities: stage.required_capabilities, requires_gates: stage.required_gates })),
+-    operations: closure.flatMap(id => registry.byId.get(id)!.plan(config, observations.get(id)!).operations.map(wireOperation)),
++    operations: closure.flatMap(id => registry.byId.get(id)!.plan(config, observations.get(id)!).operations.map(operation => wireOperation(operation, { source_observation: projectedObservationHash(registry.byId.get(id)!, config, observations.get(id)!), version_lock: context.version_lock_hash }))),
+     plan_hash: ""
+   };
+   native.plan_hash = nativePlanHash(native);
++  const validation = validateContractSchema("plan", native);
++  if (!validation.ok) throw setupError({ exitCode: ExitCode.CliOrSchemaError, code: "producer_plan_schema_error",
++    publicMessage: "Trusted producer generated an unsupported C13 document.", nextAction: "Review the producer/schema compatibility; do not execute the document." });
+   const plan = decodePlan(native);
++  assertPlanTime(plan, clock);
++  validatePlanConsistency(config, plan);
+ 
+   const planPath = path.join(config.paths.setup_state_dir, "plan.json");
+   await fsAdapter.writeText(planPath, `${JSON.stringify(native, null, 2)}\n`, 0o600);
+@@ -172,7 +178,7 @@ export async function loadPlan(fsAdapter: FilesystemAdapter, planPath: string):
+     code: "plan_input_invalid", publicMessage: "Execution plan exceeds bounded valid UTF-8 input.", nextAction: "Generate a fresh reviewed plan." });
+   const raw = bounded.text;
+   let parsed: unknown;
+-  try { parsed = JSON.parse(raw); } catch { throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"plan_json_invalid",
++  try { parsed = parseStrictJson(raw); } catch { throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"plan_json_invalid",
+     publicMessage:"Submitted plan is not valid JSON.",nextAction:"Generate a valid reviewed plan."}); }
+   if (parsed && typeof parsed === "object" && "created_at" in parsed) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired,
+     code: "legacy_plan_review_required", publicMessage: "Historical plan format cannot authorize effects.", nextAction: "Generate and approve an explicit fresh C13 plan; preserve historical progress evidence." });
+@@ -226,7 +232,7 @@ export function validatePlanConsistency(config: SetupConfig, plan: ExecutionPlan
+     id: operation.id, stageId: operation.stage_id, ...(operation.action ? { action: operation.action } : {}), kind: operation.kind,
+     resourceId: operation.resource_id, risk: operation.risk, gateIds: operation.gate_ids, preconditions: operation.preconditions,
+     sideEffects: operation.side_effects, timeoutSec: operation.timeout_sec, retryable: operation.retryable
+-  })));
++  }, { source_observation: native.operations.find(item => item.operation_id === operation.id)!.expected_before_hashes.source_observation!, version_lock: native.version_lock_hash })));
+   if (new Set(stageIds).size !== stageIds.length || new Set(ids).size !== ids.length
+     || stableStringify(ordered) !== stableStringify(ids) || stableStringify(normalized) !== stableStringify(native.operations)
+     || (native.target.mode === "selected" ? native.target.stage_id !== null : native.target.stage_id === null)) {
+diff --git a/setup/src/core/policy.ts b/setup/src/core/policy.ts
+index f00a7e0..5eef89d 100644
+--- a/setup/src/core/policy.ts
++++ b/setup/src/core/policy.ts
+@@ -1,3 +1,4 @@
++import { parseStrictJson } from "./strict-json";
+ import { createHash } from "node:crypto";
+ import { stableStringify } from "./config";
+ import { setupError } from "./errors";
+@@ -62,7 +63,7 @@ export function readPolicyBasis(state: SetupState, stage: StageModule): PolicyBa
+   if (raw === undefined) return null;
+   try {
+     if (Buffer.byteLength(raw)>64*1024) throw Error("oversized");
+-    const p: unknown = JSON.parse(raw);
++    const p: unknown = parseStrictJson(raw);
+     if (p===null || typeof p!=="object" || Array.isArray(p)) throw Error("shape");
+     const v=p as Record<string,unknown>;
+     const fields = v.version === 2 ? "completed,configHash,expected,planHash,progress,source,version" : "completed,configHash,expected,planHash,source,version";
+diff --git a/setup/src/core/progress.ts b/setup/src/core/progress.ts
+index 577ce60..0be0a4d 100644
+--- a/setup/src/core/progress.ts
++++ b/setup/src/core/progress.ts
+@@ -1,3 +1,4 @@
++import { parseStrictJson } from "./strict-json";
+ import path from "node:path";
+ import { stableStringify, hashConfig } from "./config";
+ import { setupError } from "./errors";
+@@ -59,7 +60,7 @@ export async function restoreOperationProgress(
+     // plan bound by the already admitted core-owned basis, never a new proposal.
+     try {
+       const file = await fs.readTextBounded(path.join(ctx.config.paths.setup_state_dir, "plan.json"), 1024 * 1024);
+-      const parsed: unknown = JSON.parse(file.text);
++      const parsed: unknown = parseStrictJson(file.text);
+       if (file.truncated || file.text.includes("\0") || file.text.includes("\ufffd")) throw Error("invalid historical input");
+       let old;
+       let planHash: string;
+diff --git a/setup/src/core/types.ts b/setup/src/core/types.ts
+index cb652cd..ccd7361 100644
+--- a/setup/src/core/types.ts
++++ b/setup/src/core/types.ts
+@@ -283,7 +283,7 @@ export interface PlanReleaseContext { applicable: boolean; declared_hash: string
+ export interface PlanStageScope { stage_id: StageId; optional: boolean; required_capabilities: CapabilityName[]; requires_gates: string[] }
+ export interface PlanOperation {
+   operation_id: string; stage_id: StageId; kind: AdapterAction; resources: string[];
+-  expected_before_hashes: Record<string, string>; expected_after: { verifier: "operation-postconditions"; action: AdapterAction };
++  expected_before_hashes: Record<string, string>; expected_after: { verifier: "operation-postconditions"; action: AdapterAction; checks: string[] };
+   requires_gates: string[]; retry_policy: { retryable: boolean; timeout_sec: number };
+   estimated_effects: string[]; unknown_effects: string[]; risk: OperationRiskLevel;
+   constraints: string[]; execution_kind: OperationKind;
+diff --git a/setup/tests/integration/q1a-r21-admission.test.ts b/setup/tests/integration/q1a-r21-admission.test.ts
+index 33f8d99..2b6f758 100644
+--- a/setup/tests/integration/q1a-r21-admission.test.ts
++++ b/setup/tests/integration/q1a-r21-admission.test.ts
+@@ -201,7 +201,7 @@ test("A21-03 operation IDs are unique across parent stages, not merely within ea
+ test("A21-08 synthetic legacy policy absence preserves engine-generated simulation proof until explicit review",async()=>{
+   const q=await aptFixture(),observe=q.apt.observe,simulate=q.apt.simulateInstall;q.apt.observe=async names=>({...await observe(names),metadataFresh:true});q.apt.simulateInstall=async()=>{await simulate();q.advance(30*60_000);};await q.x.planAndApprove(q.make());assert.equal((await q.make().run("apply",q.x.applyOptions)).exitCode,4);assert.deepEqual(q.counts,{refresh:0,simulate:1,install:0});
+   q.advance(-30*60_000);const legacy=await q.x.state();for(const s of legacy.stages)delete s.versions[POLICY_BASIS_KEY];await saveState(q.x.f,q.x.config,legacy);
+-  const before=await evidence(q.x.config);const refused=await q.make().run("apply",q.x.applyOptions);assert.equal(refused.exitCode,8);assert.equal(refused.envelope.error?.code,"legacy_policy_review_required");assert.deepEqual(await evidence(q.x.config),before);assert.deepEqual(q.counts,{refresh:0,simulate:1,install:0});
++  const before=await evidence(q.x.config);const refused=await q.make().run("apply",q.x.applyOptions);assert.equal(refused.exitCode,8);assert.equal(refused.envelope.error?.code,"plan_review_required");assert.deepEqual(await evidence(q.x.config),before);assert.deepEqual(q.counts,{refresh:0,simulate:1,install:0});
+   await q.x.planAndApprove(q.make());assert.equal((await q.make().run("resume",{configPath:q.x.configPath})).exitCode,0);assert.deepEqual(q.counts,{refresh:0,simulate:1,install:1});
+ });
+ 
+diff --git a/setup/tests/integration/q1a-r22-context.test.ts b/setup/tests/integration/q1a-r22-context.test.ts
+index 8914d10..27a1550 100644
+--- a/setup/tests/integration/q1a-r22-context.test.ts
++++ b/setup/tests/integration/q1a-r22-context.test.ts
+@@ -156,7 +156,7 @@ test("A22-13 real lock barrier detects same-path context swap without target int
+   const q = await fixture(); await q.x.planAndApprove(q.make()); let enabled = true, hits = 0;
+   const wrapped = new Proxy(q.x.f, { get(target, key) {
+     if (key === "mkdir") return async (p: string, options?: {recursive?: boolean; mode?: number}) => {
+-      if (enabled && p.endsWith(".lock")) {
++      if (enabled && p === path.join(q.x.config.paths.setup_state_dir, "lock")) {
+         enabled = false; hits++;
+         const lock = JSON.parse(await fs.readFile(q.x.config.version_lock_path, "utf8")) as {docker: {ce: string}};
+         lock.docker.ce += ".changed-at-lock"; await fs.writeFile(q.x.config.version_lock_path, JSON.stringify(lock));
+@@ -208,9 +208,59 @@ for (const fault of [true, false]) test(`A22-14 actual core review publication w
+   const engine = new SetupEngine({ fsAdapter: wrapped, processAdapter: q.proc, clock: q.clock }, createRegistry([r14Noop("S01"), createSystemStage(q.apt)]));
+   const planned = await engine.run("plan", { configPath: q.x.configPath });
+   if (fault) {
+-    assert.equal(hits, 1); assert.equal(planned.exitCode, 8); const p = await native(q);
++    assert.equal(hits, 1); assert.ok([6,8].includes(planned.exitCode), JSON.stringify(planned)); assert.ok(planned.envelope.error?.code); const p = await native(q);
+     const approved = await q.make().run("gate-approve", { configPath: q.x.configPath, gateId: "s02-sudo-apt-update", planHash: p.plan_hash });
+     assert.notEqual(approved.exitCode, 0); assert.notEqual((await q.make().run("apply", q.x.applyOptions)).exitCode, 0);
+     assert.deepEqual(q.counts, { refresh: 0, simulate: 0, install: 0 });
+   } else { await q.x.planAndApprove(engine); assert.equal((await engine.run("apply", q.x.applyOptions)).exitCode, 0); assert.equal(q.counts.install, 1); }
+ });
++
++test("A22-03 production host parser and real loginSessionId method: Linux audit identity is not PID or environment", async () => {
++  const { NodeProcessAdapter, parseSupportedHost } = await import("../../src/adapters/process");
++  assert.deepEqual(parseSupportedHost('ID=ubuntu\nVERSION_ID="24.04"\n', "linux", "x64"), { os: "ubuntu-24.04", arch: "amd64" });
++  for (const [text, platform, arch] of [ ['ID=ubuntu\nVERSION_ID="24.04"', "darwin", "arm64"], ["ID=ubuntu\nVERSION_ID=22.04", "linux", "x64"], ["ID=ubuntu\nID=other\nVERSION_ID=24.04", "linux", "x64"], ["ID=ubuntu\nVERSION_ID=24.04", "linux", "ia32"] ]) {
++    assert.throws(() => parseSupportedHost(text!, platform!, arch!), { code: "context_host_unsupported" });
++  }
++  class IdentityFixture extends NodeProcessAdapter {
++    session = "42"; login = "1000";
++    override uid() { return 1000; }
++    protected override async identityText(file: string, _limit: number) {
++      if (file === "/proc/self/sessionid") return this.session;
++      if (file === "/proc/self/loginuid") return this.login;
++      throw Error("unexpected identity read");
++    }
++  }
++  const a = new IdentityFixture(), b = new IdentityFixture();
++  assert.equal(await a.loginSessionId(), await b.loginSessionId(), "separate adapter/process identity must not use PID");
++  b.session = "43"; assert.notEqual(await a.loginSessionId(), await b.loginSessionId());
++  for (const [session, login] of [["4294967295", "1000"], ["99999999999999999999", "1000"], ["42", "0"], ["", "1000"]]) {
++    a.session = session!; a.login = login!; await assert.rejects(() => a.loginSessionId(), { code: "context_login_session_unavailable" });
++  }
++});
++test("A22-03 missing fresh identity never initializes an installation", async () => {
++  const q = await fixture(); q.identity.machine = "";
++  const before = await evidence(q.x.config), result = await q.make().run("plan", { configPath: q.x.configPath });
++  assert.notEqual(result.exitCode, 0); assert.deepEqual(await evidence(q.x.config), before); assert.deepEqual(q.counts, { refresh: 0, simulate: 0, install: 0 });
++});
++test("A22-06 S05 manifest/entry drift also blocks gate approval before any executable probe", async () => {
++  for (const change of ["manifest", "content"] as const) {
++    const x = await r14Fixture("S05"), adapter = new FakeApplicationAdapter(makeCheckout(x.config), makeRelease(x.config));
++    const engine = () => x.engine([r14Noop("S04"), createApplicationStage(adapter)]);
++    const p = await x.planAndApprove(engine());
++    assert.equal((await engine().run("apply", x.applyOptions)).exitCode, 0);
++    const before = await evidence(x.config), calls = adapter.probeCalls, extracted = adapter.extractCalls; assert.ok(calls > 0);
++    if (change === "manifest") adapter.release.manifest!.commands.runner_verify = ["node", "different-entry.cjs"];
++    else adapter.hashMismatches = ["runner.js:detected-current-tamper"];
++    const denied = await engine().run("gate-approve", { configPath: x.configPath, gateId: p.stages.find(stage => stage.stage_id === "S05")!.required_gates[0]!, planHash: p.plan_hash });
++    assert.notEqual(denied.exitCode, 0); assert.equal(adapter.probeCalls, calls); assert.equal(adapter.extractCalls, extracted); assert.deepEqual(await evidence(x.config), before);
++  }
++});
++
++test("A22-01 duplicate decoded JSON keys cannot disappear before C13 schema/hash validation", async () => {
++  const q = await fixture(); await q.x.planAndApprove(q.make()); const p = await native(q);
++  const raw = JSON.stringify(p).replace('"schema_version":1', '"schema_version":1,"schema_version":1');
++  await fs.writeFile(q.x.applyOptions.planPath, raw); assert.equal((await refuseWithoutEffects(q)).exitCode, 2);
++  const { parseStrictJson } = await import("../../src/core/strict-json");
++  assert.throws(() => parseStrictJson('{"a":1,"\\u0061":2}'), /duplicate/);
++  assert.deepEqual(parseStrictJson('{"a":[{"b":"escaped \\\" string"}]}'), { a: [{ b: 'escaped " string' }] });
++});

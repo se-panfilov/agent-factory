@@ -1230,6 +1230,7 @@ export function createConfigurationStage(
             {
               id: `s06-config-image-${config.installation_id.slice(0, 12)}`,
               stageId: "S06",
+              action: "configuration.prepare" as const,
               kind: "mutate",
               resourceId: "configuration-and-pinned-image",
               risk: "high",

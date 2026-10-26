@@ -1,19 +1,23 @@
+import { parseStrictJson } from "./strict-json";
 import { createHash } from "node:crypto";
 import { stableStringify } from "./config";
 import { setupError } from "./errors";
-import { OPERATION_KINDS, OPERATION_RISK_LEVELS, ExitCode, type InstallerPlan, type SetupConfig, type SetupState, type StageModule, type StageObservation, type StageContext, type StageOperation } from "./types";
+import { ADAPTER_ACTIONS, OPERATION_KINDS, OPERATION_RISK_LEVELS, ExitCode, type ExecutionPlan, type SetupConfig, type SetupState, type StageModule, type StageObservation, type StageContext, type StageOperation, type StagePlan } from "./types";
 import { serializeStagePlan } from "./plan";
 
 /** Core-owned, schema-validated internal metadata in existing versions storage, not a sidecar. */
 export const POLICY_BASIS_KEY = "setup_policy_basis_v1";
 export interface PolicyBasis {
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   planHash: string;
   configHash: string;
   source: StageObservation;
   expected: string;
   completed: string[];
   progress?: PublishedOperation[];
+  /** Core-produced full semantic catalog; source of historical policy after public-plan replacement. */
+  catalog?: StagePlan;
+  frontier?: StageObservation;
 }
 /** Semantic operation and exact journal publication retained across reviewed ID changes. */
 export interface PublishedOperation {
@@ -30,9 +34,16 @@ function validateProgressRecord(value: unknown, stage: StageModule): PublishedOp
     || typeof entry.currentId !== "string" || entry.currentId.length === 0
     || typeof entry.attemptId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(entry.attemptId)
     || typeof entry.receiptHash !== "string" || !/^[0-9a-f]{64}$/.test(entry.receiptHash)) throw Error("publication binding");
-  if (entry.operation === null || typeof entry.operation !== "object" || Array.isArray(entry.operation)) throw Error("operation shape");
-  const op = entry.operation as Record<string, unknown>;
-  if (Object.keys(op).sort().join(",") !== "gateIds,id,kind,preconditions,resourceId,retryable,risk,sideEffects,stageId,timeoutSec"
+  validatePolicyOperation(entry.operation, stage);
+  return value as PublishedOperation;
+}
+
+function validatePolicyOperation(value: unknown, stage: StageModule): StageOperation {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw Error("operation shape");
+  const op = value as Record<string, unknown>;
+  const operationFields = "gateIds,id,kind,preconditions,resourceId,retryable,risk,sideEffects,stageId,timeoutSec";
+  if (Object.keys(op).sort().join(",") !== (op.action === undefined ? operationFields : "action," + operationFields)
+    || (op.action !== undefined && !ADAPTER_ACTIONS.some(action => action === op.action))
     || typeof op.id !== "string" || op.id.length === 0 || op.stageId !== stage.id
     || typeof op.resourceId !== "string" || op.resourceId.length === 0
     || !OPERATION_KINDS.some(kind => kind === op.kind) || !OPERATION_RISK_LEVELS.some(risk => risk === op.risk)
@@ -41,7 +52,16 @@ function validateProgressRecord(value: unknown, stage: StageModule): PublishedOp
     const values = op[key];
     if (!Array.isArray(values) || values.some(item => typeof item !== "string")) throw Error("operation policy");
   }
-  return value as PublishedOperation;
+  return value as StageOperation;
+}
+
+function validatePolicyObservation(value: unknown, stage: StageModule): void {
+    if (value===null || typeof value!=="object" || Array.isArray(value)) throw Error("source");
+    const obs=value as Record<string,unknown>;
+    if(Object.keys(obs).sort().join(",")!=="checks,observedAt,stageId,status,versions" || obs.stageId!==stage.id || typeof obs.observedAt!=="string"
+      || typeof obs.status!=="string" || !["pending","planned","applying","installed","verified","awaiting_manual","blocked","failed","skipped","interrupted","drifted"].includes(String(obs.status))) throw Error("observation");
+    for(const key of ["checks","versions"]){const values=obs[key];if(values===null||typeof values!=="object"||Array.isArray(values))throw Error("record");
+      for(const value of Object.values(values)){if(key==="versions"?typeof value!=="string":!(typeof value==="string"||typeof value==="boolean"||(typeof value==="number"&&Number.isFinite(value))))throw Error("value");}}
 }
 
 function refuse(message: string): never {throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"plan_policy_mismatch",publicMessage:message,nextAction:"Generate a new plan with the trusted producer, review it and approve its required gates."});}
@@ -50,30 +70,47 @@ export function policyFingerprint(stage: StageModule, config: SetupConfig, obser
     : {status:observed.status,policy:serializeStagePlan(stage.plan(config, observed))};
   return createHash("sha256").update(stableStringify(view)).digest("hex");
 }
+/** Review identity projects producer-defined security facts, not an incidental status label. */
+export function projectedObservationHash(stage: StageModule, config: SetupConfig, observed: StageObservation): string {
+  const projection = stage.policyInputs ? stage.policyInputs(observed) : serializeStagePlan(stage.plan(config, observed));
+  return createHash("sha256").update(stableStringify(projection)).digest("hex");
+}
 export function readPolicyBasis(state: SetupState, stage: StageModule): PolicyBasis | null {
   const raw = state.stages.find(s => s.id === stage.id)?.versions[POLICY_BASIS_KEY];
   if (raw === undefined) return null;
   try {
     if (Buffer.byteLength(raw)>64*1024) throw Error("oversized");
-    const p: unknown = JSON.parse(raw);
+    const p: unknown = parseStrictJson(raw);
     if (p===null || typeof p!=="object" || Array.isArray(p)) throw Error("shape");
     const v=p as Record<string,unknown>;
-    const fields = v.version === 2 ? "completed,configHash,expected,planHash,progress,source,version" : "completed,configHash,expected,planHash,source,version";
-    if (Object.keys(v).sort().join(",")!==fields || (v.version!==1 && v.version!==2)
+    const fields = v.version === 3 ? "catalog,completed,configHash,expected,frontier,planHash,progress,source,version" : v.version === 2 ? "completed,configHash,expected,planHash,progress,source,version" : "completed,configHash,expected,planHash,source,version";
+    if (Object.keys(v).sort().join(",")!==fields || (v.version!==1 && v.version!==2 && v.version!==3)
       || [v.planHash,v.configHash,v.expected].some(h=>typeof h!=="string" || !/^[0-9a-f]{64}$/.test(h))) throw Error("binding");
     if (!Array.isArray(v.completed) || v.completed.some(id=>typeof id!=="string") || new Set(v.completed).size!==v.completed.length) throw Error("progress");
-    if (v.source===null || typeof v.source!=="object" || Array.isArray(v.source)) throw Error("source");
-    const obs=v.source as Record<string,unknown>;
-    if(Object.keys(obs).sort().join(",")!=="checks,observedAt,stageId,status,versions" || obs.stageId!==stage.id || typeof obs.observedAt!=="string"
-      || typeof obs.status!=="string" || !["pending","planned","applying","installed","verified","awaiting_manual","blocked","failed","skipped","interrupted","drifted"].includes(String(obs.status))) throw Error("observation");
-    for(const key of ["checks","versions"]){const values=obs[key];if(values===null||typeof values!=="object"||Array.isArray(values))throw Error("record");
-      for(const value of Object.values(values)){if(key==="versions"?typeof value!=="string":!(typeof value==="string"||typeof value==="boolean"||(typeof value==="number"&&Number.isFinite(value))))throw Error("value");}}
-    if (v.version === 2) {
+    validatePolicyObservation(v.source, stage);
+    if (v.version === 3) validatePolicyObservation(v.frontier, stage);
+    if (v.version === 2 || v.version === 3) {
       if (!Array.isArray(v.progress) || v.progress.length !== v.completed.length) throw Error("progress length");
       const completed = v.completed as string[];
       const entries = v.progress.map(entry => validateProgressRecord(entry, stage));
       if (entries.some((entry, index) => entry.currentId !== completed[index])
         || new Set(entries.map(entry => entry.attemptId)).size !== entries.length) throw Error("progress order");
+    }
+    if (v.version === 3) {
+      if (!v.catalog || typeof v.catalog !== "object" || Array.isArray(v.catalog)) throw Error("catalog shape");
+      const catalog = v.catalog as Record<string, unknown>;
+      if (Object.keys(catalog).sort().join(",") !== "operations,optional,requiredCapabilities,requiredGates,stageId"
+        || catalog.stageId !== stage.id || catalog.optional !== stage.optional || !Array.isArray(catalog.operations)) throw Error("catalog identity");
+      for (const key of ["requiredCapabilities", "requiredGates"]) {
+        const values = catalog[key];
+        if (!Array.isArray(values) || values.some(value => typeof value !== "string") || new Set(values).size !== values.length) throw Error("catalog constraints");
+      }
+      const ids = new Set<string>();
+      for (const operation of catalog.operations) {
+        const checked = validatePolicyOperation(operation, stage);
+        if (!checked.action || ids.has(checked.id)) throw Error("catalog operation");
+        ids.add(checked.id);
+      }
     }
     return p as PolicyBasis;
   } catch {throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_policy_basis_invalid",publicMessage:"Committed policy basis is malformed or unsupported.",nextAction:"Preserve evidence and generate a reviewed plan after reconciliation.",stage:stage.id});}
@@ -82,7 +119,7 @@ export function withPolicyBasis(state: SetupState, stage: StageModule, basis: Po
   const raw=JSON.stringify(basis);if(Buffer.byteLength(raw)>64*1024)refuse("Policy observation exceeds bounded internal metadata.");
   return {...state,stages:state.stages.map(s=>s.id===stage.id?{...s,versions:{...s.versions,[POLICY_BASIS_KEY]:raw}}:s)};
 }
-export function assertProducerPolicy(stage: StageModule, config: SetupConfig, submitted: InstallerPlan["stages"][number], source: StageObservation): void {
+export function assertProducerPolicy(stage: StageModule, config: SetupConfig, submitted: ExecutionPlan["stages"][number], source: StageObservation): void {
   const canonical=serializeStagePlan(stage.plan(config,source));
   if (canonical.stage_id!==stage.id || canonical.optional!==stage.optional || stableStringify(canonical)!==stableStringify(submitted)) refuse(`Stage ${stage.id} plan differs from its trusted producer policy.`);
   const ids=submitted.operations.map(o=>o.id);

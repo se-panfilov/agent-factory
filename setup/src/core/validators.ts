@@ -2,6 +2,7 @@ import { type ErrorObject, type ValidateFunction } from "ajv";
 import Ajv2020 from "ajv/dist/2020";
 import configSchema from "../../schemas/config.schema.json";
 import stateSchema from "../../schemas/state.schema.json";
+import legacyPlanSchema from "../../schemas/legacy-plan.schema.json";
 import planSchema from "../../schemas/plan.schema.json";
 import installerReleaseSchema from "../../schemas/installer-release.schema.json";
 import applicationManifestSchema from "../../schemas/application-manifest.schema.json";
@@ -10,6 +11,7 @@ export type ContractSchemaName =
   | "config"
   | "state"
   | "plan"
+  | "legacy-plan"
   | "installer-release"
   | "application-manifest";
 
@@ -30,6 +32,7 @@ const schemaValidators: Record<ContractSchemaName, ValidateFunction> = {
   config: ajv.compile(configSchema),
   state: ajv.compile(stateSchema),
   plan: ajv.compile(planSchema),
+  "legacy-plan": ajv.compile(legacyPlanSchema),
   "installer-release": ajv.compile(installerReleaseSchema),
   "application-manifest": ajv.compile(applicationManifestSchema)
 };

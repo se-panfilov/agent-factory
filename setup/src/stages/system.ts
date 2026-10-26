@@ -242,6 +242,7 @@ export function createSystemStage(aptAdapter: AptAdapter): StageModule {
         operations.push({
           id: operationId("update", planned),
           stageId: "S02" as const,
+          action: "apt.refresh" as const,
           kind: "mutate" as const,
           resourceId: "apt-metadata",
           risk: "high" as const,
@@ -257,6 +258,7 @@ export function createSystemStage(aptAdapter: AptAdapter): StageModule {
           {
             id: operationId("simulate", planned),
             stageId: "S02" as const,
+            action: "apt.simulate" as const,
             kind: "observe" as const,
             resourceId: "apt-simulation",
             risk: "low" as const,
@@ -269,6 +271,7 @@ export function createSystemStage(aptAdapter: AptAdapter): StageModule {
           {
             id: operationId("install", planned),
             stageId: "S02" as const,
+            action: "apt.install" as const,
             kind: "mutate" as const,
             resourceId: "system-packages",
             risk: "high" as const,

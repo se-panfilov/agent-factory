@@ -1,3 +1,5 @@
+import { parseFixturePlan } from "../helpers/r22-context";
+import { stringifyFixturePlan } from "../helpers/r22-context";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -7,13 +9,13 @@ import { SetupEngine } from "../../src/core/engine";
 import { createRegistry } from "../../src/core/plan";
 import { stableStringify } from "../../src/core/config";
 import { createSystemStage } from "../../src/stages/system";
-import { type InstallerPlan } from "../../src/core/types";
+import { type ExecutionPlan } from "../../src/core/types";
 
 import {aptFixture, rehash} from "../helpers/r21-admission";
 test("A21-01 actual S02 stripped stage+operation gates cannot authorize APT", async () => {
   const q=await aptFixture(),e=q.make();assert.equal((await e.run("plan",{configPath:q.x.configPath})).exitCode,0);
-  const p=JSON.parse(await fs.readFile(q.x.applyOptions.planPath,"utf8")) as InstallerPlan;
-  for(const s of p.stages){s.required_gates=[];for(const op of s.operations)op.gate_ids=[];} rehash(p);await fs.writeFile(q.x.applyOptions.planPath,JSON.stringify(p));
+  const p=parseFixturePlan(await fs.readFile(q.x.applyOptions.planPath,"utf8")) as ExecutionPlan;
+  for(const s of p.stages){s.required_gates=[];for(const op of s.operations)op.gate_ids=[];} rehash(p);await fs.writeFile(q.x.applyOptions.planPath,stringifyFixturePlan(p));
   const applied=await e.run("apply",{...q.x.applyOptions,nonInteractive:true});assert.notEqual(applied.exitCode,0);assert.deepEqual(q.counts,{refresh:0,simulate:0,install:0});
 });
 test("A21-09 independently expired plan refuses even before APT approval checks",async()=>{
@@ -23,7 +25,7 @@ test("A21-09 independently expired plan refuses even before APT approval checks"
 for(const age of [31,-60]) test(`A21-09 synthetic gate-free age ${age} minutes cannot execute`,async()=>{
   const q=await aptFixture();let effects=0;const s=r14Noop("S02");s.dependencies=["S01"];
   s.observe=async()=>({stageId:"S02",status:effects?"verified":"planned",checks:{},versions:{},observedAt:q.clock.now().toISOString()});
-  s.plan=()=>({stageId:"S02",optional:false,requiredCapabilities:[],requiredGates:[],operations:[{id:"age-effect",stageId:"S02",kind:"mutate",resourceId:"synthetic",risk:"low",gateIds:[],preconditions:[],sideEffects:["local counter"],timeoutSec:1,retryable:false}]});
+  s.plan=()=>({stageId:"S02",optional:false,requiredCapabilities:[],requiredGates:[],operations:[{ action: "fixture.counter" as const,id:"age-effect",stageId:"S02", kind:"mutate",resourceId:"synthetic",risk:"low",gateIds:[],preconditions:[],sideEffects:["local counter"],timeoutSec:1,retryable:false}]});
   s.apply=async()=>{effects++;return [{operationId:"age-effect",stageId:"S02",resourceId:"synthetic",observedAt:q.clock.now().toISOString(),checks:{done:true},versions:{},artifacts:[]}];};
   const e=new SetupEngine({fsAdapter:q.x.f,processAdapter:r14Process,clock:q.clock},createRegistry([r14Noop("S01"),s]));
   await q.x.planAndApprove(e);q.advance(age*60_000);assert.notEqual((await e.run("apply",q.x.applyOptions)).exitCode,0);assert.equal(effects,0);
@@ -32,7 +34,7 @@ for(const age of [31,-60]) test(`A21-09 synthetic gate-free age ${age} minutes c
 import path from "node:path";
 import { evidence, readPlan, writePlan, counterFixture } from "../helpers/r21-admission";
 import { type StageModule } from "../../src/core/types";
-const edits: Array<[string,(s:InstallerPlan["stages"][number])=>void]> = [
+const edits: Array<[string,(s:ExecutionPlan["stages"][number])=>void]> = [
   ["wrong nonempty gates",s=>{s.required_gates=["forged-review"];for(const op of s.operations)op.gate_ids=["forged-review"];}],
   ["one mandatory gate removed",s=>{s.required_gates=s.required_gates.filter(g=>g!=="s02-sudo-apt-install");s.operations[2]!.gate_ids=[];}],
   ["same gate different resources",s=>{s.required_gates=["s02-sudo-apt-install"];for(const op of s.operations)op.gate_ids=["s02-sudo-apt-install"];}],
@@ -50,7 +52,7 @@ test("A21-02/03 policy tampering matrix: recomputed hash, zero target intents/ef
     const before=await evidence(q.x.config);const result=await q.make().run("apply",q.x.applyOptions);
     assert.equal(result.exitCode,2,`${name}: ${JSON.stringify(result)}`);assert.deepEqual(q.counts,{refresh:0,simulate:0,install:0});assert.deepEqual(await evidence(q.x.config),before,name);
     console.log("R21_TAMPER "+JSON.stringify({name,exit:result.exitCode,error:result.envelope.error?.code,counts:q.counts,before,after:await evidence(q.x.config)}));
-    if(name==="wrong nonempty gates"){await fs.writeFile(q.x.applyOptions.planPath,JSON.stringify(original));assert.equal((await q.make().run("apply",q.x.applyOptions)).exitCode,0,"original approvals must remain usable for their original policy");assert.deepEqual(q.counts,{refresh:1,simulate:1,install:1});}
+    if(name==="wrong nonempty gates"){await fs.writeFile(q.x.applyOptions.planPath,stringifyFixturePlan(original));assert.equal((await q.make().run("apply",q.x.applyOptions)).exitCode,0,"original approvals must remain usable for their original policy");assert.deepEqual(q.counts,{refresh:1,simulate:1,install:1});}
   }
 });
 test("A21-04 stage-only requirements, optional/capabilities and true no-op are independent policy",async()=>{
@@ -63,7 +65,7 @@ test("A21-04 stage-only requirements, optional/capabilities and true no-op are i
     const e=make();assert.equal((await e.run("plan",{configPath:q.x.configPath})).exitCode,0);const p=await readPlan(q.x),original=structuredClone(p);const s=p.stages.find(s=>s.stage_id==="S02")!;
     if(mode!=="noop"){
       if(mode==="optional")s.optional=true;else if(mode==="capability")s.required_capabilities=[];else s.required_gates=[];
-      await writePlan(q.x,p);assert.equal((await make().run("apply",q.x.applyOptions)).exitCode,2);await fs.writeFile(q.x.applyOptions.planPath,JSON.stringify(original));
+      await writePlan(q.x,p);assert.equal((await make().run("apply",q.x.applyOptions)).exitCode,2);await fs.writeFile(q.x.applyOptions.planPath,stringifyFixturePlan(original));
       assert.equal((await make().run("apply",q.x.applyOptions)).exitCode,4);
       const approved=await make().run("gate-approve",{configPath:q.x.configPath,gateId:gate,planHash:original.plan_hash});
       assert.equal(approved.exitCode,mode==="prerequisite"?5:0);
@@ -74,7 +76,7 @@ test("A21-04 stage-only requirements, optional/capabilities and true no-op are i
 test("A21-05/06 actual S02 fresh/approved succeeds; no approval, bad hash and one-sided gates remain refusals",async()=>{
   for(const mode of ["approved","unapproved","hash","one-sided"] as const){
     const q=await aptFixture(),e=q.make();if(mode==="approved")await q.x.planAndApprove(e);else assert.equal((await e.run("plan",{configPath:q.x.configPath})).exitCode,0);
-    const p=await readPlan(q.x);if(mode==="hash"){p.plan_hash="0".repeat(64);await fs.writeFile(q.x.applyOptions.planPath,JSON.stringify(p));}if(mode==="one-sided"){p.stages.find(s=>s.stage_id==="S02")!.required_gates=[];await writePlan(q.x,p);}
+    const p=await readPlan(q.x);if(mode==="hash"){p.plan_hash="0".repeat(64);await fs.writeFile(q.x.applyOptions.planPath,stringifyFixturePlan(p));}if(mode==="one-sided"){p.stages.find(s=>s.stage_id==="S02")!.required_gates=[];await writePlan(q.x,p);}
     const result=await q.make().run("apply",{...q.x.applyOptions,nonInteractive:true});assert.equal(result.exitCode,mode==="approved"?0:mode==="unapproved"?4:2,JSON.stringify(result));
     assert.deepEqual(q.counts,mode==="approved"?{refresh:1,simulate:1,install:1}:{refresh:0,simulate:0,install:0});
   }
@@ -115,13 +117,14 @@ test("A21-13 expired plan approval/resume/upsert never renews approval identity 
   const next=(await q.x.state()).pending_gates;assert.deepEqual(next.map(g=>[g.id,g.operation_id,g.plan_hash,g.expires_at]),gates.map(g=>[g.id,g.operation_id,g.plan_hash,g.expires_at]));assert.ok(next.every(g=>g.status==="expired"));assert.deepEqual(q.counts,{refresh:0,simulate:0,install:0});
 });
 
+import { capturePlanContext } from "../../src/core/plan-context";
 import { createPlanFile } from "../../src/core/plan";
 test("A21-01/03 legacy without enrolled basis still derives policy independently from actual S02 producer",async()=>{
   for(const mode of ["strip", "simulation omitted", "timeout"] as const){
-    const q=await aptFixture(),e=q.make();await createPlanFile(q.x.f,q.x.config,createRegistry([r14Noop("S01"),createSystemStage(q.apt)]),null,q.clock);
+    const q=await aptFixture(),e=q.make();await createPlanFile(q.x.f,q.x.config,createRegistry([r14Noop("S01"),createSystemStage(q.apt)]),null,q.clock,[],new Map(),await capturePlanContext(q.x.f,r14Process,q.x.config,["S01","S02"]));
     const p=await readPlan(q.x),s=p.stages.find(s=>s.stage_id==="S02")!;
     if(mode==="strip"){s.required_gates=[];for(const op of s.operations)op.gate_ids=[];}else edits.find(([name])=>name===mode)![1](s);
-    await writePlan(q.x,p);const result=await e.run("apply",{...q.x.applyOptions,nonInteractive:true});assert.equal(result.exitCode,2,JSON.stringify(result));assert.equal(result.envelope.error?.code,"plan_policy_mismatch");assert.deepEqual(q.counts,{refresh:0,simulate:0,install:0});assert.equal((await q.x.state()).in_flight_operation,null);
+    await writePlan(q.x,p);const result=await e.run("apply",{...q.x.applyOptions,nonInteractive:true});assert.equal(result.exitCode,8,JSON.stringify(result));assert.equal(result.envelope.error?.code,"plan_review_required");assert.deepEqual(q.counts,{refresh:0,simulate:0,install:0});assert.equal((await q.x.state()).in_flight_operation,null);
   }
 });
 
@@ -139,7 +142,7 @@ test("A21-08 separate owned engine subprocesses: plan, tamper refusal, approve, 
   async function run(mode:string){const {stdout}=await promisify(execFile)(process.execPath,[path.resolve(__dirname,"../../../tests/helpers/r21-worker.cjs"),path.resolve(__dirname,"../.."),q.x.configPath,factsPath,mode],{timeout:20_000,maxBuffer:512*1024,env:{PATH:"/usr/bin:/bin",LC_ALL:"C"}});return JSON.parse(stdout) as {pid:number;result:{exitCode:number};facts:{counts:{refresh:number;simulate:number;install:number}}};}
   const planned=await run("plan");assert.equal(planned.result.exitCode,0);const p=await readPlan(q.x),original=structuredClone(p);for(const s of p.stages){s.required_gates=[];for(const op of s.operations)op.gate_ids=[];}await writePlan(q.x,p);
   const before=await evidence(q.x.config),refused=await run("apply");assert.equal(refused.result.exitCode,2);assert.deepEqual(refused.facts.counts,{refresh:0,simulate:0,install:0});assert.deepEqual(await evidence(q.x.config),before);
-  await fs.writeFile(q.x.applyOptions.planPath,JSON.stringify(original));const approved=await run("approve"),applied=await run("apply"),resumed=await run("resume");assert.equal(approved.result.exitCode,0);assert.equal(applied.result.exitCode,0);assert.equal(resumed.result.exitCode,0);assert.deepEqual(resumed.facts.counts,{refresh:1,simulate:1,install:1});assert.notEqual(planned.pid,applied.pid);
+  await fs.writeFile(q.x.applyOptions.planPath,stringifyFixturePlan(original));const approved=await run("approve"),applied=await run("apply"),resumed=await run("resume");assert.equal(approved.result.exitCode,0);assert.equal(applied.result.exitCode,0);assert.equal(resumed.result.exitCode,0);assert.deepEqual(resumed.facts.counts,{refresh:1,simulate:1,install:1});assert.notEqual(planned.pid,applied.pid);
   console.log("R21_PROCESSES "+JSON.stringify({planned,refused,approved,applied,resumed}));
 });
 test("A21-12 planner timestamps and producer-ignored volatile counters do not create false drift",async()=>{
@@ -149,7 +152,7 @@ test("A21-12 planner timestamps and producer-ignored volatile counters do not cr
 import { saveState } from "../../src/core/state";
 import { POLICY_BASIS_KEY } from "../../src/core/policy";
 test("A21-04/08 internal basis compatibility: legacy fresh policy is validated, malformed/future metadata preserved and blocked",async()=>{
-  const legacy=await counterFixture(),engine=legacy.make();await createPlanFile(legacy.x.f,legacy.x.config,createRegistry([r14Noop("S01"),legacy.stage]),null,legacy.clock);assert.equal((await engine.run("apply",legacy.x.applyOptions)).exitCode,0);assert.deepEqual(legacy.counts,[1]);
+  const legacy=await counterFixture(),engine=legacy.make();await createPlanFile(legacy.x.f,legacy.x.config,createRegistry([r14Noop("S01"),legacy.stage]),null,legacy.clock,[],new Map(),await capturePlanContext(legacy.x.f,r14Process,legacy.x.config,["S01","S02"]));assert.equal((await engine.run("apply",legacy.x.applyOptions)).exitCode,8);assert.deepEqual(legacy.counts,[0]);await legacy.x.planAndApprove(engine);assert.equal((await engine.run("apply",legacy.x.applyOptions)).exitCode,0);assert.deepEqual(legacy.counts,[1]);
   for(const corrupt of ["json","version","shape","status-type"] as const){
     const q=await counterFixture();await q.x.planAndApprove(q.make());const state=await q.x.state(),stage=state.stages.find(s=>s.id==="S02")!;
     const basis=JSON.parse(stage.versions[POLICY_BASIS_KEY]!) as Record<string,unknown>;
@@ -188,17 +191,26 @@ test("A21-03 operation IDs are unique across parent stages, not merely within ea
     const q=await aptFixture(),counts:{[key:string]:number}={S01:0,S02:0};
     const stages=(["S01","S02"] as const).map(id=>{
       const s=r14Noop(id);s.dependencies=id==="S02"?["S01"]:[];s.observe=async()=>({stageId:id,status:counts[id]!>0?"verified":"planned",checks:{},versions:{},observedAt:q.clock.now().toISOString()});
-      s.plan=()=>({stageId:id,optional:false,requiredCapabilities:[],requiredGates:[],operations:[{id:collision?"shared":`owned-${id}`,stageId:id,kind:"mutate",resourceId:`resource-${id}`,risk:"low",gateIds:[],preconditions:[],sideEffects:["owned counter"],timeoutSec:1,retryable:false}]});
+      s.plan=()=>({stageId:id,optional:false,requiredCapabilities:[],requiredGates:[],operations:[{ action: "fixture.counter" as const,id:collision?"shared":`owned-${id}`,stageId:id,kind:"mutate",resourceId:`resource-${id}`,risk:"low",gateIds:[],preconditions:[],sideEffects:["owned counter"],timeoutSec:1,retryable:false}]});
       s.apply=async(_ctx,p)=>{counts[id]!++;return [{operationId:p.operations[0]!.id,stageId:id,resourceId:`resource-${id}`,observedAt:q.clock.now().toISOString(),checks:{done:true},versions:{},artifacts:[]}];};return s;
     });
-    const e=new SetupEngine({fsAdapter:q.x.f,processAdapter:r14Process,clock:q.clock},createRegistry(stages));await q.x.planAndApprove(e);const result=await e.run("apply",q.x.applyOptions);assert.equal(result.exitCode,collision?2:0);assert.deepEqual(counts,collision?{S01:0,S02:0}:{S01:1,S02:1});
+    const e = new SetupEngine({fsAdapter:q.x.f,processAdapter:r14Process,clock:q.clock},createRegistry(stages));
+    if (collision) {
+      const result = await e.run("plan", {configPath:q.x.configPath});
+      assert.equal(result.exitCode, 2, "duplicate producer IDs refuse at serialization, before review/effect");
+      assert.deepEqual(counts, {S01:0,S02:0});
+    } else {
+      await q.x.planAndApprove(e);
+      assert.equal((await e.run("apply",q.x.applyOptions)).exitCode, 0);
+      assert.deepEqual(counts, {S01:1,S02:1});
+    }
   }
 });
 
 test("A21-08 synthetic legacy policy absence preserves engine-generated simulation proof until explicit review",async()=>{
   const q=await aptFixture(),observe=q.apt.observe,simulate=q.apt.simulateInstall;q.apt.observe=async names=>({...await observe(names),metadataFresh:true});q.apt.simulateInstall=async()=>{await simulate();q.advance(30*60_000);};await q.x.planAndApprove(q.make());assert.equal((await q.make().run("apply",q.x.applyOptions)).exitCode,4);assert.deepEqual(q.counts,{refresh:0,simulate:1,install:0});
   q.advance(-30*60_000);const legacy=await q.x.state();for(const s of legacy.stages)delete s.versions[POLICY_BASIS_KEY];await saveState(q.x.f,q.x.config,legacy);
-  const before=await evidence(q.x.config);const refused=await q.make().run("apply",q.x.applyOptions);assert.equal(refused.exitCode,8);assert.equal(refused.envelope.error?.code,"legacy_policy_review_required");assert.deepEqual(await evidence(q.x.config),before);assert.deepEqual(q.counts,{refresh:0,simulate:1,install:0});
+  const before=await evidence(q.x.config);const refused=await q.make().run("apply",q.x.applyOptions);assert.equal(refused.exitCode,8);assert.equal(refused.envelope.error?.code,"plan_review_required");assert.deepEqual(await evidence(q.x.config),before);assert.deepEqual(q.counts,{refresh:0,simulate:1,install:0});
   await q.x.planAndApprove(q.make());assert.equal((await q.make().run("resume",{configPath:q.x.configPath})).exitCode,0);assert.deepEqual(q.counts,{refresh:0,simulate:1,install:1});
 });
 

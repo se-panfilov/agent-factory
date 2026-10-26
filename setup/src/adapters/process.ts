@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import os from "node:os";
-import { readFile } from "node:fs/promises";
+import { readFile, open } from "node:fs/promises";
 import { ExitCode } from "../core/types";
 import { setupError } from "../core/errors";
 
@@ -31,6 +31,8 @@ export interface CommandOptions {
 }
 
 export interface ProcessAdapter {
+  hostIdentity(): Promise<{ os: string; arch: string }>;
+  loginSessionId(): Promise<string>;
   runCommand(options: CommandOptions): Promise<CommandResult>;
   pid(): number;
   uid(): number;
@@ -55,6 +57,23 @@ function trimToBytes(content: string, maxBytes: number): string {
     return content;
   }
   return `${buffer.subarray(0, maxBytes).toString("utf8")}\n...[truncated]`;
+}
+
+export function parseSupportedHost(release: string, platform: string, architecture: string): { os: "ubuntu-24.04"; arch: "amd64" | "arm64" } {
+  const fields = new Map<string, string>();
+  for (const line of release.split("\n")) {
+    if (!/^(ID|VERSION_ID)=/.test(line)) continue;
+    const match = line.match(/^(ID|VERSION_ID)=(?:"([^"\\]*)"|([A-Za-z0-9._-]+))$/);
+    if (!match || fields.has(match[1]!)) throw setupError({ exitCode: ExitCode.UnsupportedHostOrMissingPrivileges,
+      code: "context_host_unsupported", publicMessage: "OS release identity is malformed or ambiguous.", nextAction: "Restore OS-owned release identity and revalidate." });
+    fields.set(match[1]!, match[2] ?? match[3]!);
+  }
+  const arch = architecture === "x64" ? "amd64" : architecture === "arm64" ? "arm64" : null;
+  if (platform !== "linux" || fields.get("ID") !== "ubuntu" || fields.get("VERSION_ID") !== "24.04" || !arch) {
+    throw setupError({ exitCode: ExitCode.UnsupportedHostOrMissingPrivileges, code: "context_host_unsupported",
+      publicMessage: "Trusted context requires Ubuntu 24.04 and a supported native architecture.", nextAction: "Use a qualified host; do not override host identity with configuration." });
+  }
+  return { os: "ubuntu-24.04", arch };
 }
 
 export class NodeProcessAdapter implements ProcessAdapter {
@@ -152,23 +171,49 @@ export class NodeProcessAdapter implements ProcessAdapter {
     return os.userInfo().username;
   }
 
-  async bootId(): Promise<string> {
+  async hostIdentity(): Promise<{ os: "ubuntu-24.04"; arch: "amd64" | "arm64" }> {
+    const release = await this.identityText("/etc/os-release", 16384);
+    return parseSupportedHost(release, process.platform, process.arch);
+  }
+
+  /** Linux audit login identity survives CLI process changes, but changes with a PAM login. */
+  async loginSessionId(): Promise<string> {
+    const session = (await this.identityText("/proc/self/sessionid", 64)).trim();
+    const loginUid = (await this.identityText("/proc/self/loginuid", 64)).trim();
+    if (!/^(0|[1-9]\d*)$/.test(session) || !/^(0|[1-9]\d*)$/.test(loginUid) || !Number.isSafeInteger(Number(session)) || Number(session) >= 4294967295
+      || Number(loginUid) !== this.uid()) {
+      throw setupError({ exitCode: ExitCode.ManualActionRequired, code: "context_login_session_unavailable",
+        publicMessage: "A verified owner audit login session is required.", nextAction: "Log in as the configured owner through a PAM/audit-enabled login, then generate and review a fresh plan." });
+    }
+    return `linux-audit:${this.uid()}:${session}`;
+  }
+
+  protected async identityText(file: string, limit: number): Promise<string> {
     try {
-      const content = await readFile("/proc/sys/kernel/random/boot_id", "utf8");
-      return content.trim();
+      const handle = await open(file, "r");
+      try {
+        const bytes = Buffer.alloc(limit + 1); const result = await handle.read(bytes, 0, bytes.length, 0);
+        if (result.bytesRead > limit) throw Error("oversized identity");
+        return bytes.subarray(0, result.bytesRead).toString("utf8");
+      } finally { await handle.close(); }
     } catch {
-      return "unknown-boot-id";
+      throw setupError({ exitCode: ExitCode.UnsupportedHostOrMissingPrivileges, code: "context_identity_unavailable",
+        publicMessage: "OS identity cannot be read safely.", nextAction: "Restore access to OS identity files and revalidate the owner session." });
     }
   }
 
+  async bootId(): Promise<string> {
+    const boot = (await this.identityText("/proc/sys/kernel/random/boot_id", 64)).trim();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(boot)) throw setupError({ exitCode: ExitCode.UnsupportedHostOrMissingPrivileges,
+      code: "host_boot_id_unavailable", publicMessage: "Boot identity is invalid.", nextAction: "Restore the OS boot identity before review." });
+    return boot;
+  }
+
   async machineIdHash(): Promise<string> {
-    let machineId = "unknown-machine-id";
-    try {
-      machineId = (await readFile("/etc/machine-id", "utf8")).trim();
-    } catch {
-      // keep default fallback value
-    }
-    return createHash("sha256").update(machineId).digest("hex");
+    const machine = (await this.identityText("/etc/machine-id", 64)).trim();
+    if (!/^[0-9a-f]{32}$/.test(machine) || /^0+$/.test(machine)) throw setupError({ exitCode: ExitCode.UnsupportedHostOrMissingPrivileges,
+      code: "host_machine_id_unavailable", publicMessage: "Machine identity is missing or invalid.", nextAction: "Restore a unique OS machine identity; do not create a plan with an unknown identity." });
+    return createHash("sha256").update(machine).digest("hex");
   }
 
   async processStartTicks(pid: number): Promise<number | null> {

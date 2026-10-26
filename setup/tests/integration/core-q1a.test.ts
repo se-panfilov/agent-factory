@@ -1,3 +1,5 @@
+import { fixtureContextFiles } from "../helpers/r22-context";
+import { parseFixturePlan } from "../helpers/r22-context";
 import test from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
@@ -45,6 +47,8 @@ class FakeProcessAdapter implements ProcessAdapter {
     return this.processUser;
   }
 
+  async hostIdentity(): Promise<{ os: "ubuntu-24.04"; arch: "amd64" }> { return { os: "ubuntu-24.04", arch: "amd64" }; }
+  async loginSessionId(): Promise<string> { return "injected-test-login"; }
   async bootId(): Promise<string> {
     return this.bootIdValue;
   }
@@ -122,6 +126,7 @@ function makeConfig(root: string, selectedStages: SetupConfig["selected_stages"]
 }
 
 async function writeConfig(configPath: string, config: SetupConfig): Promise<void> {
+  await fixtureContextFiles(config, config.selected_stages.some(id => ["S05","S06","S07","S08","S09","S10","S11","S13","S14"].includes(id)));
   await fs.promises.mkdir(path.dirname(configPath), { recursive: true, mode: 0o700 });
   await fs.promises.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }
@@ -220,6 +225,8 @@ class FakeProcessAdapter {
   pid() { return this.pidValue; }
   uid() { return 1000; }
   username() { return "factory"; }
+  async hostIdentity() { return {os:"ubuntu-24.04",arch:"amd64"}; }
+  async loginSessionId() { return "injected-test-login"; }
   async bootId() { return this.bootIdValue; }
   async machineIdHash() { return "f".repeat(64); }
   async processStartTicks(pid) { return pid === this.pidValue ? this.startTicks : null; }
@@ -260,7 +267,7 @@ function registry(effectPath) {
         operations: observed.status === "verified" ? [] : [{
           id: "s01-write-effect",
           stageId: "S01",
-          kind: "mutate",
+          action: "fixture.counter", kind: "mutate",
           resourceId: "effect",
           risk: "low",
           gateIds: ["s01-manual-gate"],
@@ -420,10 +427,10 @@ test("A05 expired gate cannot be approved and stays expired in persisted state",
         optional: false,
         requiredCapabilities: [],
         operations: [
-          {
+          { action: "fixture.counter" as const,
             id: "s01-gated-op",
             stageId: "S01",
-            kind: "mutate",
+             kind: "mutate",
             resourceId: "gated",
             risk: "low",
             gateIds: ["s01-gate"],
@@ -461,7 +468,7 @@ test("A05 expired gate cannot be approved and stays expired in persisted state",
   );
   const plan = await planner.run("plan", { configPath, stageId: "S01" });
   assert.equal(plan.exitCode, ExitCode.Success, JSON.stringify(plan.envelope));
-  const planJson = JSON.parse(await fs.promises.readFile(path.join(config.paths.setup_state_dir, "plan.json"), "utf8")) as { plan_hash: string };
+  const planJson = parseFixturePlan(await fs.promises.readFile(path.join(config.paths.setup_state_dir, "plan.json"), "utf8")) as { plan_hash: string };
 
   const approver = new SetupEngine(
     {
@@ -665,10 +672,10 @@ test("A13 cancel requested in stage A stops before stage B mutation", async () =
         stageId: "S01",
         optional: false,
         requiredCapabilities: [],
-        operations: [{
+        operations: [{ action: "fixture.counter" as const,
           id: "s01-op",
           stageId: "S01",
-          kind: "mutate",
+           kind: "mutate",
           resourceId: "a",
           risk: "low",
           gateIds: [],
@@ -717,10 +724,10 @@ test("A13 cancel requested in stage A stops before stage B mutation", async () =
         stageId: "S02",
         optional: false,
         requiredCapabilities: [],
-        operations: [{
+        operations: [{ action: "fixture.counter" as const,
           id: "s02-op",
           stageId: "S02",
-          kind: "mutate",
+           kind: "mutate",
           resourceId: "b",
           risk: "low",
           gateIds: [],

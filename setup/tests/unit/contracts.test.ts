@@ -1,3 +1,4 @@
+import { canonicalHash, nativePlanHash } from "../../src/core/plan-format";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { validateAllContracts, validateContractSchema } from "../../src/core/validators";
@@ -81,36 +82,18 @@ const VALID_STATE = {
   last_error: null
 };
 
+// Explicitly synthetic schema fixture, not executable reviewed host evidence.
 const VALID_PLAN = {
-  schema_version: 1,
-  contract_version: "1.0.0",
-  installation_id: "0f71966d-ef6f-4976-97cb-eb34cb139204",
-  desired_hash: "cbf18c501796da4ac8f5489f13f8d8e2a2f52f8ceacdf4ecfd171f06dc6f66f6",
-  plan_hash: "a47a81f4cad8f685dca8f9ff812f39b3b3f6f3867d80a6f0893fc31f06eb2fab",
-  created_at: "2026-10-21T20:00:00Z",
-  stages: [
-    {
-      stage_id: "S01",
-      optional: false,
-      required_capabilities: ["runner-readonly"],
-      operations: [
-        {
-          id: "op-observe-host",
-          stage_id: "S01",
-          kind: "observe",
-          resource_id: "installation:0f71966d-ef6f-4976-97cb-eb34cb139204",
-          risk: "low",
-          gate_ids: [],
-          preconditions: ["host-user-matches"],
-          side_effects: [],
-          timeout_sec: 30,
-          retryable: true
-        }
-      ],
-      required_gates: []
-    }
-  ]
+  schema_version: 1 as const, contract_version: "1.0.0" as const, installation_id: VALID_CONFIG.installation_id,
+  host_fingerprint: { machine_id_hash: canonicalHash("schema-host"), os: "ubuntu-24.04" as const, arch: "amd64" as const },
+  owner_session: { uid: 1000, owner: "factory", boot_id: VALID_STATE.host_fingerprint.boot_id, login_session_hash: canonicalHash("schema-login") },
+  generated_at: "2026-10-21T20:00:00.000Z", expires_at: "2026-10-21T20:30:00.000Z",
+  desired_hash: canonicalHash(VALID_CONFIG), version_lock_hash: canonicalHash("schema-lock"), observations_hash: canonicalHash([]),
+  target: { mode: "selected" as const, stage_id: null },
+  stage_scope: [{ stage_id: "S01" as const, optional: false, required_capabilities: [], requires_gates: [] }],
+  release_context: { applicable: false, declared_hash: canonicalHash(VALID_CONFIG.release), artifact_hash: null }, operations: [], plan_hash: ""
 };
+VALID_PLAN.plan_hash = nativePlanHash(VALID_PLAN);
 
 const VALID_INSTALLER_RELEASE = {
   schema_version: 1,

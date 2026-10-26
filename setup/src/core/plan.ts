@@ -1,8 +1,10 @@
-import { createHash } from "node:crypto";
+import { parseStrictJson } from "./strict-json";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { type FilesystemAdapter } from "../adapters/filesystem";
 import {
   ExitCode,
+  type ExecutionPlan,
   type InstallerPlan,
   type SetupConfig,
   type StageId,
@@ -12,6 +14,9 @@ import {
 } from "./types";
 import { setupError } from "./errors";
 import { hashConfig, stableStringify, type Clock } from "./config";
+import { decodePlan, nativePlanHash, wireOperation, canonicalHash } from "./plan-format";
+import { type StaticPlanContext } from "./plan-context";
+import { projectedObservationHash } from "./policy";
 import { validateContractSchema } from "./validators";
 
 export interface StageRegistry {
@@ -71,9 +76,10 @@ export function buildStageClosure(registry: StageRegistry, stageIds: StageId[]):
   return resolved;
 }
 
-function mapOperation(operation: StageOperation): InstallerPlan["stages"][number]["operations"][number] {
+function mapOperation(operation: StageOperation): ExecutionPlan["stages"][number]["operations"][number] {
   return {
     id: operation.id,
+    ...(operation.action ? { action: operation.action } : {}),
     stage_id: operation.stageId,
     kind: operation.kind,
     resource_id: operation.resourceId,
@@ -86,7 +92,7 @@ function mapOperation(operation: StageOperation): InstallerPlan["stages"][number
   };
 }
 
-function planHashFromPlan(plan: Omit<InstallerPlan, "plan_hash">): string {
+function planHashFromPlan(plan: Omit<ExecutionPlan, "plan_hash">): string {
   return createHash("sha256").update(stableStringify(plan)).digest("hex");
 }
 
@@ -97,12 +103,14 @@ export async function createPlanFile(
   stageTarget: StageId | null,
   clock: Clock,
   completedOperationReceipts: import("./types").StageReceipt[] = [],
-  progressContexts: ReadonlyMap<StageId, import("./types").StageContext> = new Map()
-): Promise<{ plan: InstallerPlan; planPath: string; stageClosure: StageId[]; observations: Map<StageId, import("./types").StageObservation> }> {
+  progressContexts: ReadonlyMap<StageId, import("./types").StageContext> = new Map(),
+  context?: StaticPlanContext,
+  publish = true
+): Promise<{ plan: ExecutionPlan; planPath: string; stageClosure: StageId[]; observations: Map<StageId, import("./types").StageObservation> }> {
   const stageIds = stageTarget === null ? config.selected_stages : [stageTarget];
   const closure = buildStageClosure(registry, stageIds);
 
-  const stagePlans: InstallerPlan["stages"] = [];
+  const stagePlans: ExecutionPlan["stages"] = [];
   const observations = new Map<StageId, import("./types").StageObservation>();
   for (const stageId of closure) {
     const stage = registry.byId.get(stageId);
@@ -136,31 +144,53 @@ export async function createPlanFile(
     });
   }
 
-  const basePlan: Omit<InstallerPlan, "plan_hash"> = {
-    schema_version: 1,
-    contract_version: "1.0.0",
-    installation_id: config.installation_id,
-    desired_hash: hashConfig(config),
-    created_at: clock.now().toISOString(),
-    stages: stagePlans
+  if (!context) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "plan_context_required",
+    publicMessage: "Plan production requires checked host/session/artifact context.", nextAction: "Generate the plan through ordinary-owner engine admission." });
+  const generated_at = clock.now().toISOString();
+  const native: InstallerPlan = {
+    schema_version: 1, contract_version: "1.0.0", installation_id: config.installation_id,
+    ...context, generated_at, expires_at: new Date(Date.parse(generated_at) + 30 * 60_000).toISOString(),
+    desired_hash: hashConfig(config), observations_hash: canonicalHash(closure.map(id => ({ stage: id,
+      fingerprint: projectedObservationHash(registry.byId.get(id)!, config, observations.get(id)!) }))),
+    target: { mode: stageTarget === null ? "selected" : "explicit", stage_id: stageTarget },
+    stage_scope: stagePlans.map(stage => ({ stage_id: stage.stage_id, optional: stage.optional,
+      required_capabilities: stage.required_capabilities, requires_gates: stage.required_gates })),
+    operations: closure.flatMap(id => registry.byId.get(id)!.plan(config, observations.get(id)!).operations.map(operation => wireOperation(operation, { source_observation: projectedObservationHash(registry.byId.get(id)!, config, observations.get(id)!), version_lock: context.version_lock_hash }))),
+    plan_hash: ""
   };
-  const plan: InstallerPlan = {
-    ...basePlan,
-    plan_hash: planHashFromPlan(basePlan)
-  };
+  native.plan_hash = nativePlanHash(native);
+  const validation = validateContractSchema("plan", native);
+  if (!validation.ok) throw setupError({ exitCode: ExitCode.CliOrSchemaError, code: "producer_plan_schema_error",
+    publicMessage: "Trusted producer generated an unsupported C13 document.", nextAction: "Review the producer/schema compatibility; do not execute the document." });
+  const plan = decodePlan(native);
+  assertPlanTime(plan, clock);
+  validatePlanConsistency(config, plan);
 
   const planPath = path.join(config.paths.setup_state_dir, "plan.json");
-  await fsAdapter.writeText(planPath, `${JSON.stringify(plan, null, 2)}\n`, 0o600);
-  await fsAdapter.fsyncFile(planPath);
-  await fsAdapter.fsyncDir(path.dirname(planPath));
+  if (publish) await persistPlanFile(fsAdapter, planPath, native);
   return { plan, planPath, stageClosure: closure, observations };
 }
 
-export async function loadPlan(fsAdapter: FilesystemAdapter, planPath: string): Promise<InstallerPlan> {
-  const raw = await fsAdapter.readText(planPath);
+/** Proposal publication is atomic; state review remains prepared until the final state commit. */
+export async function persistPlanFile(fs: FilesystemAdapter, planPath: string, plan: InstallerPlan): Promise<void> {
+  await fs.ensureParentDir(planPath);
+  const temporary = `${planPath}.tmp-${randomUUID()}`;
+  await fs.writeText(temporary, `${JSON.stringify(plan, null, 2)}\n`, 0o600);
+  await fs.fsyncFile(temporary);
+  await fs.rename(temporary, planPath);
+  await fs.fsyncDir(path.dirname(planPath));
+}
+
+export async function loadPlan(fsAdapter: FilesystemAdapter, planPath: string): Promise<ExecutionPlan> {
+  const bounded = await fsAdapter.readTextBounded(planPath, 1024 * 1024);
+  if (bounded.truncated || bounded.text.includes("\0") || bounded.text.includes("\ufffd")) throw setupError({ exitCode: ExitCode.CliOrSchemaError,
+    code: "plan_input_invalid", publicMessage: "Execution plan exceeds bounded valid UTF-8 input.", nextAction: "Generate a fresh reviewed plan." });
+  const raw = bounded.text;
   let parsed: unknown;
-  try { parsed = JSON.parse(raw); } catch { throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"plan_json_invalid",
+  try { parsed = parseStrictJson(raw); } catch { throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"plan_json_invalid",
     publicMessage:"Submitted plan is not valid JSON.",nextAction:"Generate a valid reviewed plan."}); }
+  if (parsed && typeof parsed === "object" && "created_at" in parsed) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired,
+    code: "legacy_plan_review_required", publicMessage: "Historical plan format cannot authorize effects.", nextAction: "Generate and approve an explicit fresh C13 plan; preserve historical progress evidence." });
   const validation = validateContractSchema("plan", parsed);
   if (!validation.ok) {
     throw setupError({
@@ -170,10 +200,10 @@ export async function loadPlan(fsAdapter: FilesystemAdapter, planPath: string): 
       nextAction: "Regenerate the plan with 'factory-setup plan'."
     });
   }
-  return parsed as InstallerPlan;
+  return decodePlan(parsed as InstallerPlan);
 }
 
-export function validatePlanConsistency(config: SetupConfig, plan: InstallerPlan): void {
+export function validatePlanConsistency(config: SetupConfig, plan: ExecutionPlan): void {
   if (plan.installation_id !== config.installation_id) {
     throw setupError({
       exitCode: ExitCode.DriftOrRecoveryRequired,
@@ -201,39 +231,46 @@ export function validatePlanConsistency(config: SetupConfig, plan: InstallerPlan
     });
   }
 
-  const basePlan: Omit<InstallerPlan, "plan_hash"> = {
-    schema_version: plan.schema_version,
-    contract_version: plan.contract_version,
-    installation_id: plan.installation_id,
-    desired_hash: plan.desired_hash,
-    created_at: plan.created_at,
-    stages: plan.stages
-  };
-  const expected = planHashFromPlan(basePlan);
-  if (expected !== plan.plan_hash) {
-    throw setupError({
-      exitCode: ExitCode.CliOrSchemaError,
-      code: "plan_hash_invalid",
-      publicMessage: "Plan hash does not match plan content.",
-      nextAction: "Regenerate the plan and avoid manual plan edits."
-    });
+  const native = plan.native;
+  if (!native) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "legacy_plan_review_required",
+    publicMessage: "A strict C13 execution document is required.", nextAction: "Explicitly generate and review a fresh plan." });
+  const stageIds = native.stage_scope.map(stage => stage.stage_id);
+  const ids = native.operations.map(operation => operation.operation_id);
+  const ordered = stageIds.flatMap(id => native.operations.filter(operation => operation.stage_id === id).map(operation => operation.operation_id));
+  const normalized = plan.stages.flatMap(stage => stage.operations.map(operation => wireOperation({
+    id: operation.id, stageId: operation.stage_id, ...(operation.action ? { action: operation.action } : {}), kind: operation.kind,
+    resourceId: operation.resource_id, risk: operation.risk, gateIds: operation.gate_ids, preconditions: operation.preconditions,
+    sideEffects: operation.side_effects, timeoutSec: operation.timeout_sec, retryable: operation.retryable
+  }, { source_observation: native.operations.find(item => item.operation_id === operation.id)!.expected_before_hashes.source_observation!, version_lock: native.version_lock_hash })));
+  if (new Set(stageIds).size !== stageIds.length || new Set(ids).size !== ids.length
+    || stableStringify(ordered) !== stableStringify(ids) || stableStringify(normalized) !== stableStringify(native.operations)
+    || (native.target.mode === "selected" ? native.target.stage_id !== null : native.target.stage_id === null)) {
+    throw setupError({ exitCode: ExitCode.CliOrSchemaError, code: "plan_operation_semantics_invalid",
+      publicMessage: "C13 operation identity, order, expected conditions or target is inconsistent.", nextAction: "Generate a new trusted producer plan." });
   }
+  if (nativePlanHash(native) !== plan.plan_hash) throw setupError({ exitCode: ExitCode.CliOrSchemaError, code: "plan_hash_invalid",
+    publicMessage: "Plan hash does not match the complete canonical C13 document.", nextAction: "Regenerate and review the exact plan bytes." });
 }
 
-/** Current format uses planner-produced UTC milliseconds; C13 serialization is R2.2. */
-export function assertPlanTime(plan: InstallerPlan, clock: Clock): void {
-  const value = plan.created_at;
+/** C13 canonical UTC timestamps; the internal created_at alias is never a wire execution field. */
+export function assertPlanTime(plan: ExecutionPlan, clock: Clock): void {
+  const value = plan.native?.generated_at ?? plan.created_at;
   const created = Date.parse(value), now = clock.now().getTime();
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) || !Number.isFinite(created)
     || new Date(created).toISOString() !== value) throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"plan_time_invalid",
       publicMessage:"Plan created_at must be a real canonical ISO UTC millisecond timestamp.",nextAction:"Generate and review a new plan."});
+  const expiry = plan.native?.expires_at;
+  if (expiry !== undefined && (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(expiry) || !Number.isFinite(Date.parse(expiry))
+    || new Date(Date.parse(expiry)).toISOString() !== expiry || Date.parse(expiry) !== created + 30 * 60_000)) {
+    throw setupError({ exitCode: ExitCode.CliOrSchemaError, code: "plan_time_invalid", publicMessage: "C13 expiry must be exactly30minutes after canonical generation.", nextAction: "Generate a fresh plan." });
+  }
   if (!Number.isFinite(now) || created > now) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_from_future",
     publicMessage:"Plan creation is later than the injected current time.",nextAction:"Reconcile the clock and generate/review a new plan."});
   if (now >= created + 30 * 60_000) throw setupError({exitCode:ExitCode.ManualActionRequired,code:"plan_expired",
     publicMessage:"Plan is at least 30 minutes old and cannot authorize another action.",nextAction:"Generate/review a new plan and approve its required gates."});
 }
 
-export function serializeStagePlan(plan: StagePlan): InstallerPlan["stages"][number] {
+export function serializeStagePlan(plan: StagePlan): ExecutionPlan["stages"][number] {
   return {stage_id:plan.stageId,optional:plan.optional,required_capabilities:plan.requiredCapabilities,
     required_gates:plan.requiredGates,operations:plan.operations.map(mapOperation)};
 }

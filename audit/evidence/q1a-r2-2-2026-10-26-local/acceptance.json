@@ -1,0 +1,116 @@
+{
+  "verdict": "PARTIAL",
+  "findings": {
+    "R22-F01": "FIXED local",
+    "R22-F02": "FIXED local",
+    "R22-F03": "IMPLEMENTED; acceptance PARTIAL until independent combined-run stability established"
+  },
+  "tests": {
+    "pass": 485,
+    "fail": 0,
+    "skipped": 0
+  },
+  "assertions_overlapping": {
+    "comparison": 33,
+    "command": 37,
+    "r2-product": 39
+  },
+  "matrix": [
+    {
+      "id": "A22-01",
+      "status": "PASS",
+      "assertion_evidence": "Native round-trip, canonical keys/arrays, closed action/expected semantics, duplicate decoded keys, unknown fields/actions/dates; final-test A22-01, contracts unit tests"
+    },
+    {
+      "id": "A22-02",
+      "status": "PASS",
+      "assertion_evidence": "Original context baseline oracle2/5 expected-red; C13 adapted fixed5/5, counts/unchanged request asserted; logs/context-{baseline,fixed}*"
+    },
+    {
+      "id": "A22-03",
+      "status": "PASS local",
+      "assertion_evidence": "Same session fresh engines/owned PIDs; machine/OS/arch/missing/root/wrong-owner negatives before intent, production parser/audit-session method tests. Native OS login itself NOT RUN"
+    },
+    {
+      "id": "A22-04",
+      "status": "PASS local",
+      "assertion_evidence": "New boot/login old approval refuses; fresh review positive; real S03 prefix/new login and realistic Docker effective-group relogin retain completed effects"
+    },
+    {
+      "id": "A22-05",
+      "status": "PASS",
+      "assertion_evidence": "Actual valid lock bytes, replacement/missing/invalid/truncated/symlink; fresh reviewed replacement positive; evidence unchanged on refusal"
+    },
+    {
+      "id": "A22-06",
+      "status": "PASS local",
+      "assertion_evidence": "Actual bounded archive hash + lock-bound native context; archive swap and S05 manifest/entry drift block before probes. R15/W tests preserve checked executable identity; host-only no-M0 positive"
+    },
+    {
+      "id": "A22-07",
+      "status": "PASS",
+      "assertion_evidence": "Producer significant projection excludes timestamps; A21-12 drift; S03 own hashes/ordered frontier and S02 own refresh/TTL checkpoint remain resumable"
+    },
+    {
+      "id": "A22-08",
+      "status": "PASS",
+      "assertion_evidence": "Exact selected/explicit closure incl no-op dependencies; target/subset/order/foreign operation tampering refuses; A21 composition/target tests"
+    },
+    {
+      "id": "A22-09",
+      "status": "PASS",
+      "assertion_evidence": "Same context checker in approve/apply/resume; root/wrong owner/session/gate resource/hash/expired guards; readonly gate-list/status never repair malformed review"
+    },
+    {
+      "id": "A22-10",
+      "status": "PASS",
+      "assertion_evidence": "Native30min−1ms/exact/+1ms/future/impossible/duration + gate-free R2 controls; completed refresh crossing TTL blocks second effect, fresh review no replay"
+    },
+    {
+      "id": "A22-11",
+      "status": "PASS",
+      "assertion_evidence": "Original S03 oracle13/13; genuine6281df5 v1→C13 explicit review13/13; actual R2.1.1 v2 base→C13 explicit review13/13; original publications untouched"
+    },
+    {
+      "id": "A22-12",
+      "status": "PASS local",
+      "assertion_evidence": "Owned subprocess PIDs/counts in final-test R211_PROCESS; sequential pauses/TTL/new review; new Docker session test and original crash children preserve progress"
+    },
+    {
+      "id": "A22-13",
+      "status": "PASS focused",
+      "assertion_evidence": "A21 controlled config/plan lock swaps; A22 lock-byte/release swap at actual lock and lock change inside completed refresh; K10/J11/U08 concurrent lock/reader controls. General concurrency qualification remains R3"
+    },
+    {
+      "id": "A22-14",
+      "status": "PASS local",
+      "assertion_evidence": "Actual prepared/final-review ENOSPC on/off, malformed review and bad generic publication negatives; inherited U07 manifest/checkpoint write/fsync/rename/dir-fsync and owned SIGKILL matrix"
+    },
+    {
+      "id": "A22-15",
+      "status": "PASS (limitation preserved)",
+      "assertion_evidence": "Original final-recovery desired runner retained known-red exit1; measurements show recover0/repeat0/resume8, explicit fresh-review resume0, all S03 counts unchanged, checkpoint retained"
+    },
+    {
+      "id": "A22-16",
+      "status": "PASS",
+      "assertion_evidence": "All446 prior test meanings retained; total485/485; frozen33, command37, R2checker39; full real-producer S00…S07 composition with fake externals, Docker/session and S05 commands"
+    },
+    {
+      "id": "A22-17",
+      "status": "PARTIAL",
+      "assertion_evidence": "Full raw argv/cwd/exits/PIDs/counts/hashes and classifications retained; completeness checker passes complete separate matrices. Combined replay had zero-row deadline failure; traced replays complete but root cause/stability unproven (R211-O02)"
+    },
+    {
+      "id": "A22-18",
+      "status": "PASS",
+      "assertion_evidence": "Actual-base reconstruction157 input files; SHA manifest before/after final validation identical; full patch/new-file payload/reconstruction checked; report/package hashes separate"
+    }
+  ],
+  "remaining": [
+    "R211-O02 incomplete replay cause/stability OPEN",
+    "R211-O01 automatic final recovery remains R3; explicit review workaround passes",
+    "R3/Q1B/Q2-Q6/application/production OPEN",
+    "privileged/VM/live NOT RUN"
+  ]
+}

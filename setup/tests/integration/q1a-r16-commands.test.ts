@@ -147,7 +147,7 @@ for (const key of ["runner_verify", "runner_stop"] as const) test(`W09 engine-bo
   actualStage.apply = async (ctx, plan) => {if (plan.operations.some(o => o.id.includes("probe-release"))) boundContext = ctx; return apply(ctx, plan);};
   const trap = r14Noop("S06"); trap.dependencies = ["S05"];
   let downstreamCalls = 0;
-  trap.plan = () => ({stageId:"S06",optional:false,requiredCapabilities:[],requiredGates:[],operations:[{id:"downstream",stageId:"S06",kind:"mutate",resourceId:"trap",risk:"low",gateIds:[],preconditions:[],sideEffects:["trap"],timeoutSec:1,retryable:false}]});
+  trap.plan = () => ({stageId:"S06",optional:false,requiredCapabilities:[],requiredGates:[],operations:[{ action: "fixture.counter" as const,id:"downstream",stageId:"S06", kind:"mutate",resourceId:"trap",risk:"low",gateIds:[],preconditions:[],sideEffects:["trap"],timeoutSec:1,retryable:false}]});
   trap.apply = async () => {downstreamCalls++; throw Error("Forbidden downstream");};
   const e = new SetupEngine({fsAdapter:q.x.f,processAdapter:r14Process,clock:r14Clock}, createRegistry([r14Noop("S04"), actualStage, trap]));
   await q.x.planAndApprove(e);

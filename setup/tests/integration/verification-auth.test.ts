@@ -1,3 +1,4 @@
+import { fixtureContextFiles } from "../helpers/r22-context";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -90,6 +91,8 @@ class FakeProcessAdapter implements ProcessAdapter {
   username(): string {
     return "factory";
   }
+  async hostIdentity(): Promise<{ os: "ubuntu-24.04"; arch: "amd64" }> { return { os: "ubuntu-24.04", arch: "amd64" }; }
+  async loginSessionId(): Promise<string> { return "injected-test-login"; }
   async bootId(): Promise<string> {
     return "4d445fab-6491-4d34-8ad3-c4d2d29f140f";
   }
@@ -171,6 +174,7 @@ function makeConfig(root: string): SetupConfig {
 }
 
 async function writeConfig(configPath: string, config: SetupConfig): Promise<void> {
+  await fixtureContextFiles(config, config.selected_stages.some(id => ["S05","S06","S07","S08","S09","S10","S11","S13","S14"].includes(id)));
   await fs.promises.mkdir(path.dirname(configPath), { recursive: true });
   await fs.promises.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }

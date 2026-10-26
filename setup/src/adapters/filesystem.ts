@@ -14,9 +14,12 @@ import {
   writeFile
 } from "node:fs/promises";
 import path from "node:path";
+import { createHash } from "node:crypto";
+import { performance } from "node:perf_hooks";
 
 export interface FilesystemAdapter {
   readText(filePath: string): Promise<string>;
+  hashFile?(filePath: string, maxBytes: number, deadlineMs: number): Promise<string>;
   readTextBounded(filePath: string, maxBytes: number): Promise<{
     text: string;
     bytesRead: number;
@@ -38,6 +41,28 @@ export interface FilesystemAdapter {
 }
 
 export class NodeFilesystemAdapter implements FilesystemAdapter {
+  async hashFile(filePath: string, maxBytes: number, deadlineMs: number): Promise<string> {
+    const started = performance.now();
+    const handle = await open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    try {
+      const before = await handle.stat();
+      if (!before.isFile() || before.size > maxBytes) throw Error("unsupported/oversized artifact");
+      const hash = createHash("sha256"), buffer = Buffer.alloc(1024 * 1024);
+      let count = 0;
+      for (;;) {
+        if (performance.now() - started >= deadlineMs) throw Error("artifact hash deadline");
+        const read = await handle.read(buffer, 0, buffer.length, null);
+        if (read.bytesRead === 0) break;
+        count += read.bytesRead;
+        if (count > maxBytes) throw Error("artifact grew beyond bound");
+        hash.update(buffer.subarray(0, read.bytesRead));
+      }
+      const after = await handle.stat();
+      if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeMs !== after.mtimeMs || count !== before.size) throw Error("artifact changed during hashing");
+      return hash.digest("hex");
+    } finally { await handle.close(); }
+  }
+
   async readText(filePath: string): Promise<string> {
     return readFile(filePath, "utf8");
   }

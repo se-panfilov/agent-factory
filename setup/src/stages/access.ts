@@ -375,6 +375,7 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
         {
           id: operationPrefix("install-tailscale", observationHash),
           stageId: "S03",
+          action: "access.install" as const,
           kind: "mutate",
           resourceId: "tailscale-package",
           risk: "high",
@@ -387,6 +388,7 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
         {
           id: operationPrefix("stage-sshd-firewall", observationHash),
           stageId: "S03",
+          action: "access.stage" as const,
           kind: "mutate",
           resourceId: "access-managed-diff",
           risk: "high",
@@ -399,6 +401,7 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
         {
           id: operationPrefix("arm-rollback", observationHash),
           stageId: "S03",
+          action: "access.arm" as const,
           kind: "mutate",
           resourceId: "access-rollback-timer",
           risk: "critical",
@@ -411,6 +414,7 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
         {
           id: operationPrefix("cutover", observationHash),
           stageId: "S03",
+          action: "access.cutover" as const,
           kind: "mutate",
           resourceId: "ssh-firewall-cutover",
           risk: "critical",
@@ -423,6 +427,7 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
         {
           id: operationPrefix("verify-tailnet", observationHash),
           stageId: "S03",
+          action: "access.tailnet" as const,
           kind: "verify",
           resourceId: "tailnet-connectivity",
           risk: "critical",
@@ -435,6 +440,7 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
         {
           id: operationPrefix("disarm-rollback", observationHash),
           stageId: "S03",
+          action: "access.disarm" as const,
           kind: "mutate",
           resourceId: "access-rollback-timer",
           risk: "high",

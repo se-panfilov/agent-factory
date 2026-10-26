@@ -275,6 +275,7 @@ export function createVerificationStage(
             {
               id: `s07-offline-verify-${config.installation_id.slice(0, 12)}`,
               stageId: "S07",
+              action: "verification.offline" as const,
               kind: "mutate",
               resourceId: "runner-offline-verification",
               risk: "medium",

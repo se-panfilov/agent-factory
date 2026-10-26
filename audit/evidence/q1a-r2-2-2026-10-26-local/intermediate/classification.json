@@ -1,0 +1,337 @@
+[
+  {
+    "log": "intermediate/exploratory/independent-try.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/suite-fifth.log",
+    "classification": "TypeScript migration/setup error; not product proof",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/suite-first.log",
+    "classification": "red assertion/test output; inspect raw evidence, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/build-9.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/comparison-third.jsonl",
+    "classification": "missing build/module harness setup error; not product proof",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/finish-independent.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/build-8.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/suite-third.log",
+    "classification": "red assertion/test output; inspect raw evidence, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/comparison-fourth.jsonl",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/suite-seventh.log",
+    "classification": "red assertion/test output; inspect raw evidence, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/typecheck-1.log",
+    "classification": "TypeScript migration/setup error; not product proof",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/native-targeted-7.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/baseline-driver.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/native-targeted-6.log",
+    "classification": "red assertion/test output; inspect raw evidence, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/access-c13-first.jsonl",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/typecheck-2.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/v3-targeted.log",
+    "classification": "red assertion/test output; inspect raw evidence, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/native-tests-second.log",
+    "classification": "red assertion/test output; inspect raw evidence, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/context-first-fixed.jsonl",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/native-targeted-5.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/completeness-field-mismatch.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/node.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/legacy-second.jsonl",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/targeted-14.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/comparison-c13-first.jsonl",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/targeted-16.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/replay-trace.jsonl",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/replay-cwd-trace.stderr",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/suite-sixth.log",
+    "classification": "red assertion/test output; inspect raw evidence, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/s06-missing-fixture.log",
+    "classification": "red assertion/test output; inspect raw evidence, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/full-lifecycle-try.jsonl",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/native-15.log",
+    "classification": "red assertion/test output; inspect raw evidence, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/r2-c13-first.jsonl",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/npm.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/suite-fourth.log",
+    "classification": "red assertion/test output; inspect raw evidence, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/replay-cwd-trace.jsonl",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/finish-second.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/replay-trace.stderr",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/native-and-r21.log",
+    "classification": "red assertion/test output; inspect raw evidence, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/context-baseline.jsonl",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/v3-targeted-second.log",
+    "classification": "red assertion/test output; inspect raw evidence, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/build-native-tests-2.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/build-native-tests-3.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/independent-second.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/native-tests-first.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/native-targeted-8.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/build-12.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/build-13.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/native-targeted-9.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/build-2.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/final-validation.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/s06-fixed-fixture.jsonl",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/build-1.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/build-5.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/typecheck-10.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/build-14.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/build-15.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/typecheck-11.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/ci.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/build-6.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/build-native-tests.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/suite-second.log",
+    "classification": "TypeScript migration/setup error; not product proof",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/r211-first.log",
+    "classification": "red assertion/test output; inspect raw evidence, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/r211-second.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/build-16.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/build.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  },
+  {
+    "log": "intermediate/exploratory/build-7.log",
+    "classification": "exploratory, not final acceptance",
+    "exit_status": "see command ledger where captured; otherwise not retrospectively inferred"
+  }
+]

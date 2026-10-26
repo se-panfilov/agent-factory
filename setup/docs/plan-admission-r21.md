@@ -63,3 +63,7 @@ This package does not claim cryptographic plan authentication or protection agai
 ## R2.1.1 correction (2026-10-26)
 
 The original R2.1 continuation claim was too broad for S03: same-plan restart lost the predecessor, and explicit re-plan could replay completed observation-derived IDs. See [access-continuation-r211.md](access-continuation-r211.md) for the v2 publication/alias proof and strict full-operation reconciliation. This correction does not retroactively claim that the original A21-08 validation covered these cases.
+
+## R2.2 serialization supersession (2026-10-26)
+
+Execution now uses the strict flat C13 format and independently committed context described in [plan-context-r22.md](plan-context-r22.md). The old stages/created_at representation in this historical design note is an internal decoded view or legacy historical proof only, never an executable wire fallback. Producer policy/TTL/no implicit replan protections remain.

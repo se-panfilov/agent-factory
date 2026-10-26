@@ -1,0 +1,95 @@
+[
+  {
+    "argv": [
+      "node",
+      "--version"
+    ],
+    "cwd": "/private/tmp/af-r22/base",
+    "exit": 0,
+    "expected": 0,
+    "elapsed": 0.02,
+    "log": "node.log"
+  },
+  {
+    "argv": [
+      "npm",
+      "--version"
+    ],
+    "cwd": "/private/tmp/af-r22/base",
+    "exit": 0,
+    "expected": 0,
+    "elapsed": 0.077,
+    "log": "npm.log"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "cwd": "/private/tmp/af-r22/base",
+    "exit": 0,
+    "expected": 0,
+    "elapsed": 0.449,
+    "log": "ci.log"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "run",
+      "build",
+      "--silent"
+    ],
+    "cwd": "/private/tmp/af-r22/base",
+    "exit": 0,
+    "expected": 0,
+    "elapsed": 1.661,
+    "log": "build.log"
+  },
+  {
+    "argv": [
+      "node",
+      "/private/tmp/af-r22/reviewer/evidence/context-binding-probes.cjs",
+      "/private/tmp/af-r22/base"
+    ],
+    "cwd": "/private/tmp/af-r22/base",
+    "exit": 0,
+    "expected": 0,
+    "elapsed": 1.959,
+    "log": "context-baseline.jsonl"
+  },
+  {
+    "argv": [
+      "python3",
+      "/private/tmp/af-r22/reviewer/evidence/check-context-binding.py",
+      "/private/tmp/af-r22/context-baseline.jsonl",
+      "--expect",
+      "fixed"
+    ],
+    "cwd": "/private/tmp/af-r22/base",
+    "exit": 1,
+    "expected": 1,
+    "elapsed": 0.042,
+    "log": "context-baseline-desired.json"
+  },
+  {
+    "argv": [
+      "python3",
+      "/private/tmp/af-r22/reviewer/evidence/check-context-binding.py",
+      "/private/tmp/af-r22/context-baseline.jsonl",
+      "--expect",
+      "observed-current"
+    ],
+    "cwd": "/private/tmp/af-r22/base",
+    "exit": 0,
+    "expected": 0,
+    "elapsed": 0.04,
+    "log": "context-baseline-observed.json"
+  }
+]

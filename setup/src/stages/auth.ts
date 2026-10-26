@@ -824,6 +824,7 @@ export function createAuthStage(
             {
               id: `s08-auth-smoke-${config.installation_id.slice(0, 12)}`,
               stageId: "S08",
+              action: "auth.explicit" as const,
               kind: "manual_gate",
               resourceId: "auth-and-live-smoke",
               risk: "critical",

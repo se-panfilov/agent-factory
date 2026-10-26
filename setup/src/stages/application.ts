@@ -409,6 +409,7 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
             {
               id: `s05-extract-release-${config.release.source_commit.slice(0, 12)}`,
               stageId: "S05",
+              action: "release.extract" as const,
               kind: "mutate",
               resourceId: "application-release-staging",
               risk: "high",
@@ -430,6 +431,7 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
             {
               id: `s05-materialize-checkout-${config.release.source_commit.slice(0, 12)}`,
               stageId: "S05",
+              action: "release.materialize" as const,
               kind: "mutate",
               resourceId: "application-checkout",
               risk: "high",
@@ -450,6 +452,7 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
             {
               id: `s05-probe-release-${config.release.source_commit.slice(0, 12)}`,
               stageId: "S05",
+              action: "release.probe" as const,
               kind: "observe",
               resourceId: "application-release",
               risk: "medium",

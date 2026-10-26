@@ -1,0 +1,32 @@
+{
+  "expect": "fixed",
+  "cases": [
+    {
+      "id": "B01_same_context_positive",
+      "desired_acceptance": true,
+      "oracle_acceptance": true
+    },
+    {
+      "id": "B02_foreign_machine",
+      "desired_acceptance": false,
+      "oracle_acceptance": false
+    },
+    {
+      "id": "B03_new_boot_old_approval",
+      "desired_acceptance": false,
+      "oracle_acceptance": false
+    },
+    {
+      "id": "B04_same_path_changed_version_lock",
+      "desired_acceptance": false,
+      "oracle_acceptance": false
+    },
+    {
+      "id": "B05_unapproved_control",
+      "desired_acceptance": true,
+      "oracle_acceptance": true
+    }
+  ],
+  "pass": 2,
+  "fail": 3
+}

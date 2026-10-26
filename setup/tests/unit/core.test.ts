@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildStageClosure, createRegistry, validatePlanConsistency } from "../../src/core/plan";
 import { ensureGateApproved, ensureNonInteractiveGates, upsertPlanGates } from "../../src/core/gates";
-import { ExitCode, type InstallerPlan, type SetupConfig, type SetupState, type StageModule } from "../../src/core/types";
+import { ExitCode, type ExecutionPlan, type SetupConfig, type SetupState, type StageModule } from "../../src/core/types";
 import { hashConfig } from "../../src/core/config";
 
 function makeConfig(): SetupConfig {
@@ -104,7 +104,7 @@ test("buildStageClosure rejects cycles", () => {
 
 test("validatePlanConsistency rejects stale desired hash", () => {
   const config = makeConfig();
-  const stalePlan: InstallerPlan = {
+  const stalePlan: ExecutionPlan = {
     schema_version: 1,
     contract_version: "1.0.0",
     installation_id: config.installation_id,

@@ -1,3 +1,5 @@
+import { parseFixturePlan } from "../helpers/r22-context";
+import { fixtureContextFiles } from "../helpers/r22-context";
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -80,6 +82,8 @@ class FakeProcessAdapter implements ProcessAdapter {
   username(): string {
     return "factory";
   }
+  async hostIdentity(): Promise<{ os: "ubuntu-24.04"; arch: "amd64" }> { return { os: "ubuntu-24.04", arch: "amd64" }; }
+  async loginSessionId(): Promise<string> { return "injected-test-login"; }
   async bootId(): Promise<string> {
     return "f324dcd7-4035-4430-ab39-ce31f9e396bf";
   }
@@ -236,6 +240,7 @@ async function prepareRoot(): Promise<{ root: string; config: SetupConfig; codex
 }
 
 async function writeConfig(configPath: string, config: SetupConfig): Promise<void> {
+  await fixtureContextFiles(config, config.selected_stages.some(id => ["S05","S06","S07","S08","S09","S10","S11","S13","S14"].includes(id)));
   await fs.promises.mkdir(path.dirname(configPath), { recursive: true, mode: 0o700 });
   await fs.promises.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
 }
@@ -395,7 +400,7 @@ test("K08 real S06 verified lifecycle executes fresh no-op apply/status/resume",
   assert.equal(plan2.exitCode, ExitCode.Success, JSON.stringify(plan2.envelope));
   await approveRequiredGates(engine, configPath, plan2);
   const plan2File = plan2.envelope.data?.plan_path as string;
-  const plan2Json = JSON.parse(await fs.promises.readFile(plan2File, "utf8")) as {
+  const plan2Json = parseFixturePlan(await fs.promises.readFile(plan2File, "utf8")) as {
     stages: Array<{ stage_id: string; operations: unknown[] }>;
   };
   const s06Plan = plan2Json.stages.find((entry) => entry.stage_id === "S06");

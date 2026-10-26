@@ -1,0 +1,13 @@
+{
+  "report.md": "37b8f65bb26baaf3fb219d6e83d265ebf9c3bcf2f7c335a8ae924fcc9e1fb0f9",
+  "identity.json": "4e3e1672373f457f0cdbed605d5295a5bcffc33cbb10b7bf0bd4ef52b32ae98d",
+  "full-local.patch": "052bfea0e9909e163b98043d23e4166f4063c68338ae99af3b02ea4590f63869",
+  "code-local.patch": "d9eb510965ddd134c4f2c5c5bddb0258807745a7bf0864c83ea966705c648bb4",
+  "tested-files.sha256": "40750081b9109e98c46fe9bed1a4522d92e19f2ef31e9ef7784184b2dad9bc68",
+  "runner-files.sha256": "93c7449419835a04aae27ad465d91431a123e6c4874877ae539dea998c846b8d",
+  "new-files.tar": "fd0be76342533360610c712b78e9d7a4fc36fa04e5a8a01a65692c9e4419e0d5",
+  "new-files.json": "21c064ebeb2bdfd23071ed1cf8966f1ef2e5524e8452544250045dbe72ba552e",
+  "deletions.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+  "acceptance.json": "70c840648476b80f784872ffaf07a36fe5bccac10d78c9974e5074727c0ff7b6",
+  "logs/commands.json": "ef08355664dd85aea4b28e8539dbba9715e1680fb85ef0c640bac9d8162d48c6"
+}

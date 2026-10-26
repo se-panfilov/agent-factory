@@ -1,0 +1,479 @@
+[
+  {
+    "argv": [
+      "node",
+      "--version"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.019,
+    "log": "logs/node.log"
+  },
+  {
+    "argv": [
+      "npm",
+      "--version"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.077,
+    "log": "logs/npm.log"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.393,
+    "log": "logs/final-ci.log"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "run",
+      "typecheck",
+      "--silent"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.375,
+    "log": "logs/final-typecheck.log"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "run",
+      "test",
+      "--silent"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 108.905,
+    "log": "logs/final-test.log"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "cwd": "/private/tmp/af-r22/final-validation/context-baseline",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.4,
+    "log": "logs/context-baseline-ci.log"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "run",
+      "build",
+      "--silent"
+    ],
+    "cwd": "/private/tmp/af-r22/final-validation/context-baseline",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.479,
+    "log": "logs/context-baseline-build.log"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/context-binding-probes.cjs",
+      "/private/tmp/af-r22/final-validation/context-baseline"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.864,
+    "log": "logs/context-baseline.jsonl"
+  },
+  {
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/check-context-binding.py",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/logs/context-baseline.jsonl",
+      "--expect",
+      "fixed"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 1,
+    "expected_exit": 1,
+    "elapsed_seconds": 0.081,
+    "log": "logs/context-baseline-desired.json"
+  },
+  {
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/check-context-binding.py",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/logs/context-baseline.jsonl",
+      "--expect",
+      "observed-current"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.04,
+    "log": "logs/context-baseline-observed.json"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/context-binding-c13.cjs",
+      "/private/tmp/af-r22/final-tree"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.079,
+    "log": "logs/context-fixed.jsonl"
+  },
+  {
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/check-context-binding.py",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/logs/context-fixed.jsonl",
+      "--expect",
+      "fixed"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.042,
+    "log": "logs/context-fixed-desired.json"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/access-continuation-probes.cjs",
+      "/private/tmp/af-r22/final-tree"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 13.482,
+    "log": "logs/access-fixed.jsonl"
+  },
+  {
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/check-access-continuation.py",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/logs/access-fixed.jsonl",
+      "--expect",
+      "fixed"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.078,
+    "log": "logs/access-fixed-oracle.json"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "cwd": "/private/tmp/af-r22/final-validation/access-v1-baseline",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.398,
+    "log": "logs/access-v1-baseline-ci.log"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "run",
+      "build",
+      "--silent"
+    ],
+    "cwd": "/private/tmp/af-r22/final-validation/access-v1-baseline",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.476,
+    "log": "logs/access-v1-baseline-build.log"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/legacy-to-c13-explicit-review.cjs",
+      "/private/tmp/af-r22/final-validation/access-v1-baseline",
+      "/private/tmp/af-r22/final-tree"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 14.648,
+    "log": "logs/access-legacy.jsonl"
+  },
+  {
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/check-access-continuation.py",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/logs/access-legacy.jsonl",
+      "--expect",
+      "fixed"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.043,
+    "log": "logs/access-legacy-oracle.json"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/legacy-to-c13-explicit-review.cjs",
+      "/private/tmp/af-r22/final-validation/context-baseline",
+      "/private/tmp/af-r22/final-tree"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 14.967,
+    "log": "logs/access-v2-legacy.jsonl"
+  },
+  {
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/check-access-continuation.py",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/logs/access-v2-legacy.jsonl",
+      "--expect",
+      "fixed"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.092,
+    "log": "logs/access-v2-legacy-oracle.json"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/access-final-recovery.cjs",
+      "/private/tmp/af-r22/final-tree"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 1,
+    "expected_exit": 1,
+    "elapsed_seconds": 1.066,
+    "log": "logs/access-final-known-red.log"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/access-final-recovery-measurements.cjs",
+      "/private/tmp/af-r22/final-tree"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 2.579,
+    "log": "logs/access-final-explicit-review.jsonl"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "cwd": "/private/tmp/af-r22/final-validation/r2-baseline",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.482,
+    "log": "logs/r2-baseline-ci.log"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "run",
+      "build",
+      "--silent"
+    ],
+    "cwd": "/private/tmp/af-r22/final-validation/r2-baseline",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.443,
+    "log": "logs/r2-baseline-build.log"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "cwd": "/private/tmp/af-r22/final-validation/command-baseline",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.32,
+    "log": "logs/command-baseline-ci.log"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "run",
+      "build",
+      "--silent"
+    ],
+    "cwd": "/private/tmp/af-r22/final-validation/command-baseline",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.409,
+    "log": "logs/command-baseline-build.log"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/r2-admission-probes.cjs",
+      "/private/tmp/af-r22/final-validation/r2-baseline"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.768,
+    "log": "logs/comparisons/baseline-r2-final.log"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/c13/r2-admission-probes.cjs",
+      "/private/tmp/af-r22/final-tree"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.398,
+    "log": "logs/comparisons/fixed-r2-final.log"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/command-identity-probes.cjs",
+      "/private/tmp/af-r22/final-validation/command-baseline",
+      "adapter"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.207,
+    "log": "logs/comparisons/baseline-adapter-final.jsonl"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/command-identity-probes.cjs",
+      "/private/tmp/af-r22/final-validation/command-baseline",
+      "stage"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.255,
+    "log": "logs/comparisons/baseline-stage-final.jsonl"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/command-identity-probes.cjs",
+      "/private/tmp/af-r22/final-tree",
+      "adapter"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.241,
+    "log": "logs/comparisons/fixed-adapter-final.jsonl"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/command-identity-probes.cjs",
+      "/private/tmp/af-r22/final-tree",
+      "stage"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.254,
+    "log": "logs/comparisons/fixed-stage-final.jsonl"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/c13/r14-new-probes.cjs",
+      "/private/tmp/af-r22/final-tree",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/inputs-c13/frozen-r14-fixtures"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.914,
+    "log": "logs/comparisons/frozen/fixed-new-probes.jsonl"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/c13/r14-new-probes-directory-contract.cjs",
+      "/private/tmp/af-r22/final-tree",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/inputs-c13/frozen-r14-fixtures"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 2.182,
+    "log": "logs/comparisons/frozen/fixed-new-probes-adapted.jsonl"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/c13/r14-comparison-fresh-gates.cjs",
+      "/private/tmp/af-r22/final-tree",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/inputs-c13/input-r14/frozen-fixtures"
+    ],
+    "cwd": "/private/tmp/af-r22/final-tree",
+    "exit_code": 2,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.344,
+    "log": "logs/comparisons/frozen/fixed-comparison.jsonl"
+  }
+]

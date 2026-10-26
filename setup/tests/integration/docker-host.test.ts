@@ -1,3 +1,4 @@
+import { reviewAndFirstRefusal } from "../helpers/r22-context";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -412,8 +413,7 @@ test("U06 engine never adopts unmanaged matching Docker without durable install 
   a.observation.dockerInstalled = true;
   for (const p of a.observation.packages) p.installedVersion = p.candidateVersion;
   const e = x.engine([r14Noop("S03"), createDockerStage(a)]);
-  await x.planAndApprove(e);
-  const result = await e.run("apply", x.applyOptions);
+  const result = await reviewAndFirstRefusal(x, e);
   assert.equal(result.exitCode, 5, JSON.stringify(result)); assert.equal(result.envelope.error?.code, "s04_existing_docker_requires_inspection");
   assert.equal(a.installCalls + a.mergeCalls + a.groupCalls + a.probeCalls + a.markManagedCalls, 0);
 });

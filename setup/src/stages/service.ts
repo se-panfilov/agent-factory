@@ -598,6 +598,7 @@ export function createServiceStage(
             {
               id: `s10-prepare-service-${config.release.source_commit.slice(0, 12)}`,
               stageId: "S10",
+              action: "service.prepare" as const,
               kind: "mutate",
               resourceId: "service-layout-and-unit",
               risk: "high",

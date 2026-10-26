@@ -1,0 +1,26 @@
+node:internal/modules/cjs/loader:1424
+  throw err;
+  ^
+
+Error: Cannot find module '/private/tmp/af-r22/final-tree/setup/dist/src/core/plan-format.js'
+Require stack:
+- /Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/c13-fixture-compat.cjs
+- /Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/c13/r14-comparison-fresh-gates.cjs
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1421:15)
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.require (node:internal/modules/cjs/loader:1504:12)
+    at require (node:internal/modules/helpers:152:16)
+    at from (/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/c13-fixture-compat.cjs:6:16)
+    at module.exports (/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/c13-fixture-compat.cjs:7:32) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/c13-fixture-compat.cjs',
+    '/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/c13/r14-comparison-fresh-gates.cjs'
+  ]
+}
+
+Node.js v24.12.0

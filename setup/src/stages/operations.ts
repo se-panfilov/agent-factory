@@ -67,6 +67,7 @@ export function createOperationsStage(
             {
               id: `s11-backup-health-${config.installation_id.slice(0, 8)}`,
               stageId: "S11" as const,
+              action: "operations.backup" as const,
               kind: "mutate" as const,
               resourceId: "operations-backup-health",
               risk: "medium" as const,

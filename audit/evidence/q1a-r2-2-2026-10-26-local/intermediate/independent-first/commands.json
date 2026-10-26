@@ -1,0 +1,169 @@
+[
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "cwd": "/private/tmp/af-r22/independent-try/context-baseline",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.378,
+    "log": "logs/context-baseline-ci.log"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "run",
+      "build",
+      "--silent"
+    ],
+    "cwd": "/private/tmp/af-r22/independent-try/context-baseline",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.504,
+    "log": "logs/context-baseline-build.log"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/context-binding-probes.cjs",
+      "/private/tmp/af-r22/independent-try/context-baseline"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.799,
+    "log": "logs/context-baseline.jsonl"
+  },
+  {
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/check-context-binding.py",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/logs/context-baseline.jsonl",
+      "--expect",
+      "fixed"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 1,
+    "expected_exit": 1,
+    "elapsed_seconds": 0.051,
+    "log": "logs/context-baseline-desired.json"
+  },
+  {
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/check-context-binding.py",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/logs/context-baseline.jsonl",
+      "--expect",
+      "observed-current"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.048,
+    "log": "logs/context-baseline-observed.json"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/context-binding-c13.cjs",
+      "/Users/splswrd/work/agent-factory"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.127,
+    "log": "logs/context-fixed.jsonl"
+  },
+  {
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/check-context-binding.py",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/logs/context-fixed.jsonl",
+      "--expect",
+      "fixed"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.05,
+    "log": "logs/context-fixed-desired.json"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/access-continuation-probes.cjs",
+      "/Users/splswrd/work/agent-factory"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 15.255,
+    "log": "logs/access-fixed.jsonl"
+  },
+  {
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/check-access-continuation.py",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/logs/access-fixed.jsonl",
+      "--expect",
+      "fixed"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.089,
+    "log": "logs/access-fixed-oracle.json"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "cwd": "/private/tmp/af-r22/independent-try/access-v1-baseline",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.291,
+    "log": "logs/access-v1-baseline-ci.log"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "run",
+      "build",
+      "--silent"
+    ],
+    "cwd": "/private/tmp/af-r22/independent-try/access-v1-baseline",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.453,
+    "log": "logs/access-v1-baseline-build.log"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/legacy-to-c13-explicit-review.cjs",
+      "/private/tmp/af-r22/independent-try/access-v1-baseline",
+      "/Users/splswrd/work/agent-factory"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 1,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.571,
+    "log": "logs/access-legacy.jsonl"
+  }
+]

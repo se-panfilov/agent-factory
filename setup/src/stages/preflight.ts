@@ -149,6 +149,7 @@ export function createPreflightStage(probe: PreflightProbe): StageModule {
           {
             id: "s01-observe-host",
             stageId: "S01",
+            action: "host.observe" as const,
             kind: "observe",
             resourceId: "host-preflight",
             risk: "low",
@@ -161,6 +162,7 @@ export function createPreflightStage(probe: PreflightProbe): StageModule {
           {
             id: "s01-verify-host",
             stageId: "S01",
+            action: "host.verify" as const,
             kind: "verify",
             resourceId: "host-preflight",
             risk: "low",

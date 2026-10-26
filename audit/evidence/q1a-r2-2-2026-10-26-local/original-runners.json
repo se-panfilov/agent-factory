@@ -1,0 +1,170 @@
+[
+  {
+    "path": "runners/original/access-continuation-probes.cjs",
+    "sha256": "23315c6d29e87c54dbd9ba2104117ceb18c3e4ac4258d0471316ea97e64cfd5a",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/access-continuation-probes.cjs",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/measure-r21.py",
+    "sha256": "e527572ffbb13d8525a8359eed32ba8c8207a11657e0362416f931efa861ae52",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/measure-r21.py",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/check-r16.py",
+    "sha256": "c5b923258f4e1a908e921372a3e57cce65582f73d94cd04086e24f654f855f7c",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/check-r16.py",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/stage-compat-probes.cjs",
+    "sha256": "c881c40402eb98403ea386d9835448332ebeca417c47f7f1c9767b6206a43f6e",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/stage-compat-probes.cjs",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/access-final-recovery.cjs",
+    "sha256": "58e27e4abc49afd885fbd774070920f652bdbaa848d0117abf74430e0f832acc",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/access-final-recovery.cjs",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/lifecycle-controls.cjs",
+    "sha256": "6bb75c566fb8c4ca97516ca137183a8abf9e092ac26883a7f52d64e8184e78fb",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/lifecycle-controls.cjs",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/s06-noop-probe.cjs",
+    "sha256": "0eb7bb9b72b846d01bfbeb9c44006e5a62fb33812801e443c93df05312164daa",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/s06-noop-probe.cjs",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/run-evidence.py",
+    "sha256": "e9598b21369a31b0a51ca20f005cdd094e0d0229cbd9923e2b44871654ca9e52",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/run-evidence.py",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/r14-comparison.cjs",
+    "sha256": "b48578d1779c1be55453dfc3c0ee1e34fc02af17730163023eb9bed3502b38eb",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/r14-comparison.cjs",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/full-lifecycle.cjs",
+    "sha256": "7140bebc9bc900e24618e78b75db2795c9a7f766eeda68a0221c54be7cc67487",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/full-lifecycle.cjs",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/r14-new-probes.cjs",
+    "sha256": "9b587dc96a0623c6667b2d8f95edd9e90c909563a4fcca8b58e0f7ae48bd8734",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/r14-new-probes.cjs",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/validate-r211.py",
+    "sha256": "2813282acbe7503097fe4813d2d50c8e1e85552d141411230354931844a68202",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/validate-r211.py",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/access-final-recovery-measurements.cjs",
+    "sha256": "69a68bd58d80144aff732b1cce3f2e4bc1bce61eb1da426a908a3f040c9f7c85",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/access-final-recovery-measurements.cjs",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/check-access-continuation.py",
+    "sha256": "9db057ddcd37290a1d3e62b54b39277fa523237e9aa249258d327af561d958e5",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/check-access-continuation.py",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/validate.py",
+    "sha256": "8c8520026627c43741fcee92d2b9cc2abe6fc9970add3bae43601d534ddfa39b",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/validate.py",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/baseline-regression.py",
+    "sha256": "10954f686ec9488d17cf86a2e9e75b1cf24acd2188090bbf2a53f6f1c5c58379",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/baseline-regression.py",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/r2-admission-probes.cjs",
+    "sha256": "738d3d0ac869559956fedde471bbcdffc4eeabc649df76b02059d3e5b7c3b998",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/r2-admission-probes.cjs",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/check-results.py",
+    "sha256": "09a3124473787813a75fcc98f5041fcb7cae2a117a878d6dd7d013e6d79071ec",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/check-results.py",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/command-identity-probes.cjs",
+    "sha256": "2f4602f30ca27df11f89ddb5f5c4f133801d6109165f5f351eeaee55adf478da",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/command-identity-probes.cjs",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/r14-new-probes-directory-contract.cjs",
+    "sha256": "a3f4b42d46e780e5b9690a4f3b822131c8675cca2800c5df9e41281014ae8c0f",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/r14-new-probes-directory-contract.cjs",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/access-legacy-transition.cjs",
+    "sha256": "1b49c397dee67e2d9871aaec099d76042a186fb7def63fdc105a4033875d5223",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/access-legacy-transition.cjs",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/command-measurements.py",
+    "sha256": "18db7325275439ae860a847ac04f13d75c373ab9aaff04c7414b6be50a4c976f",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/command-measurements.py",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/reconstruct.py",
+    "sha256": "a775e1a2c1b98fdd6cd8f0eda52e0d036295607f620d6190b4b1b1b37aa76582",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/reconstruct.py",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/r14-comparison-fresh-gates.cjs",
+    "sha256": "8a751626038e069cfbea79893832975a9edafd1c3bfc080d0962f549b2384702",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/r14-comparison-fresh-gates.cjs",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/check-context-binding.py",
+    "sha256": "0607a2cc11e16d96c864f3649e1592d2537056a88454d3945bff4a097b5e8368",
+    "source": "/private/tmp/af-r22/reviewer/evidence/check-context-binding.py",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/check-r21.py",
+    "sha256": "af4d288914d459378be0e3ef9f19616aaffba061d6b56ae3c9ee2533f402ebfb",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/check-r21.py",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/reconstruct-r211.py",
+    "sha256": "2905af513e82a62ab1da3e68df40157b6cf2c186ef602fc5dc4f637e842f9a87",
+    "source": "audit/evidence/q1a-r2-1-1-2026-10-26-local/runners/reconstruct-r211.py",
+    "unchanged": true
+  },
+  {
+    "path": "runners/original/context-binding-probes.cjs",
+    "sha256": "4da9e28c2e4c508a60f15c6fb44c3fa65f41e26cb4685878e71e73b79c28c412",
+    "source": "/private/tmp/af-r22/reviewer/evidence/context-binding-probes.cjs",
+    "unchanged": true
+  }
+]

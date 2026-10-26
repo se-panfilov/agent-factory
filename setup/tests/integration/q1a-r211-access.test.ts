@@ -166,7 +166,7 @@ test("A211-09 synthetic legacy v1 metadata retains exact engine-created checkpoi
   for (const phase of ["arm", "cutover", "disarm"] as const) {
     const x = await paused(phase), state = await x.state(), entry = state.stages.find(s => s.id === "S03")!;
     const basis = JSON.parse(entry.versions[POLICY_BASIS_KEY]!) as import("../../src/core/policy").PolicyBasis;
-    basis.version = 1; delete basis.progress; entry.versions[POLICY_BASIS_KEY] = JSON.stringify(basis);
+    basis.version = 1; delete basis.progress; delete basis.catalog; delete basis.frontier; entry.versions[POLICY_BASIS_KEY] = JSON.stringify(basis);
     await saveState(x.f, x.config, state);
     assert.equal((await accessEngine(x.root, x.config).run("resume", { configPath: x.configPath })).exitCode, 0);
     await finished(x);
@@ -248,7 +248,7 @@ test("A211-09 legacy v1 requires the exact bound plan; absent or recomputed poli
   for (const mutation of ["missing-plan", "changed-policy"] as const) {
     const x = await paused("arm"), state = await x.state(), entry = state.stages.find(s => s.id === "S03")!;
     const basis = JSON.parse(entry.versions[POLICY_BASIS_KEY]!) as import("../../src/core/policy").PolicyBasis;
-    basis.version = 1; delete basis.progress; entry.versions[POLICY_BASIS_KEY] = JSON.stringify(basis);
+    basis.version = 1; delete basis.progress; delete basis.catalog; delete basis.frontier; entry.versions[POLICY_BASIS_KEY] = JSON.stringify(basis);
     await saveState(x.f, x.config, state);
     if (mutation === "missing-plan") await fs.rename(x.applyOptions.planPath, x.applyOptions.planPath + ".preserved");
     else {

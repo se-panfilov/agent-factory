@@ -30,6 +30,8 @@ class FakeProcessAdapter implements ProcessAdapter {
   username(): string {
     return "factory";
   }
+  async hostIdentity(): Promise<{ os: "ubuntu-24.04"; arch: "amd64" }> { return { os: "ubuntu-24.04", arch: "amd64" }; }
+  async loginSessionId(): Promise<string> { return "injected-test-login"; }
   async bootId(): Promise<string> {
     return "boot-id";
   }

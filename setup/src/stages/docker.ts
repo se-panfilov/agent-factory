@@ -551,6 +551,7 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
         {
           id: operationId("install-packages", observationHash),
           stageId: "S04",
+          action: "docker.install" as const,
           kind: "mutate",
           resourceId: "docker-package-set",
           risk: "high",
@@ -563,6 +564,7 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
         {
           id: operationId("docker-group-membership", observationHash),
           stageId: "S04",
+          action: "docker.group" as const,
           kind: "mutate",
           resourceId: "docker-group-membership",
           risk: "critical",
@@ -575,6 +577,7 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
         {
           id: operationId("daemon-log-config-merge", observationHash),
           stageId: "S04",
+          action: "docker.configure" as const,
           kind: "mutate",
           resourceId: "docker-daemon-log-config",
           risk: "high",
@@ -587,6 +590,7 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
         {
           id: operationId("daemon-validate-restart", observationHash),
           stageId: "S04",
+          action: "docker.restart" as const,
           kind: "mutate",
           resourceId: "docker-daemon-service",
           risk: "critical",
@@ -599,6 +603,7 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
         {
           id: operationId("resource-probe", observationHash),
           stageId: "S04",
+          action: "docker.probe" as const,
           kind: "mutate",
           resourceId: "docker-fixture-probe",
           risk: "high",
@@ -611,6 +616,7 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
         {
           id: operationId("mark-managed-installation", observationHash),
           stageId: "S04",
+          action: "docker.mark" as const,
           kind: "mutate",
           resourceId: "docker-managed-installation",
           risk: "medium",

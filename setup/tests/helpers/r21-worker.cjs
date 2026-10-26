@@ -12,7 +12,7 @@ const {r14Noop,r14Process} = require(path.join(dist,'tests/helpers/r14-engine.js
  const e=new SetupEngine({fsAdapter:new NodeFilesystemAdapter(),processAdapter:r14Process,clock:{now:()=>new Date('2026-10-25T10:00:00.000Z')}},createRegistry([r14Noop('S01'),createSystemStage(apt)]));
  const config=JSON.parse(await fs.readFile(configPath,'utf8')),planPath=path.join(config.paths.setup_state_dir,'plan.json');let result;
  if(mode==='approve'){
-  const p=JSON.parse(await fs.readFile(planPath,'utf8'));const gates=[...new Set(p.stages.flatMap(s=>s.required_gates))];
+  const p=JSON.parse(await fs.readFile(planPath,'utf8'));const gates=[...new Set(p.stage_scope.flatMap(s=>s.requires_gates))];
   for(const gateId of gates){result=await e.run('gate-approve',{configPath,gateId,planHash:p.plan_hash});if(result.exitCode!==0)throw Error(JSON.stringify(result));}
   result={exitCode:0,gates};
  }else result=await e.run(mode,{configPath,...(mode==='apply'?{planPath,nonInteractive:true}:{})});

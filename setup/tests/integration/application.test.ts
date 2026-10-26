@@ -381,8 +381,8 @@ test("U02 failing mandatory S05 probe prevents dependent S06 effects", async () 
   a.probe.runnerVerifyHelpOk = false;
   let dependentEffects = 0;
   const dependent = r14Noop("S06"); dependent.dependencies = ["S05"];
-  dependent.plan = () => ({ stageId: "S06", optional: false, requiredCapabilities: [], requiredGates: [], operations: [{
-    id: "s06-effect-trap", stageId: "S06", kind: "mutate", resourceId: "dependent-fixture", risk: "low", gateIds: [], preconditions: [], sideEffects: ["fixture only"], timeoutSec: 1, retryable: false }] });
+  dependent.plan = () => ({ stageId: "S06", optional: false, requiredCapabilities: [], requiredGates: [], operations: [{ action: "fixture.counter" as const,
+    id: "s06-effect-trap", stageId: "S06",  kind: "mutate", resourceId: "dependent-fixture", risk: "low", gateIds: [], preconditions: [], sideEffects: ["fixture only"], timeoutSec: 1, retryable: false }] });
   dependent.apply = async () => { dependentEffects++; throw new Error("Dependent stage must never execute"); };
   const e = x.engine([r14Noop("S04"), createApplicationStage(a), dependent]);
   await x.planAndApprove(e);

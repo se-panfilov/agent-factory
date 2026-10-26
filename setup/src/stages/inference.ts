@@ -948,6 +948,7 @@ export function createInferenceStage(
             {
               id: `s12-inference-apply-${config.installation_id.slice(0, 12)}`,
               stageId: "S12" as const,
+              action: "inference.prepare" as const,
               kind: "mutate" as const,
               resourceId: "s12-ollama-private-serving",
               risk: "high" as const,

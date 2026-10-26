@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
+import { REVIEW_KEY } from "./plan-context";
 import { type FilesystemAdapter } from "../adapters/filesystem";
 import { type ProcessAdapter } from "../adapters/process";
 import { ExitCode, STAGE_IDS, type SetupConfig, type SetupState, type StageId, type StageObservation, type StageStatus, type StageReceipt } from "./types";
@@ -1672,7 +1673,7 @@ export function updateObservedStage(
   observation: StageObservation,
   status: StageStatus
 ): SetupState {
-  const { [POLICY_BASIS_KEY]: _stageSuppliedPolicy, ...versions } = observation.versions;
+  const { [POLICY_BASIS_KEY]: _stageSuppliedPolicy, [REVIEW_KEY]: _stageSuppliedReview, ...versions } = observation.versions;
   return {
     ...state,
     stages: state.stages.map((stage) =>
@@ -1682,7 +1683,7 @@ export function updateObservedStage(
             status,
             observed_at: observation.observedAt,
             checks: observation.checks,
-            versions: { ...versions, ...(stage.versions[POLICY_BASIS_KEY] === undefined ? {} : { [POLICY_BASIS_KEY]: stage.versions[POLICY_BASIS_KEY] }) }
+            versions: { ...versions, ...(stage.versions[REVIEW_KEY] === undefined ? {} : { [REVIEW_KEY]: stage.versions[REVIEW_KEY] }), ...(stage.versions[POLICY_BASIS_KEY] === undefined ? {} : { [POLICY_BASIS_KEY]: stage.versions[POLICY_BASIS_KEY] }) }
           }
         : stage
     )

@@ -54,7 +54,7 @@ export async function commandFixture(entry = "runner.cjs", options: { real?: boo
   a.extractArchive = async (_config, target) => {a.extractCalls++; await writeFiles(path.join(target, "release"));};
   a.materializeRelease = async () => {a.materializeCalls++; await writeFiles(x.config.paths.application_dir); a.checkout.exists = true; a.checkout.deployedSourceCommit = x.config.release.source_commit;};
   const dependent = r14Noop("S06"); dependent.dependencies = ["S05"];
-  dependent.plan = () => ({stageId: "S06", optional: false, requiredCapabilities: [], requiredGates: [], operations: [{id:"r16-dependent",stageId:"S06",kind:"mutate",resourceId:"r16-downstream",risk:"low",gateIds:[],preconditions:[],sideEffects:["fixture trap"],timeoutSec:1,retryable:false}]});
+  dependent.plan = () => ({stageId: "S06", optional: false, requiredCapabilities: [], requiredGates: [], operations: [{ action: "fixture.counter" as const,id:"r16-dependent",stageId:"S06", kind:"mutate",resourceId:"r16-downstream",risk:"low",gateIds:[],preconditions:[],sideEffects:["fixture trap"],timeoutSec:1,retryable:false}]});
   dependent.apply = async () => {downstream++; throw Error("Forbidden downstream effect");};
   const makeEngine = () => new SetupEngine({fsAdapter:x.f,processAdapter:r14Process,clock:r14Clock}, createRegistry([r14Noop("S04"),createApplicationStage(a),...(options.downstream ? [dependent] : [])]));
   return {x, a, node, pinned, files, body, invocations, makeEngine, stage: () => createApplicationStage(a),

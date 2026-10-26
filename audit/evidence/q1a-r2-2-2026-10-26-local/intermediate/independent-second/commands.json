@@ -1,0 +1,384 @@
+[
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "cwd": "/private/tmp/af-r22/independent-second/context-baseline",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.451,
+    "log": "logs/context-baseline-ci.log"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "run",
+      "build",
+      "--silent"
+    ],
+    "cwd": "/private/tmp/af-r22/independent-second/context-baseline",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.49,
+    "log": "logs/context-baseline-build.log"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/context-binding-probes.cjs",
+      "/private/tmp/af-r22/independent-second/context-baseline"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.831,
+    "log": "logs/context-baseline.jsonl"
+  },
+  {
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/check-context-binding.py",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/logs/context-baseline.jsonl",
+      "--expect",
+      "fixed"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 1,
+    "expected_exit": 1,
+    "elapsed_seconds": 0.081,
+    "log": "logs/context-baseline-desired.json"
+  },
+  {
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/check-context-binding.py",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/logs/context-baseline.jsonl",
+      "--expect",
+      "observed-current"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.037,
+    "log": "logs/context-baseline-observed.json"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/context-binding-c13.cjs",
+      "/Users/splswrd/work/agent-factory"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.078,
+    "log": "logs/context-fixed.jsonl"
+  },
+  {
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/check-context-binding.py",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/logs/context-fixed.jsonl",
+      "--expect",
+      "fixed"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.08,
+    "log": "logs/context-fixed-desired.json"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/access-continuation-probes.cjs",
+      "/Users/splswrd/work/agent-factory"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 13.795,
+    "log": "logs/access-fixed.jsonl"
+  },
+  {
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/check-access-continuation.py",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/logs/access-fixed.jsonl",
+      "--expect",
+      "fixed"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.077,
+    "log": "logs/access-fixed-oracle.json"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "cwd": "/private/tmp/af-r22/independent-second/access-v1-baseline",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.291,
+    "log": "logs/access-v1-baseline-ci.log"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "run",
+      "build",
+      "--silent"
+    ],
+    "cwd": "/private/tmp/af-r22/independent-second/access-v1-baseline",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.479,
+    "log": "logs/access-v1-baseline-build.log"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/legacy-to-c13-explicit-review.cjs",
+      "/private/tmp/af-r22/independent-second/access-v1-baseline",
+      "/Users/splswrd/work/agent-factory"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 14.685,
+    "log": "logs/access-legacy.jsonl"
+  },
+  {
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/check-access-continuation.py",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/logs/access-legacy.jsonl",
+      "--expect",
+      "fixed"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.077,
+    "log": "logs/access-legacy-oracle.json"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/access-final-recovery.cjs",
+      "/Users/splswrd/work/agent-factory"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 1,
+    "expected_exit": 1,
+    "elapsed_seconds": 1.075,
+    "log": "logs/access-final-known-red.log"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/access-final-recovery-measurements.cjs",
+      "/Users/splswrd/work/agent-factory"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 2.456,
+    "log": "logs/access-final-explicit-review.jsonl"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "cwd": "/private/tmp/af-r22/independent-second/r2-baseline",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.286,
+    "log": "logs/r2-baseline-ci.log"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "run",
+      "build",
+      "--silent"
+    ],
+    "cwd": "/private/tmp/af-r22/independent-second/r2-baseline",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.379,
+    "log": "logs/r2-baseline-build.log"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "cwd": "/private/tmp/af-r22/independent-second/command-baseline",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.286,
+    "log": "logs/command-baseline-ci.log"
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "run",
+      "build",
+      "--silent"
+    ],
+    "cwd": "/private/tmp/af-r22/independent-second/command-baseline",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.363,
+    "log": "logs/command-baseline-build.log"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/r2-admission-probes.cjs",
+      "/private/tmp/af-r22/independent-second/r2-baseline"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.665,
+    "log": "logs/comparisons/baseline-r2-final.log"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/c13/r2-admission-probes.cjs",
+      "/Users/splswrd/work/agent-factory"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 1.406,
+    "log": "logs/comparisons/fixed-r2-final.log"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/command-identity-probes.cjs",
+      "/private/tmp/af-r22/independent-second/command-baseline",
+      "adapter"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.294,
+    "log": "logs/comparisons/baseline-adapter-final.jsonl"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/command-identity-probes.cjs",
+      "/private/tmp/af-r22/independent-second/command-baseline",
+      "stage"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.237,
+    "log": "logs/comparisons/baseline-stage-final.jsonl"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/command-identity-probes.cjs",
+      "/Users/splswrd/work/agent-factory",
+      "adapter"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.238,
+    "log": "logs/comparisons/fixed-adapter-final.jsonl"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/original/command-identity-probes.cjs",
+      "/Users/splswrd/work/agent-factory",
+      "stage"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 0.236,
+    "log": "logs/comparisons/fixed-stage-final.jsonl"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/c13/r14-new-probes.cjs",
+      "/Users/splswrd/work/agent-factory",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/inputs-c13/frozen-r14-fixtures"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 2.07,
+    "log": "logs/comparisons/frozen/fixed-new-probes.jsonl"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/c13/r14-new-probes-directory-contract.cjs",
+      "/Users/splswrd/work/agent-factory",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/inputs-c13/frozen-r14-fixtures"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 0,
+    "expected_exit": 0,
+    "elapsed_seconds": 2.088,
+    "log": "logs/comparisons/frozen/fixed-new-probes-adapted.jsonl"
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/runners/c13/r14-comparison-fresh-gates.cjs",
+      "/Users/splswrd/work/agent-factory",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r2-2-2026-10-26-local/inputs-c13/input-r14/frozen-fixtures"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit_code": 1,
+    "expected_exit": 0,
+    "elapsed_seconds": 5.757,
+    "log": "logs/comparisons/frozen/fixed-comparison.jsonl"
+  }
+]

@@ -59,3 +59,7 @@ Version-1 R2.1 basis first requires the exact schema-valid old plan, with its se
 R1.6/basisless known S03 progress is explicitly unsupported for automatic transfer: no reviewed source policy means no safe semantic enrollment. Likewise a retained publication with an empty claimed prefix blocks. Preserve evidence for a separately reviewed migration/reconciliation; never call it fresh or reset it. Existing version-1 handling of other stages is unchanged.
 
 R2.2 full C13 serialization/context binding, R3/Q1B/Q2–Q6 and production remain OPEN. No commits/push/branches/worktree/PR/release/deploy are authorized by this document or any generated follow-up prompt.
+
+## R2.2 context and legacy transition (2026-10-26)
+
+See [plan-context-r22.md](plan-context-r22.md): new-format same-session continuation preserves the admitted prefix; boot/login changes require explicit review and fresh approvals. Strict v1/v2 historical publications migrate only after exact semantic/current-frontier checks; v3 also retains the complete core catalog. R211-O01 automatic final recovery remains R3, with explicit reviewed continuation as the supported no-replay workaround.

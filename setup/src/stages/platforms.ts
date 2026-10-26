@@ -773,6 +773,7 @@ export function createPlatformsStage(fsAdapter: FilesystemAdapter): StageModule 
             {
               id: `s13-platforms-${config.installation_id.slice(0, 12)}`,
               stageId: "S13" as const,
+              action: "platforms.prepare" as const,
               kind: "mutate" as const,
               resourceId: "s13-platform-proposal",
               risk: "medium" as const,

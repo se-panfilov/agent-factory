@@ -1,3 +1,5 @@
+import { parseFixturePlan } from "../helpers/r22-context";
+import { reviewAndFirstRefusal } from "../helpers/r22-context";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { r14Fixture, r14Noop } from "../helpers/r14-engine";
@@ -74,7 +76,7 @@ async function actualApplication(entry = "runner.js", downstream = false) {
   // Extraction is external/fake; hash-check uses the actual deployed FS only for this fixture.
   a.extractArchive = async (_config,target) => {a.extractCalls++; await fs.mkdir(path.join(target,"release",path.dirname(entry)),{recursive:true,mode:0o700}); await fs.writeFile(path.join(target,"release",entry),body,{mode:0o600});};
   const dependent = r14Noop("S06");dependent.dependencies=["S05"];
-  dependent.plan=()=>({stageId:"S06",optional:false,requiredCapabilities:[],requiredGates:[],operations:[{id:"dependent-trap",stageId:"S06",kind:"mutate",resourceId:"dependent",risk:"low",gateIds:[],preconditions:[],sideEffects:["fixture only"],timeoutSec:1,retryable:false}]});
+  dependent.plan=()=>({stageId:"S06",optional:false,requiredCapabilities:[],requiredGates:[],operations:[{ action: "fixture.counter" as const,id:"dependent-trap",stageId:"S06", kind:"mutate",resourceId:"dependent",risk:"low",gateIds:[],preconditions:[],sideEffects:["fixture only"],timeoutSec:1,retryable:false}]});
   dependent.apply=async()=>{dependentEffects++;throw Error("Downstream trap executed");};
   const engine = (f: FilesystemAdapter = x.f) => new SetupEngine({fsAdapter:f,processAdapter:r14Process,clock:r14Clock},createRegistry([r14Noop("S04"),createApplicationStage(a),...(downstream?[dependent]:[])]));
   return {x,a,node,engine,executable,body,commands:()=>commandInvocations,traps:()=>traps,dependentEffects:()=>dependentEffects,setHashReadFailure:()=>{hashReadFailure=true;}};
@@ -269,7 +271,7 @@ for(const hazard of ["unmanaged","foreign","public","tcp","world-writable","sock
  if(hazard==="foreign"){a.observation.workloads.foreignContainerCount=1;a.observation.workloads.foreignContainerIds=["foreign"];}if(hazard==="public")a.observation.workloads.publicPublishedPortCount=1;
  if(hazard==="tcp")a.observation.tcpApi.configured=true;if(hazard==="world-writable")a.observation.dockerSocket.worldWritable=true;if(hazard==="socket-owner")a.observation.dockerSocket.uid=1;
  if(hazard==="unknown-workloads")a.inspection="unavailable";if(hazard==="malformed-workloads")a.inspection="malformed";
- const e=q.make();await x.planAndApprove(e);const result=await e.run("apply",x.applyOptions);assert.notEqual(result.exitCode,0,JSON.stringify(result));
+ const e=q.make();const result=await reviewAndFirstRefusal(x,e);assert.notEqual(result.exitCode,0,JSON.stringify(result));
  assert.equal(a.installCalls+a.groupCalls+a.mergeCalls+a.restartCalls+a.probeCalls,0);assert.notEqual((await x.state()).stages.find(s=>s.id==="S04")?.status,"verified");
 });
 for(const drift of ["package","config","account"] as const)test(`V07 Docker ${drift} drift invalidates installation progress without replay`,async()=>{
@@ -288,7 +290,7 @@ for(const failure of ["down","api-mismatch","restart-error","api-after-restart",
  if(failure==="down")a.healthy=false;if(failure==="api-mismatch")a.compatible=false;
  if(failure==="restart-error"||failure==="api-after-restart"){const restart=a.restartDaemon.bind(a);a.restartDaemon=async()=>{await restart();if(failure==="restart-error")throw setupError({exitCode:ExitCode.OperationOrVerificationFailed,code:"s04_daemon_restart_failed",publicMessage:"fixture restart failure",nextAction:"inspect",stage:"S04"});a.compatible=false;};}
  if(failure==="probe-error")a.probeResult.cleanupOk=false;
- e=q.make();await x.planAndApprove(e);const result=await e.run("apply",x.applyOptions);
+ e=q.make();const result=await reviewAndFirstRefusal(x,e);
  assert.notEqual(result.exitCode,0);assert.notEqual(result.exitCode,4,"operational failure is not a relogin");assert.notEqual((await x.state()).stages.find(s=>s.id==="S04")?.status,"verified");
  if(["restart-error","api-after-restart","probe-error"].includes(failure)){
   assert.ok((await x.state()).in_flight_operation);const counts=[a.installCalls,a.groupCalls,a.restartCalls,a.probeCalls];assert.equal((await q.make().run("resume",{configPath:x.configPath})).exitCode,8);assert.deepEqual([a.installCalls,a.groupCalls,a.restartCalls,a.probeCalls],counts);
@@ -343,7 +345,7 @@ for(const phase of ["effect","bound","pause"] as const)test(`V07 Docker child ${
   const old=await make().run("resume",{configPath:b.configPath});assert.equal(old.exitCode,phase==="effect"?8:4);assert.equal(a.installCalls+a.groupCalls+a.mergeCalls+a.restartCalls+a.probeCalls,0);
   if(phase!=="effect"){
    a.observation.dockerGroup.currentUserInGroup=true;a.observation.reloginRequired=false;e=make();const planned=await e.run("plan",{configPath:b.configPath});assert.equal(planned.exitCode,0,JSON.stringify(planned));
-   const disk=JSON.parse(await fs.readFile(path.join(b.config.paths.setup_state_dir,"plan.json"),"utf8")) as import("../../src/core/types").InstallerPlan;
+   const disk=parseFixturePlan(await fs.readFile(path.join(b.config.paths.setup_state_dir,"plan.json"),"utf8")) as import("../../src/core/types").ExecutionPlan;
    for(const gate of new Set(disk.stages.flatMap(s=>[...s.required_gates,...s.operations.flatMap(o=>o.gate_ids)])))assert.equal((await e.run("gate-approve",{configPath:b.configPath,gateId:gate,planHash:disk.plan_hash})).exitCode,0);
    assert.equal((await e.run("resume",{configPath:b.configPath})).exitCode,0);assert.equal(a.installCalls+a.groupCalls,0);assert.equal(a.restartCalls,1);assert.equal(a.probeCalls,1);
   }else assert.deepEqual(await evidenceHashes(b.config),before,"unknown group outcome is preserved without replay");

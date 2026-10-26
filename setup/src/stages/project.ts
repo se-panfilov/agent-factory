@@ -675,6 +675,7 @@ export function createProjectStage(
             {
               id: `s09-project-${config.installation_id.slice(0, 12)}`,
               stageId: "S09",
+              action: "project.prepare" as const,
               kind: "mutate",
               resourceId: "github-project-proposals",
               risk: "medium",

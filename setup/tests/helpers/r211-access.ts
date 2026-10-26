@@ -26,7 +26,7 @@ export async function accessFixture() {
 }
 export function accessEngine(root: string, config: SetupConfig, options: {
   pause?: Phase; now?: () => Date; fs?: FilesystemAdapter; afterEffect?: (phase: Phase) => Promise<void>;
-  unsafeCutover?: "ownership" | "content"; stagePolicy?: (stage: StageModule) => void;
+  process?: import("../../src/adapters/process").ProcessAdapter; unsafeCutover?: "ownership" | "content"; stagePolicy?: (stage: StageModule) => void;
 } = {}) {
   const f = options.fs ?? new NodeFilesystemAdapter();
   let cancelled = false;
@@ -56,7 +56,7 @@ export function accessEngine(root: string, config: SetupConfig, options: {
       return { ok: true, details: "fake rollback" };
     }
   };
-  const proc = { ...r14Process, isPidAlive: (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } } };
+  const proc = { ...r14Process, ...options.process, isPidAlive: (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } } };
   const stage = createAccessStage(adapter);
   options.stagePolicy?.(stage);
   return new SetupEngine({ fsAdapter: f, processAdapter: proc, clock: { now: options.now ?? (() => new Date("2026-10-26T10:00:00.000Z")) } },

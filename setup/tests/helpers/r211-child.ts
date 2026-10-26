@@ -1,9 +1,10 @@
 // Owned subprocess fixture: disk facts persist across all engine and process instances.
+import { parseFixturePlan } from "./r22-context";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { NodeFilesystemAdapter } from "../../src/adapters/filesystem";
 import { accessEngine, type Phase } from "./r211-access";
-import { type SetupConfig, type InstallerPlan } from "../../src/core/types";
+import { type SetupConfig, type ExecutionPlan } from "../../src/core/types";
 
 async function main() {
   const [root, command, pause, barrier] = process.argv.slice(2);
@@ -50,7 +51,7 @@ async function main() {
     { configPath, ...(command === "apply" ? { planPath: path.join(config.paths.setup_state_dir, "plan.json") } : {}),
       ...(command === "unlock" ? { lockOnly: true } : {}) });
   if (command === "review" && result.exitCode === 0) {
-    const p = JSON.parse(await fs.readFile(path.join(config.paths.setup_state_dir, "plan.json"), "utf8")) as InstallerPlan;
+    const p = parseFixturePlan(await fs.readFile(path.join(config.paths.setup_state_dir, "plan.json"), "utf8"));
     for (const id of new Set(p.stages.flatMap(s => s.required_gates))) {
       const approved = await engine.run("gate-approve", { configPath, gateId: id, planHash: p.plan_hash });
       if (approved.exitCode !== 0) throw Error(JSON.stringify(approved));

@@ -1,3 +1,4 @@
+import { fixtureContextFiles } from "../helpers/r22-context";
 import test from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
@@ -222,6 +223,8 @@ class CountingProcessAdapter implements ProcessAdapter {
     return this.processUser;
   }
 
+  async hostIdentity(): Promise<{ os: "ubuntu-24.04"; arch: "amd64" }> { return { os: "ubuntu-24.04", arch: "amd64" }; }
+  async loginSessionId(): Promise<string> { return "injected-test-login"; }
   async bootId(): Promise<string> {
     return this.bootIdValue;
   }
@@ -307,6 +310,7 @@ function makeConfig(root: string): SetupConfig {
 }
 
 async function writeConfig(configPath: string, config: SetupConfig): Promise<void> {
+  await fixtureContextFiles(config, config.selected_stages.some(id => ["S05","S06","S07","S08","S09","S10","S11","S13","S14"].includes(id)));
   await fs.promises.mkdir(path.dirname(configPath), { recursive: true, mode: 0o700 });
   await fs.promises.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }
@@ -409,10 +413,10 @@ function makeMutatingStage(effectPath: string): StageModule {
         requiredCapabilities: [],
         operations: observed.status === "verified"
           ? []
-          : [{
+          : [{ action: "fixture.counter" as const,
               id: "s01-op",
               stageId: "S01",
-              kind: "mutate",
+               kind: "mutate",
               resourceId: "effect",
               risk: "low",
               gateIds: [],
@@ -1364,6 +1368,8 @@ class Proc {
   pid() { return process.pid; }
   uid() { return 1000; }
   username() { return "factory"; }
+  async hostIdentity() { return {os:"ubuntu-24.04",arch:"amd64"}; }
+  async loginSessionId() { return "injected-test-login"; }
   async bootId() { return "f324dcd7-4035-4430-ab39-ce31f9e396bf"; }
   async machineIdHash() { return "1".repeat(64); }
   async processStartTicks() { return null; }
@@ -2357,6 +2363,8 @@ class Proc {
   pid() { return process.pid; }
   uid() { return 1000; }
   username() { return "factory"; }
+  async hostIdentity() { return {os:"ubuntu-24.04",arch:"amd64"}; }
+  async loginSessionId() { return "injected-test-login"; }
   async bootId() { return "f324dcd7-4035-4430-ab39-ce31f9e396bf"; }
   async machineIdHash() { return "1".repeat(64); }
   async processStartTicks() { return null; }
@@ -2447,6 +2455,8 @@ class ProcessAdapterImpl {
   pid() { return process.pid; }
   uid() { return 1000; }
   username() { return "factory"; }
+  async hostIdentity() { return {os:"ubuntu-24.04",arch:"amd64"}; }
+  async loginSessionId() { return "injected-test-login"; }
   async bootId() { return "f324dcd7-4035-4430-ab39-ce31f9e396bf"; }
   async machineIdHash() { return "${"1".repeat(64)}"; }
   async processStartTicks(pid) { return pid === process.pid ? 1 : null; }
@@ -2500,7 +2510,7 @@ function makeWriterStage() {
         operations: [{
           id: "k10-op",
           stageId: "S01",
-          kind: "mutate",
+          action: "fixture.counter", kind: "mutate",
           resourceId: "k10-resource",
           risk: "low",
           gateIds: [],
@@ -3255,10 +3265,10 @@ test("K07 receipts must match planned operation/stage/resource and cannot be for
         optional: false,
         requiredCapabilities: [],
         operations: [
-          {
+          { action: "fixture.counter" as const,
             id: "op-a",
             stageId: "S01",
-            kind: "mutate",
+             kind: "mutate",
             resourceId: "resource-a",
             risk: "low",
             gateIds: [],
@@ -3267,10 +3277,10 @@ test("K07 receipts must match planned operation/stage/resource and cannot be for
             timeoutSec: 5,
             retryable: false
           },
-          {
+          { action: "fixture.counter" as const,
             id: "op-b",
             stageId: "S01",
-            kind: "mutate",
+             kind: "mutate",
             resourceId: "resource-b",
             risk: "low",
             gateIds: [],

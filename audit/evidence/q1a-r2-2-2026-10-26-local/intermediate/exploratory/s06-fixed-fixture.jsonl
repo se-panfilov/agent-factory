@@ -1,0 +1,1 @@
+{"id":"P05_real_S06_empty_plan_fixed","passed":true,"observed_status":"verified","planned_operations":0,"required_gates":0,"direct_apply_exit":0,"engine_plan_exit":0,"engine_apply_exit":0,"error":null,"real_commands":0,"scope":"actual S06 module and SetupEngine; verified fake S05 prerequisite; fake process adapter"}

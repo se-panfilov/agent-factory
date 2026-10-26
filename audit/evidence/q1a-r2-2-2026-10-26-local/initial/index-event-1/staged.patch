@@ -1,0 +1,3129 @@
+diff --git a/setup/docs/plan-context-r22.md b/setup/docs/plan-context-r22.md
+new file mode 100644
+index 0000000..af2d7ea
+--- /dev/null
++++ b/setup/docs/plan-context-r22.md
+@@ -0,0 +1,23 @@
++# R2.2 plan context (implementation in progress)
++
++Contract1.0.0 C09/C13 is normative. The public execution document is a flat C13 plan; a strictly decoded internal StagePlan view is not a second execution format. Legacy plans are readable only as bounded historical proof, never executable approval.
++
++| Fact | Trusted producer | Durable proof | Admission / refusal |
++|---|---|---|---|
++| host_fingerprint | checked machine ID and OS/arch from ProcessAdapter | core review hash + existing state host | foreign/missing identity blocks before intent; boot is session freshness, not foreign host |
++| owner_session | UID/name, boot and Linux audit login session; no environment token/PID identity | exact core review context | new boot/login needs explicit fresh review; same-session new process works |
++| version_lock_hash | bounded safe-file read, validated lock, exact UTF-8 bytes SHA256 | plan + committed review | substitution/invalid/missing/unsafe file blocks; no placeholder |
++| release_context | applicable closure, config identity and bounded artifact/content proof | plan/review + existing stage-specific receipts | host-only closure has explicit not-applicable proof; release use requires artifact proof |
++| observations_hash | ordered stage fingerprints, no timestamps | plan plus per-stage source/expected fingerprints | current expected frontier after own progress; external significant drift refuses |
++| target/stage_scope | config-selected or explicit producer target and trusted closure | core review context | exact closure including no-ops; submitted subset/order cannot authorize itself |
++| operation policy | concrete closed producer action and full semantics | flat operations + producer basis | no unknown action, gate stripping or semantic replacement |
++
++Canonical JSON recursively sorts object keys; array order is significant. Hash excludes only plan_hash. generated_at/expires_at are strict real UTC milliseconds, exactly30minutes. An injected clock controls all TTL checks; no resume/approval renewal.
++
++Core review metadata uses the existing atomic state publication mechanism, not another authorization file. Stage observations cannot overwrite reserved core keys. Admission is repeated under installation lock and before subsequent effects; a partially published snapshot/checkpoint/binding never supplies authorization. Known operation publications retain their original identity through explicit reviewed migration; unknown outcomes remain blocked.
++
++Linux session support requires readable valid audit sessionid and loginuid for the actual owner. Unset audit identity fails closed with an owner login/revalidation action. Tests inject identity explicitly. Production never trusts arbitrary session environment variables. Read-only status/gate list do not repair metadata.
++
++C13 migration invalidates legacy approvals. Historical v1/v2 S03 semantic mapping must preserve exact original publications and full policy comparisons; resources/prefixes alone are insufficient. R211-O01 remains R3: retain the known-red automatic-resume oracle and require explicit fresh review when recovery cannot prove review identity.
++
++OS-level TOCTOU/privileged safe-write qualification remains Q2. No commits/push/branches/worktree/index staging/PR/merge/tag/release/deploy, real privileged commands, providers or live jobs are authorized by this document or generated follow-up prompts.
+diff --git a/setup/schemas/legacy-plan.schema.json b/setup/schemas/legacy-plan.schema.json
+new file mode 100644
+index 0000000..b14bbbd
+--- /dev/null
++++ b/setup/schemas/legacy-plan.schema.json
+@@ -0,0 +1,206 @@
++{
++  "$schema": "https://json-schema.org/draft/2020-12/schema",
++  "$id": "https://agent-factory.local/schemas/legacy-plan.schema.json",
++  "title": "factory-setup plan",
++  "type": "object",
++  "additionalProperties": false,
++  "required": [
++    "schema_version",
++    "contract_version",
++    "installation_id",
++    "desired_hash",
++    "plan_hash",
++    "created_at",
++    "stages"
++  ],
++  "properties": {
++    "schema_version": {
++      "const": 1
++    },
++    "contract_version": {
++      "const": "1.0.0"
++    },
++    "installation_id": {
++      "type": "string",
++      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
++    },
++    "desired_hash": {
++      "type": "string",
++      "pattern": "^[0-9a-f]{64}$"
++    },
++    "plan_hash": {
++      "type": "string",
++      "pattern": "^[0-9a-f]{64}$"
++    },
++    "created_at": {
++      "type": "string",
++      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T"
++    },
++    "stages": {
++      "type": "array",
++      "minItems": 1,
++      "items": {
++        "$ref": "#/$defs/stagePlan"
++      }
++    }
++  },
++  "$defs": {
++    "stageId": {
++      "type": "string",
++      "enum": [
++        "S00",
++        "S01",
++        "S02",
++        "S03",
++        "S04",
++        "S05",
++        "S06",
++        "S07",
++        "S08",
++        "S09",
++        "S10",
++        "S11",
++        "S12",
++        "S13",
++        "S14"
++      ]
++    },
++    "risk": {
++      "type": "string",
++      "enum": [
++        "low",
++        "medium",
++        "high",
++        "critical"
++      ]
++    },
++    "operationKind": {
++      "type": "string",
++      "enum": [
++        "observe",
++        "mutate",
++        "verify",
++        "manual_gate",
++        "recover"
++      ]
++    },
++    "operation": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "id",
++        "stage_id",
++        "kind",
++        "resource_id",
++        "risk",
++        "gate_ids",
++        "preconditions",
++        "side_effects",
++        "timeout_sec",
++        "retryable"
++      ],
++      "properties": {
++        "id": {
++          "type": "string",
++          "minLength": 1
++        },
++        "stage_id": {
++          "$ref": "#/$defs/stageId"
++        },
++        "kind": {
++          "$ref": "#/$defs/operationKind"
++        },
++        "resource_id": {
++          "type": "string",
++          "minLength": 1
++        },
++        "risk": {
++          "$ref": "#/$defs/risk"
++        },
++        "gate_ids": {
++          "type": "array",
++          "items": {
++            "type": "string",
++            "minLength": 1
++          },
++          "uniqueItems": true
++        },
++        "preconditions": {
++          "type": "array",
++          "items": {
++            "type": "string",
++            "minLength": 1
++          }
++        },
++        "side_effects": {
++          "type": "array",
++          "items": {
++            "type": "string",
++            "minLength": 1
++          }
++        },
++        "timeout_sec": {
++          "type": "integer",
++          "minimum": 1,
++          "maximum": 1800
++        },
++        "retryable": {
++          "type": "boolean"
++        }
++      }
++    },
++    "stagePlan": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "stage_id",
++        "optional",
++        "required_capabilities",
++        "operations",
++        "required_gates"
++      ],
++      "properties": {
++        "stage_id": {
++          "$ref": "#/$defs/stageId"
++        },
++        "optional": {
++          "type": "boolean"
++        },
++        "required_capabilities": {
++          "type": "array",
++          "items": {
++            "type": "string",
++            "enum": [
++              "runner-readonly",
++              "runner-live-smoke",
++              "app-recover",
++              "app-serve",
++              "app-pause",
++              "app-stop",
++              "app-migrate",
++              "app-status",
++              "platform-browser-smoke",
++              "platform-collector",
++              "local-inference"
++            ]
++          },
++          "uniqueItems": true
++        },
++        "operations": {
++          "type": "array",
++          "items": {
++            "$ref": "#/$defs/operation"
++          }
++        },
++        "required_gates": {
++          "type": "array",
++          "items": {
++            "type": "string",
++            "minLength": 1
++          },
++          "uniqueItems": true
++        }
++      }
++    }
++  }
++}
+diff --git a/setup/schemas/plan.schema.json b/setup/schemas/plan.schema.json
+index 838c1ad..5f72315 100644
+--- a/setup/schemas/plan.schema.json
++++ b/setup/schemas/plan.schema.json
+@@ -1,149 +1,484 @@
+ {
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "$id": "https://agent-factory.local/schemas/plan.schema.json",
+-  "title": "factory-setup plan",
++  "title": "factory-setup C13 plan",
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+     "schema_version",
+     "contract_version",
+     "installation_id",
++    "host_fingerprint",
++    "owner_session",
++    "generated_at",
++    "expires_at",
+     "desired_hash",
++    "version_lock_hash",
++    "observations_hash",
+     "plan_hash",
+-    "created_at",
+-    "stages"
++    "target",
++    "stage_scope",
++    "release_context",
++    "operations"
+   ],
+   "properties": {
+-    "schema_version": { "const": 1 },
+-    "contract_version": { "const": "1.0.0" },
++    "schema_version": {
++      "const": 1
++    },
++    "contract_version": {
++      "const": "1.0.0"
++    },
+     "installation_id": {
+       "type": "string",
+       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+     },
+-    "desired_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+-    "plan_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+-    "created_at": {
++    "host_fingerprint": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "machine_id_hash",
++        "os",
++        "arch"
++      ],
++      "properties": {
++        "machine_id_hash": {
++          "type": "string",
++          "pattern": "^[0-9a-f]{64}$"
++        },
++        "os": {
++          "const": "ubuntu-24.04"
++        },
++        "arch": {
++          "enum": [
++            "amd64",
++            "arm64"
++          ]
++        }
++      }
++    },
++    "owner_session": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "uid",
++        "owner",
++        "boot_id",
++        "login_session_hash"
++      ],
++      "properties": {
++        "uid": {
++          "type": "integer",
++          "minimum": 1
++        },
++        "owner": {
++          "type": "string",
++          "minLength": 1,
++          "maxLength": 4096
++        },
++        "boot_id": {
++          "type": "string",
++          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
++        },
++        "login_session_hash": {
++          "type": "string",
++          "pattern": "^[0-9a-f]{64}$"
++        }
++      }
++    },
++    "generated_at": {
+       "type": "string",
+-      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T"
++      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+     },
+-    "stages": {
+-      "type": "array",
+-      "minItems": 1,
+-      "items": { "$ref": "#/$defs/stagePlan" }
+-    }
+-  },
+-  "$defs": {
+-    "stageId": {
++    "expires_at": {
++      "type": "string",
++      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
++    },
++    "desired_hash": {
+       "type": "string",
+-      "enum": [
+-        "S00",
+-        "S01",
+-        "S02",
+-        "S03",
+-        "S04",
+-        "S05",
+-        "S06",
+-        "S07",
+-        "S08",
+-        "S09",
+-        "S10",
+-        "S11",
+-        "S12",
+-        "S13",
+-        "S14"
+-      ]
++      "pattern": "^[0-9a-f]{64}$"
+     },
+-    "risk": {
++    "version_lock_hash": {
+       "type": "string",
+-      "enum": ["low", "medium", "high", "critical"]
++      "pattern": "^[0-9a-f]{64}$"
+     },
+-    "operationKind": {
++    "observations_hash": {
+       "type": "string",
+-      "enum": ["observe", "mutate", "verify", "manual_gate", "recover"]
++      "pattern": "^[0-9a-f]{64}$"
+     },
+-    "operation": {
++    "plan_hash": {
++      "type": "string",
++      "pattern": "^[0-9a-f]{64}$"
++    },
++    "target": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+-        "id",
+-        "stage_id",
+-        "kind",
+-        "resource_id",
+-        "risk",
+-        "gate_ids",
+-        "preconditions",
+-        "side_effects",
+-        "timeout_sec",
+-        "retryable"
++        "mode",
++        "stage_id"
+       ],
+       "properties": {
+-        "id": { "type": "string", "minLength": 1 },
+-        "stage_id": { "$ref": "#/$defs/stageId" },
+-        "kind": { "$ref": "#/$defs/operationKind" },
+-        "resource_id": { "type": "string", "minLength": 1 },
+-        "risk": { "$ref": "#/$defs/risk" },
+-        "gate_ids": {
+-          "type": "array",
+-          "items": { "type": "string", "minLength": 1 },
+-          "uniqueItems": true
+-        },
+-        "preconditions": {
+-          "type": "array",
+-          "items": { "type": "string", "minLength": 1 }
++        "mode": {
++          "enum": [
++            "selected",
++            "explicit"
++          ]
+         },
+-        "side_effects": {
+-          "type": "array",
+-          "items": { "type": "string", "minLength": 1 }
+-        },
+-        "timeout_sec": {
+-          "type": "integer",
+-          "minimum": 1,
+-          "maximum": 1800
+-        },
+-        "retryable": { "type": "boolean" }
++        "stage_id": {
++          "anyOf": [
++            {
++              "type": "string",
++              "enum": [
++                "S00",
++                "S01",
++                "S02",
++                "S03",
++                "S04",
++                "S05",
++                "S06",
++                "S07",
++                "S08",
++                "S09",
++                "S10",
++                "S11",
++                "S12",
++                "S13",
++                "S14"
++              ]
++            },
++            {
++              "type": "null"
++            }
++          ]
++        }
+       }
+     },
+-    "stagePlan": {
++    "stage_scope": {
++      "type": "array",
++      "maxItems": 15,
++      "items": {
++        "type": "object",
++        "additionalProperties": false,
++        "required": [
++          "stage_id",
++          "optional",
++          "required_capabilities",
++          "requires_gates"
++        ],
++        "properties": {
++          "stage_id": {
++            "type": "string",
++            "enum": [
++              "S00",
++              "S01",
++              "S02",
++              "S03",
++              "S04",
++              "S05",
++              "S06",
++              "S07",
++              "S08",
++              "S09",
++              "S10",
++              "S11",
++              "S12",
++              "S13",
++              "S14"
++            ]
++          },
++          "optional": {
++            "type": "boolean"
++          },
++          "required_capabilities": {
++            "type": "array",
++            "items": {
++              "type": "string",
++              "enum": [
++                "runner-readonly",
++                "runner-live-smoke",
++                "app-recover",
++                "app-serve",
++                "app-pause",
++                "app-stop",
++                "app-migrate",
++                "app-status",
++                "platform-browser-smoke",
++                "platform-collector",
++                "local-inference"
++              ]
++            },
++            "uniqueItems": true
++          },
++          "requires_gates": {
++            "type": "array",
++            "maxItems": 1024,
++            "items": {
++              "type": "string",
++              "minLength": 1,
++              "maxLength": 4096
++            },
++            "uniqueItems": true
++          }
++        }
++      },
++      "minItems": 1
++    },
++    "release_context": {
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+-        "stage_id",
+-        "optional",
+-        "required_capabilities",
+-        "operations",
+-        "required_gates"
++        "applicable",
++        "declared_hash",
++        "artifact_hash"
+       ],
+       "properties": {
+-        "stage_id": { "$ref": "#/$defs/stageId" },
+-        "optional": { "type": "boolean" },
+-        "required_capabilities": {
+-          "type": "array",
+-          "items": {
++        "applicable": {
++          "type": "boolean"
++        },
++        "declared_hash": {
++          "type": "string",
++          "pattern": "^[0-9a-f]{64}$"
++        },
++        "artifact_hash": {
++          "anyOf": [
++            {
++              "type": "string",
++              "pattern": "^[0-9a-f]{64}$"
++            },
++            {
++              "type": "null"
++            }
++          ]
++        }
++      }
++    },
++    "operations": {
++      "type": "array",
++      "maxItems": 1024,
++      "items": {
++        "type": "object",
++        "additionalProperties": false,
++        "required": [
++          "operation_id",
++          "stage_id",
++          "kind",
++          "resources",
++          "expected_before_hashes",
++          "expected_after",
++          "requires_gates",
++          "retry_policy",
++          "estimated_effects",
++          "unknown_effects",
++          "risk",
++          "constraints",
++          "execution_kind"
++        ],
++        "properties": {
++          "operation_id": {
++            "type": "string",
++            "minLength": 1,
++            "maxLength": 4096
++          },
++          "stage_id": {
+             "type": "string",
+             "enum": [
+-              "runner-readonly",
+-              "runner-live-smoke",
+-              "app-recover",
+-              "app-serve",
+-              "app-pause",
+-              "app-stop",
+-              "app-migrate",
+-              "app-status",
+-              "platform-browser-smoke",
+-              "platform-collector",
+-              "local-inference"
++              "S00",
++              "S01",
++              "S02",
++              "S03",
++              "S04",
++              "S05",
++              "S06",
++              "S07",
++              "S08",
++              "S09",
++              "S10",
++              "S11",
++              "S12",
++              "S13",
++              "S14"
+             ]
+           },
+-          "uniqueItems": true
+-        },
+-        "operations": {
+-          "type": "array",
+-          "items": { "$ref": "#/$defs/operation" }
+-        },
+-        "required_gates": {
+-          "type": "array",
+-          "items": { "type": "string", "minLength": 1 },
+-          "uniqueItems": true
++          "kind": {
++            "type": "string",
++            "enum": [
++              "host.observe",
++              "host.verify",
++              "apt.refresh",
++              "apt.simulate",
++              "apt.install",
++              "access.install",
++              "access.stage",
++              "access.arm",
++              "access.cutover",
++              "access.tailnet",
++              "access.disarm",
++              "docker.install",
++              "docker.group",
++              "docker.configure",
++              "docker.restart",
++              "docker.probe",
++              "docker.mark",
++              "release.extract",
++              "release.materialize",
++              "release.probe",
++              "configuration.prepare",
++              "verification.offline",
++              "auth.explicit",
++              "project.prepare",
++              "service.prepare",
++              "operations.backup",
++              "inference.prepare",
++              "platforms.prepare",
++              "update.prepare",
++              "fixture.counter"
++            ]
++          },
++          "resources": {
++            "type": "array",
++            "maxItems": 1,
++            "items": {
++              "type": "string",
++              "minLength": 1,
++              "maxLength": 4096
++            },
++            "minItems": 1,
++            "uniqueItems": true
++          },
++          "expected_before_hashes": {
++            "type": "object",
++            "additionalProperties": false,
++            "required": [
++              "reviewed_constraints"
++            ],
++            "properties": {
++              "reviewed_constraints": {
++                "type": "string",
++                "pattern": "^[0-9a-f]{64}$"
++              }
++            }
++          },
++          "expected_after": {
++            "type": "object",
++            "additionalProperties": false,
++            "required": [
++              "verifier",
++              "action"
++            ],
++            "properties": {
++              "verifier": {
++                "const": "operation-postconditions"
++              },
++              "action": {
++                "type": "string",
++                "enum": [
++                  "host.observe",
++                  "host.verify",
++                  "apt.refresh",
++                  "apt.simulate",
++                  "apt.install",
++                  "access.install",
++                  "access.stage",
++                  "access.arm",
++                  "access.cutover",
++                  "access.tailnet",
++                  "access.disarm",
++                  "docker.install",
++                  "docker.group",
++                  "docker.configure",
++                  "docker.restart",
++                  "docker.probe",
++                  "docker.mark",
++                  "release.extract",
++                  "release.materialize",
++                  "release.probe",
++                  "configuration.prepare",
++                  "verification.offline",
++                  "auth.explicit",
++                  "project.prepare",
++                  "service.prepare",
++                  "operations.backup",
++                  "inference.prepare",
++                  "platforms.prepare",
++                  "update.prepare",
++                  "fixture.counter"
++                ]
++              }
++            }
++          },
++          "requires_gates": {
++            "type": "array",
++            "maxItems": 1024,
++            "items": {
++              "type": "string",
++              "minLength": 1,
++              "maxLength": 4096
++            },
++            "uniqueItems": true
++          },
++          "retry_policy": {
++            "type": "object",
++            "additionalProperties": false,
++            "required": [
++              "retryable",
++              "timeout_sec"
++            ],
++            "properties": {
++              "retryable": {
++                "type": "boolean"
++              },
++              "timeout_sec": {
++                "type": "integer",
++                "minimum": 1,
++                "maximum": 1800
++              }
++            }
++          },
++          "estimated_effects": {
++            "type": "array",
++            "maxItems": 1024,
++            "items": {
++              "type": "string",
++              "minLength": 1,
++              "maxLength": 4096
++            }
++          },
++          "unknown_effects": {
++            "type": "array",
++            "maxItems": 0,
++            "items": {
++              "type": "string",
++              "minLength": 1,
++              "maxLength": 4096
++            }
++          },
++          "risk": {
++            "type": "string",
++            "enum": [
++              "low",
++              "medium",
++              "high",
++              "critical"
++            ]
++          },
++          "constraints": {
++            "type": "array",
++            "maxItems": 1024,
++            "items": {
++              "type": "string",
++              "minLength": 1,
++              "maxLength": 4096
++            }
++          },
++          "execution_kind": {
++            "type": "string",
++            "enum": [
++              "observe",
++              "mutate",
++              "verify",
++              "manual_gate",
++              "recover"
++            ]
++          }
+         }
+       }
+     }
+diff --git a/setup/src/adapters/filesystem.ts b/setup/src/adapters/filesystem.ts
+index a1a3a5f..8a06995 100644
+--- a/setup/src/adapters/filesystem.ts
++++ b/setup/src/adapters/filesystem.ts
+@@ -14,9 +14,12 @@ import {
+   writeFile
+ } from "node:fs/promises";
+ import path from "node:path";
++import { createHash } from "node:crypto";
++import { performance } from "node:perf_hooks";
+ 
+ export interface FilesystemAdapter {
+   readText(filePath: string): Promise<string>;
++  hashFile?(filePath: string, maxBytes: number, deadlineMs: number): Promise<string>;
+   readTextBounded(filePath: string, maxBytes: number): Promise<{
+     text: string;
+     bytesRead: number;
+@@ -38,6 +41,28 @@ export interface FilesystemAdapter {
+ }
+ 
+ export class NodeFilesystemAdapter implements FilesystemAdapter {
++  async hashFile(filePath: string, maxBytes: number, deadlineMs: number): Promise<string> {
++    const started = performance.now();
++    const handle = await open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
++    try {
++      const before = await handle.stat();
++      if (!before.isFile() || before.size > maxBytes) throw Error("unsupported/oversized artifact");
++      const hash = createHash("sha256"), buffer = Buffer.alloc(1024 * 1024);
++      let count = 0;
++      for (;;) {
++        if (performance.now() - started >= deadlineMs) throw Error("artifact hash deadline");
++        const read = await handle.read(buffer, 0, buffer.length, null);
++        if (read.bytesRead === 0) break;
++        count += read.bytesRead;
++        if (count > maxBytes) throw Error("artifact grew beyond bound");
++        hash.update(buffer.subarray(0, read.bytesRead));
++      }
++      const after = await handle.stat();
++      if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeMs !== after.mtimeMs || count !== before.size) throw Error("artifact changed during hashing");
++      return hash.digest("hex");
++    } finally { await handle.close(); }
++  }
++
+   async readText(filePath: string): Promise<string> {
+     return readFile(filePath, "utf8");
+   }
+diff --git a/setup/src/adapters/process.ts b/setup/src/adapters/process.ts
+index aa2dc86..0b9a8d3 100644
+--- a/setup/src/adapters/process.ts
++++ b/setup/src/adapters/process.ts
+@@ -1,7 +1,7 @@
+ import { createHash, randomUUID } from "node:crypto";
+ import { spawn } from "node:child_process";
+ import os from "node:os";
+-import { readFile } from "node:fs/promises";
++import { readFile, open } from "node:fs/promises";
+ import { ExitCode } from "../core/types";
+ import { setupError } from "../core/errors";
+ 
+@@ -31,6 +31,8 @@ export interface CommandOptions {
+ }
+ 
+ export interface ProcessAdapter {
++  hostIdentity(): Promise<{ os: string; arch: string }>;
++  loginSessionId(): Promise<string>;
+   runCommand(options: CommandOptions): Promise<CommandResult>;
+   pid(): number;
+   uid(): number;
+@@ -152,23 +154,57 @@ export class NodeProcessAdapter implements ProcessAdapter {
+     return os.userInfo().username;
+   }
+ 
+-  async bootId(): Promise<string> {
+-    try {
+-      const content = await readFile("/proc/sys/kernel/random/boot_id", "utf8");
+-      return content.trim();
+-    } catch {
+-      return "unknown-boot-id";
++  async hostIdentity(): Promise<{ os: "ubuntu-24.04"; arch: "amd64" | "arm64" }> {
++    const release = await this.identityText("/etc/os-release", 16384);
++    const fields = new Map(release.split("\n").map(line => {
++      const index = line.indexOf("="); return [line.slice(0, index), line.slice(index + 1).replace(/^"|"$/g, "")];
++    }));
++    const arch = process.arch === "x64" ? "amd64" : process.arch === "arm64" ? "arm64" : null;
++    if (process.platform !== "linux" || fields.get("ID") !== "ubuntu" || fields.get("VERSION_ID") !== "24.04" || !arch) {
++      throw setupError({ exitCode: ExitCode.UnsupportedHostOrMissingPrivileges, code: "context_host_unsupported",
++        publicMessage: "Trusted context requires Ubuntu 24.04 and a supported native architecture.", nextAction: "Use a qualified host; do not override host identity with configuration." });
+     }
++    return { os: "ubuntu-24.04", arch };
+   }
+ 
+-  async machineIdHash(): Promise<string> {
+-    let machineId = "unknown-machine-id";
++  /** Linux audit login identity survives CLI process changes, but changes with a PAM login. */
++  async loginSessionId(): Promise<string> {
++    const session = (await this.identityText("/proc/self/sessionid", 64)).trim();
++    const loginUid = (await this.identityText("/proc/self/loginuid", 64)).trim();
++    if (!/^\d+$/.test(session) || !/^\d+$/.test(loginUid) || session === "4294967295"
++      || Number(loginUid) !== this.uid()) {
++      throw setupError({ exitCode: ExitCode.ManualActionRequired, code: "context_login_session_unavailable",
++        publicMessage: "A verified owner audit login session is required.", nextAction: "Log in as the configured owner through a PAM/audit-enabled login, then generate and review a fresh plan." });
++    }
++    return `linux-audit:${this.uid()}:${session}`;
++  }
++
++  protected async identityText(file: string, limit: number): Promise<string> {
+     try {
+-      machineId = (await readFile("/etc/machine-id", "utf8")).trim();
++      const handle = await open(file, "r");
++      try {
++        const bytes = Buffer.alloc(limit + 1); const result = await handle.read(bytes, 0, bytes.length, 0);
++        if (result.bytesRead > limit) throw Error("oversized identity");
++        return bytes.subarray(0, result.bytesRead).toString("utf8");
++      } finally { await handle.close(); }
+     } catch {
+-      // keep default fallback value
++      throw setupError({ exitCode: ExitCode.UnsupportedHostOrMissingPrivileges, code: "context_identity_unavailable",
++        publicMessage: "OS identity cannot be read safely.", nextAction: "Restore access to OS identity files and revalidate the owner session." });
+     }
+-    return createHash("sha256").update(machineId).digest("hex");
++  }
++
++  async bootId(): Promise<string> {
++    const boot = (await this.identityText("/proc/sys/kernel/random/boot_id", 64)).trim();
++    if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/.test(boot)) throw setupError({ exitCode: ExitCode.UnsupportedHostOrMissingPrivileges,
++      code: "host_boot_id_unavailable", publicMessage: "Boot identity is invalid.", nextAction: "Restore the OS boot identity before review." });
++    return boot;
++  }
++
++  async machineIdHash(): Promise<string> {
++    const machine = (await this.identityText("/etc/machine-id", 64)).trim();
++    if (!/^[0-9a-f]{32}$/.test(machine) || /^0+$/.test(machine)) throw setupError({ exitCode: ExitCode.UnsupportedHostOrMissingPrivileges,
++      code: "host_machine_id_unavailable", publicMessage: "Machine identity is missing or invalid.", nextAction: "Restore a unique OS machine identity; do not create a plan with an unknown identity." });
++    return createHash("sha256").update(machine).digest("hex");
+   }
+ 
+   async processStartTicks(pid: number): Promise<number | null> {
+diff --git a/setup/src/core/engine.ts b/setup/src/core/engine.ts
+index faaff85..c2c1b39 100644
+--- a/setup/src/core/engine.ts
++++ b/setup/src/core/engine.ts
+@@ -25,13 +25,15 @@ import { createUpdateStage } from "../stages/update";
+ import { createBackup, verifyBackup } from "../operations/backup";
+ import { emergencyCancel } from "../operations/emergency";
+ import { hashConfig, initConfig, loadConfig, stableStringify, systemClock, type Clock } from "./config";
+-import { ExitCode, type InstallerPlan, type JsonEnvelope, type SetupConfig, type SetupState, type StageId, type StageModule, type StageReceipt, type StageContext, type StageStatus } from "./types";
++import { ExitCode, type ExecutionPlan, type JsonEnvelope, type SetupConfig, type SetupState, type StageId, type StageModule, type StageReceipt, type StageContext, type StageStatus } from "./types";
+ import { setupError, toSetupError } from "./errors";
+ import { approveGate, ensureGateApproved, ensureNonInteractiveGates, expireGates, upsertPlanGates } from "./gates";
+ import { acquireLock, consumeCancelRequest, recoverLockOnly, requestCancel, type LockOwner } from "./lock";
+ import { assertPlanTime, buildStageClosure, createPlanFile, createRegistry, loadPlan, validatePlanConsistency, type StageRegistry } from "./plan";
++import { canonicalHash } from "./plan-format";
++import { capturePlanContext, assertReview, publishReview } from "./plan-context";
+ import { carryOperationProgress, restoreOperationProgress } from "./progress";
+-import { assertCompletionPolicy, assertContinuingPolicy, assertProducerPolicy, policyFingerprint, readPolicyBasis, withPolicyBasis, type PolicyBasis } from "./policy";
++import { assertCompletionPolicy, assertContinuingPolicy, assertProducerPolicy, policyFingerprint, projectedObservationHash, readPolicyBasis, withPolicyBasis, type PolicyBasis } from "./policy";
+ import {
+   appendEvent,
+   assertEvidenceAdmission,
+@@ -102,7 +104,7 @@ function envelopeBase(
+   };
+ }
+ 
+-function stageFromPlan(plan: InstallerPlan, stageId: StageId): InstallerPlan["stages"][number] {
++function stageFromPlan(plan: ExecutionPlan, stageId: StageId): ExecutionPlan["stages"][number] {
+   const stage = plan.stages.find((item) => item.stage_id === stageId);
+   if (stage === undefined) {
+     throw setupError({
+@@ -689,7 +691,14 @@ export class SetupEngine {
+     });
+   }
+ 
+-  private validateApplyPlanAdmission(config: SetupConfig, plan: InstallerPlan): void {
++  private validateApplyPlanAdmission(config: SetupConfig, plan: ExecutionPlan): void {
++    if (plan.native) {
++      const target = plan.native.target;
++      const expected = buildStageClosure(this.registry, target.mode === "selected" ? config.selected_stages : [target.stage_id!]);
++      if (stableStringify(expected) !== stableStringify(plan.native.stage_scope.map(stage => stage.stage_id))) throw setupError({
++        exitCode: ExitCode.CliOrSchemaError, code: "plan_target_closure_mismatch", publicMessage: "Flat plan closure does not match its exact trusted target.", nextAction: "Generate a fresh plan for the intended explicit/default target." });
++    }
++
+     const stageIds = plan.stages.map((stage) => stage.stage_id);
+     const uniqueStageIds = new Set(stageIds);
+     if (uniqueStageIds.size !== stageIds.length) {
+@@ -827,7 +836,7 @@ export class SetupEngine {
+     }
+   }
+ 
+-  private mandatoryStagesSucceeded(state: SetupState, plan: InstallerPlan): boolean {
++  private mandatoryStagesSucceeded(state: SetupState, plan: ExecutionPlan): boolean {
+     for (const stagePlan of plan.stages) {
+       if (stagePlan.optional) {
+         continue;
+@@ -841,8 +850,8 @@ export class SetupEngine {
+   }
+ 
+   private validateEffectReceipts(
+-    stagePlan: InstallerPlan["stages"][number],
+-    effectOperations: InstallerPlan["stages"][number]["operations"],
++    stagePlan: ExecutionPlan["stages"][number],
++    effectOperations: ExecutionPlan["stages"][number]["operations"],
+     receipts: StageReceipt[]
+   ): Map<string, StageReceipt> {
+     const expectedByOperation = new Map(
+@@ -1003,15 +1012,65 @@ export class SetupEngine {
+     return stage.observePolicy ? stage.observePolicy(ctx) : stage.observe(ctx);
+   }
+ 
++  private async assertPlanContext(config: SetupConfig, state: SetupState, plan: ExecutionPlan): Promise<void> {
++    if (!plan.native) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "legacy_plan_review_required",
++      publicMessage: "Legacy approvals cannot authorize C13 effects.", nextAction: "Explicitly generate/review a fresh C13 plan." });
++    this.validateApplyPlanAdmission(config, plan);
++    const sources = [];
++    for (const proposed of plan.stages) {
++      const stage = this.registry.byId.get(proposed.stage_id)!;
++      const basis = readPolicyBasis(state, stage);
++      if (!basis) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "plan_review_required",
++        publicMessage: "Committed producer source is missing for this plan.", nextAction: "Preserve progress and explicitly generate/review a fresh plan." });
++      assertProducerPolicy(stage, config, proposed, basis.source);
++      sources.push({ stage: stage.id, fingerprint: projectedObservationHash(stage, config, basis.source) });
++    }
++    const current = await capturePlanContext(this.deps.fsAdapter, this.deps.processAdapter, config, plan.stages.map(stage => stage.stage_id));
++    assertReview(state, plan.native, current);
++    if (canonicalHash(sources) !== plan.native.observations_hash) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired,
++      code: "context_observations_unproven", publicMessage: "Initial projected observations are not bound to the committed producer review.", nextAction: "Preserve evidence and review a fresh plan." });
++  }
++
++  private async admitPlanPolicies(config: SetupConfig, state: SetupState, plan: ExecutionPlan): Promise<Map<StageId, PolicyBasis>> {
++    const policies = new Map<StageId, PolicyBasis>();
++    const receipts = (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations
++      ?.filter(entry => entry.config_hash === hashConfig(config)).map(entry => entry.receipt) ?? [];
++    for (const proposed of plan.stages) {
++      const stage = this.registry.byId.get(proposed.stage_id)!;
++      const ctx = { ...this.stageContext(config, plan.desired_hash, plan.plan_hash), completedOperationReceipts: receipts };
++      const basis = await restoreOperationProgress(this.deps.fsAdapter, stage, ctx, readPolicyBasis(state, stage));
++      if (!basis || basis.planHash !== plan.plan_hash || basis.configHash !== hashConfig(config)) throw setupError({
++        exitCode: ExitCode.CliOrSchemaError, code: "plan_review_required", publicMessage: "Plan is not the current committed producer review.", nextAction: "Generate/review a new plan; never infer authorization from submitted JSON." });
++      assertProducerPolicy(stage, config, proposed, basis.source);
++      if (!stage.verifyProgress && basis.completed.some(id => !proposed.operations.some(operation => operation.id === id))) throw setupError({
++        exitCode: ExitCode.DriftOrRecoveryRequired, code: "plan_progress_invalid", publicMessage: "Published progress is outside its reviewed sequence.", nextAction: "Preserve and reconcile evidence." });
++      const next = proposed.operations.find(operation => !basis.completed.includes(operation.id));
++      if (next) await stage.admitOperation?.(ctx, { id: next.id, resourceId: next.resource_id, preconditions: next.preconditions });
++      const observed = await this.policyObservation(stage, ctx);
++      if (policyFingerprint(stage, config, observed) !== basis.expected) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired,
++        code: "plan_observation_drift", publicMessage: "Current significant facts differ from the reviewed source or published frontier.", nextAction: "Explicitly review a fresh plan; completed effects remain known.", stage: stage.id });
++      policies.set(stage.id, basis);
++    }
++    return policies;
++  }
++
+   private async runPlan(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
+     const configBytes = await this.requestHash(options.configPath);
+     const config = await loadConfig(this.deps.fsAdapter, options.configPath);
+     let state: SetupState;
++    const planningClosure = buildStageClosure(this.registry, options.stageId ? [options.stageId] : config.selected_stages);
++    const initialContext = await capturePlanContext(this.deps.fsAdapter, this.deps.processAdapter, config, planningClosure);
+     const lock = await acquireLock(this.deps.fsAdapter, this.deps.processAdapter, config);
+     let result: Awaited<ReturnType<typeof createPlanFile>> | null = null;
+     try {
+       await this.assertRequestUnchanged(options, configBytes);
++      const context = await capturePlanContext(this.deps.fsAdapter, this.deps.processAdapter, config, planningClosure);
++      if (stableStringify(context) !== stableStringify(initialContext)) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired,
++        code: "context_changed_after_lock", publicMessage: "Host/session/lock/release context changed while acquiring the lock.", nextAction: "Revalidate and create a fresh plan." });
+       state = await this.loadStateWithOptions(config, { initializeIfMissing: true });
++      if (state.host_fingerprint.machine_id_hash !== context.host_fingerprint.machine_id_hash
++        || state.host_fingerprint.os !== context.host_fingerprint.os || state.host_fingerprint.arch !== context.host_fingerprint.arch) throw setupError({
++          exitCode: ExitCode.DriftOrRecoveryRequired, code: "context_foreign_host", publicMessage: "Existing installation belongs to another host.", nextAction: "Preserve evidence; do not rebind an installation to another host." });
+       if (state.in_flight_operation !== null) {
+         throw setupError({
+           exitCode: ExitCode.DriftOrRecoveryRequired,
+@@ -1034,7 +1093,7 @@ export class SetupEngine {
+         progressContexts.set(id, ctx);
+         admittedBases.set(id, previous);
+       }
+-      result = await createPlanFile(this.deps.fsAdapter, config, this.registry, stageId, this.deps.clock, boundReceipts, progressContexts);
++      result = await createPlanFile(this.deps.fsAdapter, config, this.registry, stageId, this.deps.clock, boundReceipts, progressContexts, context);
+       state = expireGates(state, this.deps.clock);
+       for (const stagePlan of result.plan.stages) {
+         const stage = this.registry.byId.get(stagePlan.stage_id)!;
+@@ -1078,6 +1137,7 @@ export class SetupEngine {
+           state = upsertPlanGates(state, result.plan.plan_hash, operation.id, operation.gate_ids, this.deps.clock);
+         }
+       }
++      state = publishReview(state, result.plan.native!);
+       await saveState(this.deps.fsAdapter, config, state);
+     } finally {
+       await lock.release();
+@@ -1119,6 +1179,7 @@ export class SetupEngine {
+     const plan = await loadPlan(this.deps.fsAdapter, options.planPath);
+     validatePlanConsistency(config, plan);
+     this.validateApplyPlanAdmission(config, plan);
++    const initialContext = await capturePlanContext(this.deps.fsAdapter, this.deps.processAdapter, config, plan.stages.map(stage => stage.stage_id));
+ 
+     const lock = await acquireLock(this.deps.fsAdapter, this.deps.processAdapter, config);
+     let state: SetupState | null = null;
+@@ -1132,30 +1193,16 @@ export class SetupEngine {
+       if (stableStringify(config)!==stableStringify(lockedConfig) || stableStringify(plan)!==stableStringify(lockedPlan)) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"request_changed_after_read",publicMessage:"Parsed request changed during lock acquisition.",nextAction:"Regenerate and review the plan."});
+       assertPlanTime(plan, this.deps.clock);
+       state = await this.loadStateWithOptions(config, { initializeIfMissing: true });
++      await this.assertPlanContext(config, state, plan);
++      const lockedContext = await capturePlanContext(this.deps.fsAdapter, this.deps.processAdapter, config, plan.stages.map(stage => stage.stage_id));
++      if (stableStringify(lockedContext) !== stableStringify(initialContext)) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired,
++        code: "context_changed_after_lock", publicMessage: "Checked context changed across lock admission.", nextAction: "Revalidate and review a fresh plan." });
+       state = expireGates(state, this.deps.clock);
+       this.assertOrdinaryEffectAdmission(state);
+       ensureNonInteractiveGates(state, plan.plan_hash, options.nonInteractive ?? false, this.deps.clock);
+       await this.consumeCancelOrThrow(config, lock.owner);
+-      let reviewMismatch = false;
+-      // Validate every stage before publishing any applying state or target intent.
+-      for (const proposed of plan.stages) {
+-        const stage = this.registry.byId.get(proposed.stage_id)!;
+-        const ctx = this.stageContext(config, plan.desired_hash, plan.plan_hash);
+-        ctx.completedOperationReceipts = (await readStateCommitManifest(this.deps.fsAdapter, config))?.completed_operations?.filter(e => e.config_hash === hashConfig(config)).map(e => e.receipt) ?? [];
+-        const existing = await restoreOperationProgress(this.deps.fsAdapter, stage, ctx, readPolicyBasis(state, stage));
+-        if (existing===null && proposed.operations.length>0 && ctx.completedOperationReceipts.some(r=>r.stageId===stage.id)) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,
+-          code:"legacy_policy_review_required",publicMessage:"Legacy known progress needs an explicit current producer review before further actions.",nextAction:"Generate/review a plan; matching committed operations will be reverified rather than replayed.",stage:stage.id});
+-        const observed = await this.policyObservation(stage, ctx);
+-        const basis: PolicyBasis = existing ?? {version:1,planHash:plan.plan_hash,configHash:hashConfig(config),source:observed,expected:policyFingerprint(stage, config, observed),completed:[]};
+-        assertProducerPolicy(stage, config, proposed, basis.source);
+-        if (basis.planHash !== plan.plan_hash || basis.configHash !== hashConfig(config)) reviewMismatch = true;
+-        if (!stage.verifyProgress && basis.completed.some(id => !proposed.operations.some(o => o.id === id))) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_progress_invalid",publicMessage:"Committed progress is outside the reviewed operation sequence.",nextAction:"Preserve state and reconcile progress."});
+-        const first = proposed.operations.find(o => !basis.completed.includes(o.id));
+-        if (first) await stage.admitOperation?.(ctx, {id:first.id,resourceId:first.resource_id,preconditions:first.preconditions});
+-        if (policyFingerprint(stage, config, observed)!==basis.expected) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_observation_drift",publicMessage:"Significant producer policy inputs changed since review or verified progress.",nextAction:"Generate/review a new plan; no new operation was admitted.",stage:stage.id});
+-        policies.set(stage.id, basis);
+-      }
+-      if (reviewMismatch) throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"plan_review_required",publicMessage:"Plan is not the current committed producer review.",nextAction:"Generate and review a new plan."});
++      const admitted = await this.admitPlanPolicies(config, state, plan);
++      for (const [id, basis] of admitted) policies.set(id, basis);
+ 
+       for (const stagePlan of plan.stages) {
+         assertPlanTime(plan, this.deps.clock);
+@@ -1222,6 +1269,8 @@ export class SetupEngine {
+             assertPlanTime(plan, this.deps.clock);
+             for (const gateId of stagePlan.required_gates) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, `stage:${stagePlan.stage_id}`);
+             for (const gateId of operation.gate_ids) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, operation.id);
++            await this.assertPlanContext(config, state, plan);
++            await this.admitPlanPolicies(config, state, plan);
+             const attemptId = randomUUID();
+             persistFailure = true;
+             state = withInFlightOperation(state, {
+@@ -1248,6 +1297,7 @@ export class SetupEngine {
+                 operations: [
+                   {
+                     id: operation.id,
++                    ...(operation.action ? { action: operation.action } : {}),
+                     stageId: operation.stage_id,
+                     kind: operation.kind,
+                     resourceId: operation.resource_id,
+@@ -1614,6 +1664,8 @@ export class SetupEngine {
+       validatePlanConsistency(config,plan);
+       if(plan.plan_hash!==options.planHash) throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"gate_plan_mismatch",publicMessage:"Approval is not for the current reviewed plan.",nextAction:"Review the current plan and approve its exact identity."});
+       state = await this.loadStateWithOptions(config, { initializeIfMissing: false });
++      await this.assertPlanContext(config, state, plan);
++      await this.admitPlanPolicies(config, state, plan);
+       state = expireGates(state, this.deps.clock);
+       try {
+         assertPlanTime(plan,this.deps.clock);
+diff --git a/setup/src/core/plan-context.ts b/setup/src/core/plan-context.ts
+new file mode 100644
+index 0000000..bb4c1c9
+--- /dev/null
++++ b/setup/src/core/plan-context.ts
+@@ -0,0 +1,95 @@
++import path from "node:path";
++import { type FilesystemAdapter } from "../adapters/filesystem";
++import { type ProcessAdapter } from "../adapters/process";
++import { validateContractSchema } from "./validators";
++import { canonicalHash } from "./plan-format";
++import { stableStringify } from "./config";
++import { setupError } from "./errors";
++import { ExitCode, type InstallerPlan, type SetupConfig, type SetupState, type StageId } from "./types";
++import { createHash } from "node:crypto";
++
++export const REVIEW_KEY = "setup_plan_review_v1";
++export type StaticPlanContext = Pick<InstallerPlan, "host_fingerprint" | "owner_session" | "version_lock_hash" | "release_context">;
++function refuse(code: string, message: string, exitCode = ExitCode.DriftOrRecoveryRequired): never {
++  throw setupError({ exitCode, code, publicMessage: message, nextAction: "Revalidate this host/owner session and artifacts, then explicitly generate, review and approve a fresh plan. Preserve existing progress evidence." });
++}
++export async function checkedFile(fs: FilesystemAdapter, file: string): Promise<void> {
++  if (!path.isAbsolute(file) || file.includes("\0") || file.split(path.sep).some(part => part === "." || part === "..")) refuse("context_path_unsafe", "Context input path is not canonical.", ExitCode.SecurityBoundaryViolation);
++  let current = file, first = true;
++  for (let depth = 0; depth < 64; depth++) {
++    const stat = await fs.lstat(current);
++    const stickyRoot = !first && stat.uid === 0 && (Number(stat.mode) & 0o1000) !== 0;
++    if (stat.isSymbolicLink() || (first ? !stat.isFile() : !stat.isDirectory()) || ((Number(stat.mode) & 0o022) !== 0 && !stickyRoot)) {
++      refuse("context_file_unsafe", "Context input has unsafe type, symlink or writable metadata.", ExitCode.SecurityBoundaryViolation);
++    }
++    const parent = path.dirname(current); if (parent === current) return;
++    first = false; current = parent;
++  }
++  refuse("context_path_depth", "Context path exceeds the bounded ancestor inventory.", ExitCode.SecurityBoundaryViolation);
++}
++export async function checkedJson(fs: FilesystemAdapter, file: string, schema: "installer-release"): Promise<string> {
++  try {
++    await checkedFile(fs, file);
++    const before = await fs.lstat(file);
++    const raw = await fs.readTextBounded(file, 1024 * 1024);
++    const after = await fs.lstat(file);
++    if (raw.truncated || raw.text.includes("\ufffd") || raw.text.includes("\0") || before.ino !== after.ino || before.dev !== after.dev || before.size !== after.size || before.mtimeMs !== after.mtimeMs) refuse("version_lock_changed_during_read", "Version lock changed or exceeded bounded UTF-8 input.");
++    const parsed: unknown = JSON.parse(raw.text);
++    if (!validateContractSchema(schema, parsed).ok) refuse("version_lock_invalid", "Reviewed version lock fails its strict schema.");
++    return createHash("sha256").update(raw.text).digest("hex");
++  } catch (error) {
++    if (error && typeof error === "object" && "exitCode" in error) throw error;
++    refuse("version_lock_unavailable", "The actual reviewed version lock is missing or unreadable/invalid.");
++  }
++}
++export async function capturePlanContext(fs: FilesystemAdapter, proc: ProcessAdapter, config: SetupConfig, closure: readonly StageId[]): Promise<StaticPlanContext> {
++  if (proc.uid() === 0 || proc.uid() < 0 || proc.username() !== config.host.expected_user) refuse("context_owner_required", "Plan creation/approval/execution requires the ordinary configured owner.", ExitCode.UnsupportedHostOrMissingPrivileges);
++  if (!proc.hostIdentity || !proc.loginSessionId) refuse("context_identity_adapter_unavailable", "OS host and owner-session identity are not available.", ExitCode.UnsupportedHostOrMissingPrivileges);
++  const actual = await proc.hostIdentity();
++  const machine = await proc.machineIdHash(), boot = await proc.bootId(), login = await proc.loginSessionId();
++  if (actual.os !== config.host.os || actual.arch !== config.host.arch) refuse("context_host_mismatch", "Actual OS/architecture differs from reviewed configuration.");
++  if (!/^[0-9a-f]{64}$/.test(machine) || machine === createHash("sha256").update("unknown-machine-id").digest("hex") || /^0+$/.test(machine)
++    || !/^[0-9a-f]{8}-[0-9a-f-]{27}$/.test(boot) || !login || login.startsWith("unknown") || login.length > 256) refuse("context_identity_invalid", "A checked machine, boot and login-session identity is required.");
++  const version_lock_hash = await checkedJson(fs, config.version_lock_path, "installer-release");
++  const applicable = closure.some(id => ["S05", "S06", "S07", "S09", "S10", "S11", "S13"].includes(id));
++  let artifact_hash: string | null = null;
++  if (applicable) {
++    try {
++      await checkedFile(fs, config.release.archive_path);
++      if (!fs.hashFile) refuse("context_artifact_reader_unavailable", "Bounded release artifact hashing is unavailable.");
++      artifact_hash = await fs.hashFile(config.release.archive_path, 1024 * 1024 * 1024, 120_000);
++      if (artifact_hash !== config.release.sha256) refuse("context_release_integrity", "Current release bytes do not match the declared reviewed artifact.", ExitCode.SecurityBoundaryViolation);
++    } catch (error) {
++      if (error && typeof error === "object" && "exitCode" in error) throw error;
++      refuse("context_release_unavailable", "Applicable release artifact cannot be safely hashed.");
++    }
++  }
++  return { host_fingerprint: { machine_id_hash: machine, os: actual.os, arch: actual.arch },
++    owner_session: { uid: proc.uid(), owner: proc.username(), boot_id: boot, login_session_hash: canonicalHash({ uid: proc.uid(), login, boot }) },
++    version_lock_hash, release_context: { applicable, declared_hash: canonicalHash(config.release), artifact_hash } };
++}
++export function reviewContextHash(plan: InstallerPlan): string {
++  return canonicalHash({ host: plan.host_fingerprint, session: plan.owner_session, lock: plan.version_lock_hash,
++    release: plan.release_context, desired: plan.desired_hash, observations: plan.observations_hash, target: plan.target, scope: plan.stage_scope });
++}
++export function publishReview(state: SetupState, plan: InstallerPlan): SetupState {
++  const raw = JSON.stringify({ version: 1, plan_hash: plan.plan_hash, context_hash: reviewContextHash(plan) });
++  return { ...state, stages: state.stages.map(stage => stage.id === "S00" ? { ...stage, versions: { ...stage.versions, [REVIEW_KEY]: raw } } : stage) };
++}
++export function assertReview(state: SetupState, plan: InstallerPlan, current: StaticPlanContext): void {
++  if (stableStringify(state.host_fingerprint.machine_id_hash) !== stableStringify(current.host_fingerprint.machine_id_hash)
++    || state.host_fingerprint.os !== current.host_fingerprint.os || state.host_fingerprint.arch !== current.host_fingerprint.arch) refuse("context_foreign_host", "State belongs to another physical host or OS/architecture.");
++  if (stableStringify(plan.host_fingerprint) !== stableStringify(current.host_fingerprint)) refuse("context_foreign_host", "Plan belongs to another physical host.");
++  if (stableStringify(plan.owner_session) !== stableStringify(current.owner_session)) refuse("context_session_changed", "The reviewed boot/login owner session has ended.", ExitCode.ManualActionRequired);
++  if (plan.version_lock_hash !== current.version_lock_hash) refuse("context_version_lock_drift", "Reviewed version-lock bytes changed at the same path.");
++  if (stableStringify(plan.release_context) !== stableStringify(current.release_context)) refuse("context_release_drift", "Reviewed release identity or artifact changed.");
++  const raw = state.stages.find(stage => stage.id === "S00")?.versions[REVIEW_KEY];
++  try {
++    if (!raw || Buffer.byteLength(raw) > 4096) throw Error("review absent/oversized");
++    const record: unknown = JSON.parse(raw);
++    if (!record || typeof record !== "object" || Array.isArray(record)) throw Error("review shape");
++    const r = record as Record<string, unknown>;
++    if (Object.keys(r).sort().join(",") !== "context_hash,plan_hash,version" || r.version !== 1
++      || r.plan_hash !== plan.plan_hash || r.context_hash !== reviewContextHash(plan)) throw Error("review binding");
++  } catch { refuse("context_review_unproven", "Current submitted plan/context has no matching committed producer review."); }
++}
+diff --git a/setup/src/core/plan-format.ts b/setup/src/core/plan-format.ts
+new file mode 100644
+index 0000000..e35dec5
+--- /dev/null
++++ b/setup/src/core/plan-format.ts
+@@ -0,0 +1,55 @@
++import { createHash } from "node:crypto";
++import { stableStringify } from "./config";
++import { setupError } from "./errors";
++import { ExitCode, type ExecutionPlan, type InstallerPlan, type StageOperation, type PlanOperation, type PlanStageScope } from "./types";
++
++export const canonicalHash = (value: unknown): string => createHash("sha256").update(stableStringify(value)).digest("hex");
++export function nativePlanHash(plan: Omit<InstallerPlan, "plan_hash"> | InstallerPlan): string {
++  const { plan_hash: _ignored, ...body } = plan as InstallerPlan;
++  return canonicalHash(body);
++}
++export function wireOperation(operation: StageOperation): PlanOperation {
++  const action = operation.action;
++  if (action === undefined) throw setupError({ exitCode: ExitCode.CliOrSchemaError, code: "producer_action_missing",
++    publicMessage: "Trusted producer must declare a concrete adapter action.", nextAction: "Use a reviewed producer with a closed operation mapping.", stage: operation.stageId });
++  return {
++    operation_id: operation.id, stage_id: operation.stageId, kind: action, resources: [operation.resourceId],
++    expected_before_hashes: { reviewed_constraints: canonicalHash(operation.preconditions) },
++    expected_after: { verifier: "operation-postconditions", action }, requires_gates: operation.gateIds,
++    retry_policy: { retryable: operation.retryable, timeout_sec: operation.timeoutSec },
++    estimated_effects: operation.sideEffects, unknown_effects: [], risk: operation.risk,
++    constraints: operation.preconditions, execution_kind: operation.kind
++  };
++}
++export function decodePlan(native: InstallerPlan): ExecutionPlan {
++  const view: ExecutionPlan = {
++    schema_version: 1, contract_version: native.contract_version, installation_id: native.installation_id,
++    desired_hash: native.desired_hash, plan_hash: native.plan_hash, created_at: native.generated_at,
++    stages: native.stage_scope.map(scope => ({
++      stage_id: scope.stage_id, optional: scope.optional, required_capabilities: scope.required_capabilities,
++      required_gates: scope.requires_gates,
++      operations: native.operations.filter(operation => operation.stage_id === scope.stage_id).map(operation => ({
++        id: operation.operation_id, stage_id: operation.stage_id, action: operation.kind, kind: operation.execution_kind,
++        resource_id: operation.resources[0]!, risk: operation.risk, gate_ids: operation.requires_gates,
++        preconditions: operation.constraints, side_effects: operation.estimated_effects,
++        timeout_sec: operation.retry_policy.timeout_sec, retryable: operation.retry_policy.retryable
++      }))
++    }))
++  };
++  Object.defineProperty(view, "native", { value: native, enumerable: true, writable: true });
++  return view;
++}
++/** Fixture/editor conversion; production checks the original flat bytes and never rewrites a proposal. */
++export function encodePlan(view: ExecutionPlan): InstallerPlan {
++  if (!view.native) throw Error("Historical plan requires explicit fresh review, not automatic encoding.");
++  const scope: PlanStageScope[] = view.stages.map(stage => ({ stage_id: stage.stage_id, optional: stage.optional,
++    required_capabilities: stage.required_capabilities, requires_gates: stage.required_gates }));
++  const expires = Date.parse(view.created_at) + 30 * 60_000;
++  return { ...view.native, plan_hash: view.plan_hash, generated_at: view.created_at,
++    expires_at: Number.isFinite(expires) ? new Date(expires).toISOString() : view.native.expires_at,
++    stage_scope: scope, operations: view.stages.flatMap(stage => stage.operations.map(operation => wireOperation({
++      id: operation.id, stageId: operation.stage_id, ...(operation.action ? { action: operation.action } : {}),
++      kind: operation.kind, resourceId: operation.resource_id, risk: operation.risk, gateIds: operation.gate_ids,
++      preconditions: operation.preconditions, sideEffects: operation.side_effects, timeoutSec: operation.timeout_sec, retryable: operation.retryable
++    }))) };
++}
+diff --git a/setup/src/core/plan.ts b/setup/src/core/plan.ts
+index 3c9ab7a..21a235a 100644
+--- a/setup/src/core/plan.ts
++++ b/setup/src/core/plan.ts
+@@ -3,6 +3,7 @@ import path from "node:path";
+ import { type FilesystemAdapter } from "../adapters/filesystem";
+ import {
+   ExitCode,
++  type ExecutionPlan,
+   type InstallerPlan,
+   type SetupConfig,
+   type StageId,
+@@ -12,6 +13,9 @@ import {
+ } from "./types";
+ import { setupError } from "./errors";
+ import { hashConfig, stableStringify, type Clock } from "./config";
++import { decodePlan, nativePlanHash, wireOperation, canonicalHash } from "./plan-format";
++import { type StaticPlanContext } from "./plan-context";
++import { projectedObservationHash } from "./policy";
+ import { validateContractSchema } from "./validators";
+ 
+ export interface StageRegistry {
+@@ -71,9 +75,10 @@ export function buildStageClosure(registry: StageRegistry, stageIds: StageId[]):
+   return resolved;
+ }
+ 
+-function mapOperation(operation: StageOperation): InstallerPlan["stages"][number]["operations"][number] {
++function mapOperation(operation: StageOperation): ExecutionPlan["stages"][number]["operations"][number] {
+   return {
+     id: operation.id,
++    ...(operation.action ? { action: operation.action } : {}),
+     stage_id: operation.stageId,
+     kind: operation.kind,
+     resource_id: operation.resourceId,
+@@ -86,7 +91,7 @@ function mapOperation(operation: StageOperation): InstallerPlan["stages"][number
+   };
+ }
+ 
+-function planHashFromPlan(plan: Omit<InstallerPlan, "plan_hash">): string {
++function planHashFromPlan(plan: Omit<ExecutionPlan, "plan_hash">): string {
+   return createHash("sha256").update(stableStringify(plan)).digest("hex");
+ }
+ 
+@@ -97,12 +102,13 @@ export async function createPlanFile(
+   stageTarget: StageId | null,
+   clock: Clock,
+   completedOperationReceipts: import("./types").StageReceipt[] = [],
+-  progressContexts: ReadonlyMap<StageId, import("./types").StageContext> = new Map()
+-): Promise<{ plan: InstallerPlan; planPath: string; stageClosure: StageId[]; observations: Map<StageId, import("./types").StageObservation> }> {
++  progressContexts: ReadonlyMap<StageId, import("./types").StageContext> = new Map(),
++  context?: StaticPlanContext
++): Promise<{ plan: ExecutionPlan; planPath: string; stageClosure: StageId[]; observations: Map<StageId, import("./types").StageObservation> }> {
+   const stageIds = stageTarget === null ? config.selected_stages : [stageTarget];
+   const closure = buildStageClosure(registry, stageIds);
+ 
+-  const stagePlans: InstallerPlan["stages"] = [];
++  const stagePlans: ExecutionPlan["stages"] = [];
+   const observations = new Map<StageId, import("./types").StageObservation>();
+   for (const stageId of closure) {
+     const stage = registry.byId.get(stageId);
+@@ -136,31 +142,40 @@ export async function createPlanFile(
+     });
+   }
+ 
+-  const basePlan: Omit<InstallerPlan, "plan_hash"> = {
+-    schema_version: 1,
+-    contract_version: "1.0.0",
+-    installation_id: config.installation_id,
+-    desired_hash: hashConfig(config),
+-    created_at: clock.now().toISOString(),
+-    stages: stagePlans
+-  };
+-  const plan: InstallerPlan = {
+-    ...basePlan,
+-    plan_hash: planHashFromPlan(basePlan)
++  if (!context) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "plan_context_required",
++    publicMessage: "Plan production requires checked host/session/artifact context.", nextAction: "Generate the plan through ordinary-owner engine admission." });
++  const generated_at = clock.now().toISOString();
++  const native: InstallerPlan = {
++    schema_version: 1, contract_version: "1.0.0", installation_id: config.installation_id,
++    ...context, generated_at, expires_at: new Date(Date.parse(generated_at) + 30 * 60_000).toISOString(),
++    desired_hash: hashConfig(config), observations_hash: canonicalHash(closure.map(id => ({ stage: id,
++      fingerprint: projectedObservationHash(registry.byId.get(id)!, config, observations.get(id)!) }))),
++    target: { mode: stageTarget === null ? "selected" : "explicit", stage_id: stageTarget },
++    stage_scope: stagePlans.map(stage => ({ stage_id: stage.stage_id, optional: stage.optional,
++      required_capabilities: stage.required_capabilities, requires_gates: stage.required_gates })),
++    operations: closure.flatMap(id => registry.byId.get(id)!.plan(config, observations.get(id)!).operations.map(wireOperation)),
++    plan_hash: ""
+   };
++  native.plan_hash = nativePlanHash(native);
++  const plan = decodePlan(native);
+ 
+   const planPath = path.join(config.paths.setup_state_dir, "plan.json");
+-  await fsAdapter.writeText(planPath, `${JSON.stringify(plan, null, 2)}\n`, 0o600);
++  await fsAdapter.writeText(planPath, `${JSON.stringify(native, null, 2)}\n`, 0o600);
+   await fsAdapter.fsyncFile(planPath);
+   await fsAdapter.fsyncDir(path.dirname(planPath));
+   return { plan, planPath, stageClosure: closure, observations };
+ }
+ 
+-export async function loadPlan(fsAdapter: FilesystemAdapter, planPath: string): Promise<InstallerPlan> {
+-  const raw = await fsAdapter.readText(planPath);
++export async function loadPlan(fsAdapter: FilesystemAdapter, planPath: string): Promise<ExecutionPlan> {
++  const bounded = await fsAdapter.readTextBounded(planPath, 1024 * 1024);
++  if (bounded.truncated || bounded.text.includes("\0") || bounded.text.includes("\ufffd")) throw setupError({ exitCode: ExitCode.CliOrSchemaError,
++    code: "plan_input_invalid", publicMessage: "Execution plan exceeds bounded valid UTF-8 input.", nextAction: "Generate a fresh reviewed plan." });
++  const raw = bounded.text;
+   let parsed: unknown;
+   try { parsed = JSON.parse(raw); } catch { throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"plan_json_invalid",
+     publicMessage:"Submitted plan is not valid JSON.",nextAction:"Generate a valid reviewed plan."}); }
++  if (parsed && typeof parsed === "object" && "created_at" in parsed) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired,
++    code: "legacy_plan_review_required", publicMessage: "Historical plan format cannot authorize effects.", nextAction: "Generate and approve an explicit fresh C13 plan; preserve historical progress evidence." });
+   const validation = validateContractSchema("plan", parsed);
+   if (!validation.ok) {
+     throw setupError({
+@@ -170,10 +185,10 @@ export async function loadPlan(fsAdapter: FilesystemAdapter, planPath: string):
+       nextAction: "Regenerate the plan with 'factory-setup plan'."
+     });
+   }
+-  return parsed as InstallerPlan;
++  return decodePlan(parsed as InstallerPlan);
+ }
+ 
+-export function validatePlanConsistency(config: SetupConfig, plan: InstallerPlan): void {
++export function validatePlanConsistency(config: SetupConfig, plan: ExecutionPlan): void {
+   if (plan.installation_id !== config.installation_id) {
+     throw setupError({
+       exitCode: ExitCode.DriftOrRecoveryRequired,
+@@ -201,39 +216,46 @@ export function validatePlanConsistency(config: SetupConfig, plan: InstallerPlan
+     });
+   }
+ 
+-  const basePlan: Omit<InstallerPlan, "plan_hash"> = {
+-    schema_version: plan.schema_version,
+-    contract_version: plan.contract_version,
+-    installation_id: plan.installation_id,
+-    desired_hash: plan.desired_hash,
+-    created_at: plan.created_at,
+-    stages: plan.stages
+-  };
+-  const expected = planHashFromPlan(basePlan);
+-  if (expected !== plan.plan_hash) {
+-    throw setupError({
+-      exitCode: ExitCode.CliOrSchemaError,
+-      code: "plan_hash_invalid",
+-      publicMessage: "Plan hash does not match plan content.",
+-      nextAction: "Regenerate the plan and avoid manual plan edits."
+-    });
++  const native = plan.native;
++  if (!native) throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "legacy_plan_review_required",
++    publicMessage: "A strict C13 execution document is required.", nextAction: "Explicitly generate and review a fresh plan." });
++  const stageIds = native.stage_scope.map(stage => stage.stage_id);
++  const ids = native.operations.map(operation => operation.operation_id);
++  const ordered = stageIds.flatMap(id => native.operations.filter(operation => operation.stage_id === id).map(operation => operation.operation_id));
++  const normalized = plan.stages.flatMap(stage => stage.operations.map(operation => wireOperation({
++    id: operation.id, stageId: operation.stage_id, ...(operation.action ? { action: operation.action } : {}), kind: operation.kind,
++    resourceId: operation.resource_id, risk: operation.risk, gateIds: operation.gate_ids, preconditions: operation.preconditions,
++    sideEffects: operation.side_effects, timeoutSec: operation.timeout_sec, retryable: operation.retryable
++  })));
++  if (new Set(stageIds).size !== stageIds.length || new Set(ids).size !== ids.length
++    || stableStringify(ordered) !== stableStringify(ids) || stableStringify(normalized) !== stableStringify(native.operations)
++    || (native.target.mode === "selected" ? native.target.stage_id !== null : native.target.stage_id === null)) {
++    throw setupError({ exitCode: ExitCode.CliOrSchemaError, code: "plan_operation_semantics_invalid",
++      publicMessage: "C13 operation identity, order, expected conditions or target is inconsistent.", nextAction: "Generate a new trusted producer plan." });
+   }
++  if (nativePlanHash(native) !== plan.plan_hash) throw setupError({ exitCode: ExitCode.CliOrSchemaError, code: "plan_hash_invalid",
++    publicMessage: "Plan hash does not match the complete canonical C13 document.", nextAction: "Regenerate and review the exact plan bytes." });
+ }
+ 
+-/** Current format uses planner-produced UTC milliseconds; C13 serialization is R2.2. */
+-export function assertPlanTime(plan: InstallerPlan, clock: Clock): void {
+-  const value = plan.created_at;
++/** C13 canonical UTC timestamps; the internal created_at alias is never a wire execution field. */
++export function assertPlanTime(plan: ExecutionPlan, clock: Clock): void {
++  const value = plan.native?.generated_at ?? plan.created_at;
+   const created = Date.parse(value), now = clock.now().getTime();
+   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) || !Number.isFinite(created)
+     || new Date(created).toISOString() !== value) throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"plan_time_invalid",
+       publicMessage:"Plan created_at must be a real canonical ISO UTC millisecond timestamp.",nextAction:"Generate and review a new plan."});
++  const expiry = plan.native?.expires_at;
++  if (expiry !== undefined && (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(expiry) || !Number.isFinite(Date.parse(expiry))
++    || new Date(Date.parse(expiry)).toISOString() !== expiry || Date.parse(expiry) !== created + 30 * 60_000)) {
++    throw setupError({ exitCode: ExitCode.CliOrSchemaError, code: "plan_time_invalid", publicMessage: "C13 expiry must be exactly30minutes after canonical generation.", nextAction: "Generate a fresh plan." });
++  }
+   if (!Number.isFinite(now) || created > now) throw setupError({exitCode:ExitCode.DriftOrRecoveryRequired,code:"plan_from_future",
+     publicMessage:"Plan creation is later than the injected current time.",nextAction:"Reconcile the clock and generate/review a new plan."});
+   if (now >= created + 30 * 60_000) throw setupError({exitCode:ExitCode.ManualActionRequired,code:"plan_expired",
+     publicMessage:"Plan is at least 30 minutes old and cannot authorize another action.",nextAction:"Generate/review a new plan and approve its required gates."});
+ }
+ 
+-export function serializeStagePlan(plan: StagePlan): InstallerPlan["stages"][number] {
++export function serializeStagePlan(plan: StagePlan): ExecutionPlan["stages"][number] {
+   return {stage_id:plan.stageId,optional:plan.optional,required_capabilities:plan.requiredCapabilities,
+     required_gates:plan.requiredGates,operations:plan.operations.map(mapOperation)};
+ }
+diff --git a/setup/src/core/policy.ts b/setup/src/core/policy.ts
+index cf11371..f00a7e0 100644
+--- a/setup/src/core/policy.ts
++++ b/setup/src/core/policy.ts
+@@ -1,7 +1,7 @@
+ import { createHash } from "node:crypto";
+ import { stableStringify } from "./config";
+ import { setupError } from "./errors";
+-import { OPERATION_KINDS, OPERATION_RISK_LEVELS, ExitCode, type InstallerPlan, type SetupConfig, type SetupState, type StageModule, type StageObservation, type StageContext, type StageOperation } from "./types";
++import { ADAPTER_ACTIONS, OPERATION_KINDS, OPERATION_RISK_LEVELS, ExitCode, type ExecutionPlan, type SetupConfig, type SetupState, type StageModule, type StageObservation, type StageContext, type StageOperation } from "./types";
+ import { serializeStagePlan } from "./plan";
+ 
+ /** Core-owned, schema-validated internal metadata in existing versions storage, not a sidecar. */
+@@ -32,7 +32,9 @@ function validateProgressRecord(value: unknown, stage: StageModule): PublishedOp
+     || typeof entry.receiptHash !== "string" || !/^[0-9a-f]{64}$/.test(entry.receiptHash)) throw Error("publication binding");
+   if (entry.operation === null || typeof entry.operation !== "object" || Array.isArray(entry.operation)) throw Error("operation shape");
+   const op = entry.operation as Record<string, unknown>;
+-  if (Object.keys(op).sort().join(",") !== "gateIds,id,kind,preconditions,resourceId,retryable,risk,sideEffects,stageId,timeoutSec"
++  const operationFields = "gateIds,id,kind,preconditions,resourceId,retryable,risk,sideEffects,stageId,timeoutSec";
++  if (Object.keys(op).sort().join(",") !== (op.action === undefined ? operationFields : "action," + operationFields)
++    || (op.action !== undefined && !ADAPTER_ACTIONS.some(action => action === op.action))
+     || typeof op.id !== "string" || op.id.length === 0 || op.stageId !== stage.id
+     || typeof op.resourceId !== "string" || op.resourceId.length === 0
+     || !OPERATION_KINDS.some(kind => kind === op.kind) || !OPERATION_RISK_LEVELS.some(risk => risk === op.risk)
+@@ -50,6 +52,11 @@ export function policyFingerprint(stage: StageModule, config: SetupConfig, obser
+     : {status:observed.status,policy:serializeStagePlan(stage.plan(config, observed))};
+   return createHash("sha256").update(stableStringify(view)).digest("hex");
+ }
++/** Review identity projects producer-defined security facts, not an incidental status label. */
++export function projectedObservationHash(stage: StageModule, config: SetupConfig, observed: StageObservation): string {
++  const projection = stage.policyInputs ? stage.policyInputs(observed) : serializeStagePlan(stage.plan(config, observed));
++  return createHash("sha256").update(stableStringify(projection)).digest("hex");
++}
+ export function readPolicyBasis(state: SetupState, stage: StageModule): PolicyBasis | null {
+   const raw = state.stages.find(s => s.id === stage.id)?.versions[POLICY_BASIS_KEY];
+   if (raw === undefined) return null;
+@@ -82,7 +89,7 @@ export function withPolicyBasis(state: SetupState, stage: StageModule, basis: Po
+   const raw=JSON.stringify(basis);if(Buffer.byteLength(raw)>64*1024)refuse("Policy observation exceeds bounded internal metadata.");
+   return {...state,stages:state.stages.map(s=>s.id===stage.id?{...s,versions:{...s.versions,[POLICY_BASIS_KEY]:raw}}:s)};
+ }
+-export function assertProducerPolicy(stage: StageModule, config: SetupConfig, submitted: InstallerPlan["stages"][number], source: StageObservation): void {
++export function assertProducerPolicy(stage: StageModule, config: SetupConfig, submitted: ExecutionPlan["stages"][number], source: StageObservation): void {
+   const canonical=serializeStagePlan(stage.plan(config,source));
+   if (canonical.stage_id!==stage.id || canonical.optional!==stage.optional || stableStringify(canonical)!==stableStringify(submitted)) refuse(`Stage ${stage.id} plan differs from its trusted producer policy.`);
+   const ids=submitted.operations.map(o=>o.id);
+diff --git a/setup/src/core/progress.ts b/setup/src/core/progress.ts
+index cc607d4..577ce60 100644
+--- a/setup/src/core/progress.ts
++++ b/setup/src/core/progress.ts
+@@ -3,10 +3,11 @@ import { stableStringify, hashConfig } from "./config";
+ import { setupError } from "./errors";
+ import { type FilesystemAdapter } from "../adapters/filesystem";
+ import { inspectJournalEvidence, readStateCommitManifest, receiptHash } from "./state";
++import { canonicalHash, decodePlan } from "./plan-format";
+ import { serializeStagePlan, validatePlanConsistency } from "./plan";
+ import { validateContractSchema } from "./validators";
+ import { type PolicyBasis, type PublishedOperation, policyReceipts } from "./policy";
+-import { ExitCode, type InstallerPlan, type StageContext, type StageModule, type StageOperation, type StagePlan } from "./types";
++import { ExitCode, type ExecutionPlan, type StageContext, type StageModule, type StageOperation, type StagePlan } from "./types";
+ 
+ function blocked(stage: StageModule, message: string): never {
+   throw setupError({
+@@ -20,7 +21,14 @@ function blocked(stage: StageModule, message: string): never {
+ 
+ function sameOperation(stage: StageModule, ctx: StageContext, reviewed: StagePlan, current: StageOperation, expected: StageOperation): boolean {
+   const identity = stage.reconcilePolicyOperation?.(ctx, reviewed, current);
+-  return stableStringify(identity ? { ...current, ...identity } : current) === stableStringify(expected);
++  const normalized = identity ? { ...current, ...identity } : current;
++  // Legacy wire/internal operations did not carry action. Full non-action policy
++  // must still match; the current trusted producer supplies the closed action.
++  if (expected.action === undefined) {
++    const { action: _newAction, ...legacy } = normalized;
++    return stableStringify(legacy) === stableStringify(expected);
++  }
++  return stableStringify(normalized) === stableStringify(expected);
+ }
+ 
+ /** Only called after ordinary state/generation/journal/manifest admission under the lock. */
+@@ -52,14 +60,23 @@ export async function restoreOperationProgress(
+     try {
+       const file = await fs.readTextBounded(path.join(ctx.config.paths.setup_state_dir, "plan.json"), 1024 * 1024);
+       const parsed: unknown = JSON.parse(file.text);
+-      if (file.truncated || !validateContractSchema("plan", parsed).ok) throw Error("unsupported legacy plan");
+-      const plan = parsed as InstallerPlan;
+-      validatePlanConsistency(ctx.config, plan);
+-      const old = plan.stages.find(item => item.stage_id === stage.id);
+-      if (plan.plan_hash !== basis.planHash || !old
+-        || stableStringify(old) !== stableStringify(serializeStagePlan(stage.plan(ctx.config, basis.source)))) {
+-        throw Error("legacy policy changed");
+-      }
++      if (file.truncated || file.text.includes("\0") || file.text.includes("\ufffd")) throw Error("invalid historical input");
++      let old;
++      let planHash: string;
++      if (validateContractSchema("legacy-plan", parsed).ok) {
++        const plan = parsed as import("./types").ExecutionPlan;
++        const { plan_hash, ...payload } = plan;
++        if (canonicalHash(payload) !== plan_hash || plan.desired_hash !== basis.configHash || plan.installation_id !== ctx.installationId) throw Error("legacy plan binding");
++        old = plan.stages.find(item => item.stage_id === stage.id); planHash = plan_hash;
++      } else if (validateContractSchema("plan", parsed).ok) {
++        const plan = decodePlan(parsed as import("./types").InstallerPlan);
++        validatePlanConsistency(ctx.config, plan);
++        old = plan.stages.find(item => item.stage_id === stage.id); planHash = plan.plan_hash;
++      } else throw Error("historical schema");
++      const canonical = serializeStagePlan(stage.plan(ctx.config, basis.source));
++      const historical = old?.operations.some(operation => operation.action === undefined)
++        ? { ...canonical, operations: canonical.operations.map(operation => { const { action, ...legacy } = operation; return legacy; }) } : canonical;
++      if (planHash !== basis.planHash || !old || stableStringify(old) !== stableStringify(historical)) throw Error("legacy policy changed");
+     } catch {
+       blocked(stage, "Legacy completion needs its exact bound reviewed plan and unchanged producer policy.");
+     }
+diff --git a/setup/src/core/state.ts b/setup/src/core/state.ts
+index 2be756d..7034814 100644
+--- a/setup/src/core/state.ts
++++ b/setup/src/core/state.ts
+@@ -1,5 +1,6 @@
+ import { createHash, randomUUID } from "node:crypto";
+ import path from "node:path";
++import { REVIEW_KEY } from "./plan-context";
+ import { type FilesystemAdapter } from "../adapters/filesystem";
+ import { type ProcessAdapter } from "../adapters/process";
+ import { ExitCode, STAGE_IDS, type SetupConfig, type SetupState, type StageId, type StageObservation, type StageStatus, type StageReceipt } from "./types";
+@@ -1672,7 +1673,7 @@ export function updateObservedStage(
+   observation: StageObservation,
+   status: StageStatus
+ ): SetupState {
+-  const { [POLICY_BASIS_KEY]: _stageSuppliedPolicy, ...versions } = observation.versions;
++  const { [POLICY_BASIS_KEY]: _stageSuppliedPolicy, [REVIEW_KEY]: _stageSuppliedReview, ...versions } = observation.versions;
+   return {
+     ...state,
+     stages: state.stages.map((stage) =>
+@@ -1682,7 +1683,7 @@ export function updateObservedStage(
+             status,
+             observed_at: observation.observedAt,
+             checks: observation.checks,
+-            versions: { ...versions, ...(stage.versions[POLICY_BASIS_KEY] === undefined ? {} : { [POLICY_BASIS_KEY]: stage.versions[POLICY_BASIS_KEY] }) }
++            versions: { ...versions, ...(stage.versions[REVIEW_KEY] === undefined ? {} : { [REVIEW_KEY]: stage.versions[REVIEW_KEY] }), ...(stage.versions[POLICY_BASIS_KEY] === undefined ? {} : { [POLICY_BASIS_KEY]: stage.versions[POLICY_BASIS_KEY] }) }
+           }
+         : stage
+     )
+diff --git a/setup/src/core/types.ts b/setup/src/core/types.ts
+index 6caa046..cb652cd 100644
+--- a/setup/src/core/types.ts
++++ b/setup/src/core/types.ts
+@@ -78,6 +78,8 @@ export enum ExitCode {
+ }
+ 
+ export interface StageOperation {
++  /** Concrete trusted adapter action; legacy historical snapshots may omit it. */
++  action?: AdapterAction;
+   id: string;
+   stageId: StageId;
+   kind: OperationKind;
+@@ -273,7 +275,30 @@ export interface SetupState {
+   } | null;
+ }
+ 
++export const ADAPTER_ACTIONS = ["host.observe", "host.verify", "apt.refresh", "apt.simulate", "apt.install", "access.install", "access.stage", "access.arm", "access.cutover", "access.tailnet", "access.disarm", "docker.install", "docker.group", "docker.configure", "docker.restart", "docker.probe", "docker.mark", "release.extract", "release.materialize", "release.probe", "configuration.prepare", "verification.offline", "auth.explicit", "project.prepare", "service.prepare", "operations.backup", "inference.prepare", "platforms.prepare", "update.prepare", "fixture.counter"] as const;
++export type AdapterAction = typeof ADAPTER_ACTIONS[number];
++
++export interface PlanOwnerSession { uid: number; owner: string; boot_id: string; login_session_hash: string }
++export interface PlanReleaseContext { applicable: boolean; declared_hash: string; artifact_hash: string | null }
++export interface PlanStageScope { stage_id: StageId; optional: boolean; required_capabilities: CapabilityName[]; requires_gates: string[] }
++export interface PlanOperation {
++  operation_id: string; stage_id: StageId; kind: AdapterAction; resources: string[];
++  expected_before_hashes: Record<string, string>; expected_after: { verifier: "operation-postconditions"; action: AdapterAction };
++  requires_gates: string[]; retry_policy: { retryable: boolean; timeout_sec: number };
++  estimated_effects: string[]; unknown_effects: string[]; risk: OperationRiskLevel;
++  constraints: string[]; execution_kind: OperationKind;
++}
+ export interface InstallerPlan {
++  schema_version: 1; contract_version: "1.0.0"; installation_id: string;
++  host_fingerprint: Omit<StateHostFingerprint, "boot_id">; owner_session: PlanOwnerSession;
++  generated_at: string; expires_at: string; desired_hash: string; version_lock_hash: string; observations_hash: string; plan_hash: string;
++  target: { mode: "selected" | "explicit"; stage_id: StageId | null };
++  stage_scope: PlanStageScope[]; release_context: PlanReleaseContext; operations: PlanOperation[];
++}
++
++/** Derived internal view. Never serialized as an execution document. */
++export interface ExecutionPlan {
++  native?: InstallerPlan;
+   schema_version: 1;
+   contract_version: "1.0.0";
+   installation_id: string;
+@@ -287,6 +312,7 @@ export interface InstallerPlan {
+     operations: Array<{
+       id: string;
+       stage_id: StageId;
++      action?: AdapterAction;
+       kind: OperationKind;
+       resource_id: string;
+       risk: OperationRiskLevel;
+diff --git a/setup/src/core/validators.ts b/setup/src/core/validators.ts
+index d99140e..3ceeec1 100644
+--- a/setup/src/core/validators.ts
++++ b/setup/src/core/validators.ts
+@@ -2,6 +2,7 @@ import { type ErrorObject, type ValidateFunction } from "ajv";
+ import Ajv2020 from "ajv/dist/2020";
+ import configSchema from "../../schemas/config.schema.json";
+ import stateSchema from "../../schemas/state.schema.json";
++import legacyPlanSchema from "../../schemas/legacy-plan.schema.json";
+ import planSchema from "../../schemas/plan.schema.json";
+ import installerReleaseSchema from "../../schemas/installer-release.schema.json";
+ import applicationManifestSchema from "../../schemas/application-manifest.schema.json";
+@@ -10,6 +11,7 @@ export type ContractSchemaName =
+   | "config"
+   | "state"
+   | "plan"
++  | "legacy-plan"
+   | "installer-release"
+   | "application-manifest";
+ 
+@@ -30,6 +32,7 @@ const schemaValidators: Record<ContractSchemaName, ValidateFunction> = {
+   config: ajv.compile(configSchema),
+   state: ajv.compile(stateSchema),
+   plan: ajv.compile(planSchema),
++  "legacy-plan": ajv.compile(legacyPlanSchema),
+   "installer-release": ajv.compile(installerReleaseSchema),
+   "application-manifest": ajv.compile(applicationManifestSchema)
+ };
+diff --git a/setup/src/stages/access.ts b/setup/src/stages/access.ts
+index 225730d..fd838b5 100644
+--- a/setup/src/stages/access.ts
++++ b/setup/src/stages/access.ts
+@@ -375,6 +375,7 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
+         {
+           id: operationPrefix("install-tailscale", observationHash),
+           stageId: "S03",
++          action: "access.install" as const,
+           kind: "mutate",
+           resourceId: "tailscale-package",
+           risk: "high",
+@@ -387,6 +388,7 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
+         {
+           id: operationPrefix("stage-sshd-firewall", observationHash),
+           stageId: "S03",
++          action: "access.stage" as const,
+           kind: "mutate",
+           resourceId: "access-managed-diff",
+           risk: "high",
+@@ -399,6 +401,7 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
+         {
+           id: operationPrefix("arm-rollback", observationHash),
+           stageId: "S03",
++          action: "access.arm" as const,
+           kind: "mutate",
+           resourceId: "access-rollback-timer",
+           risk: "critical",
+@@ -411,6 +414,7 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
+         {
+           id: operationPrefix("cutover", observationHash),
+           stageId: "S03",
++          action: "access.cutover" as const,
+           kind: "mutate",
+           resourceId: "ssh-firewall-cutover",
+           risk: "critical",
+@@ -423,6 +427,7 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
+         {
+           id: operationPrefix("verify-tailnet", observationHash),
+           stageId: "S03",
++          action: "access.tailnet" as const,
+           kind: "verify",
+           resourceId: "tailnet-connectivity",
+           risk: "critical",
+@@ -435,6 +440,7 @@ export function createAccessStage(accessAdapter: AccessAdapter): StageModule {
+         {
+           id: operationPrefix("disarm-rollback", observationHash),
+           stageId: "S03",
++          action: "access.disarm" as const,
+           kind: "mutate",
+           resourceId: "access-rollback-timer",
+           risk: "high",
+diff --git a/setup/src/stages/application.ts b/setup/src/stages/application.ts
+index 0b5d95c..83e557a 100644
+--- a/setup/src/stages/application.ts
++++ b/setup/src/stages/application.ts
+@@ -409,6 +409,7 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
+             {
+               id: `s05-extract-release-${config.release.source_commit.slice(0, 12)}`,
+               stageId: "S05",
++              action: "release.extract" as const,
+               kind: "mutate",
+               resourceId: "application-release-staging",
+               risk: "high",
+@@ -430,6 +431,7 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
+             {
+               id: `s05-materialize-checkout-${config.release.source_commit.slice(0, 12)}`,
+               stageId: "S05",
++              action: "release.materialize" as const,
+               kind: "mutate",
+               resourceId: "application-checkout",
+               risk: "high",
+@@ -450,6 +452,7 @@ export function createApplicationStage(adapter: ApplicationReleaseAdapter): Stag
+             {
+               id: `s05-probe-release-${config.release.source_commit.slice(0, 12)}`,
+               stageId: "S05",
++              action: "release.probe" as const,
+               kind: "observe",
+               resourceId: "application-release",
+               risk: "medium",
+diff --git a/setup/src/stages/auth.ts b/setup/src/stages/auth.ts
+index fd6ce65..3b5e0e4 100644
+--- a/setup/src/stages/auth.ts
++++ b/setup/src/stages/auth.ts
+@@ -824,6 +824,7 @@ export function createAuthStage(
+             {
+               id: `s08-auth-smoke-${config.installation_id.slice(0, 12)}`,
+               stageId: "S08",
++              action: "auth.explicit" as const,
+               kind: "manual_gate",
+               resourceId: "auth-and-live-smoke",
+               risk: "critical",
+diff --git a/setup/src/stages/configuration.ts b/setup/src/stages/configuration.ts
+index 71b899e..b6c3b1e 100644
+--- a/setup/src/stages/configuration.ts
++++ b/setup/src/stages/configuration.ts
+@@ -1230,6 +1230,7 @@ export function createConfigurationStage(
+             {
+               id: `s06-config-image-${config.installation_id.slice(0, 12)}`,
+               stageId: "S06",
++              action: "configuration.prepare" as const,
+               kind: "mutate",
+               resourceId: "configuration-and-pinned-image",
+               risk: "high",
+diff --git a/setup/src/stages/docker.ts b/setup/src/stages/docker.ts
+index a3eb7c2..aec3ea4 100644
+--- a/setup/src/stages/docker.ts
++++ b/setup/src/stages/docker.ts
+@@ -551,6 +551,7 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
+         {
+           id: operationId("install-packages", observationHash),
+           stageId: "S04",
++          action: "docker.install" as const,
+           kind: "mutate",
+           resourceId: "docker-package-set",
+           risk: "high",
+@@ -563,6 +564,7 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
+         {
+           id: operationId("docker-group-membership", observationHash),
+           stageId: "S04",
++          action: "docker.group" as const,
+           kind: "mutate",
+           resourceId: "docker-group-membership",
+           risk: "critical",
+@@ -575,6 +577,7 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
+         {
+           id: operationId("daemon-log-config-merge", observationHash),
+           stageId: "S04",
++          action: "docker.configure" as const,
+           kind: "mutate",
+           resourceId: "docker-daemon-log-config",
+           risk: "high",
+@@ -587,6 +590,7 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
+         {
+           id: operationId("daemon-validate-restart", observationHash),
+           stageId: "S04",
++          action: "docker.restart" as const,
+           kind: "mutate",
+           resourceId: "docker-daemon-service",
+           risk: "critical",
+@@ -599,6 +603,7 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
+         {
+           id: operationId("resource-probe", observationHash),
+           stageId: "S04",
++          action: "docker.probe" as const,
+           kind: "mutate",
+           resourceId: "docker-fixture-probe",
+           risk: "high",
+@@ -611,6 +616,7 @@ export function createDockerStage(dockerAdapter: DockerAdapter): StageModule {
+         {
+           id: operationId("mark-managed-installation", observationHash),
+           stageId: "S04",
++          action: "docker.mark" as const,
+           kind: "mutate",
+           resourceId: "docker-managed-installation",
+           risk: "medium",
+diff --git a/setup/src/stages/inference.ts b/setup/src/stages/inference.ts
+index 7034a29..49d9926 100644
+--- a/setup/src/stages/inference.ts
++++ b/setup/src/stages/inference.ts
+@@ -948,6 +948,7 @@ export function createInferenceStage(
+             {
+               id: `s12-inference-apply-${config.installation_id.slice(0, 12)}`,
+               stageId: "S12" as const,
++              action: "inference.prepare" as const,
+               kind: "mutate" as const,
+               resourceId: "s12-ollama-private-serving",
+               risk: "high" as const,
+diff --git a/setup/src/stages/operations.ts b/setup/src/stages/operations.ts
+index ee5bf7d..831b906 100644
+--- a/setup/src/stages/operations.ts
++++ b/setup/src/stages/operations.ts
+@@ -67,6 +67,7 @@ export function createOperationsStage(
+             {
+               id: `s11-backup-health-${config.installation_id.slice(0, 8)}`,
+               stageId: "S11" as const,
++              action: "operations.backup" as const,
+               kind: "mutate" as const,
+               resourceId: "operations-backup-health",
+               risk: "medium" as const,
+diff --git a/setup/src/stages/platforms.ts b/setup/src/stages/platforms.ts
+index 425b178..814d535 100644
+--- a/setup/src/stages/platforms.ts
++++ b/setup/src/stages/platforms.ts
+@@ -773,6 +773,7 @@ export function createPlatformsStage(fsAdapter: FilesystemAdapter): StageModule
+             {
+               id: `s13-platforms-${config.installation_id.slice(0, 12)}`,
+               stageId: "S13" as const,
++              action: "platforms.prepare" as const,
+               kind: "mutate" as const,
+               resourceId: "s13-platform-proposal",
+               risk: "medium" as const,
+diff --git a/setup/src/stages/preflight.ts b/setup/src/stages/preflight.ts
+index b19d192..73d08c5 100644
+--- a/setup/src/stages/preflight.ts
++++ b/setup/src/stages/preflight.ts
+@@ -149,6 +149,7 @@ export function createPreflightStage(probe: PreflightProbe): StageModule {
+           {
+             id: "s01-observe-host",
+             stageId: "S01",
++            action: "host.observe" as const,
+             kind: "observe",
+             resourceId: "host-preflight",
+             risk: "low",
+@@ -161,6 +162,7 @@ export function createPreflightStage(probe: PreflightProbe): StageModule {
+           {
+             id: "s01-verify-host",
+             stageId: "S01",
++            action: "host.verify" as const,
+             kind: "verify",
+             resourceId: "host-preflight",
+             risk: "low",
+diff --git a/setup/src/stages/project.ts b/setup/src/stages/project.ts
+index 89d0891..d36258c 100644
+--- a/setup/src/stages/project.ts
++++ b/setup/src/stages/project.ts
+@@ -675,6 +675,7 @@ export function createProjectStage(
+             {
+               id: `s09-project-${config.installation_id.slice(0, 12)}`,
+               stageId: "S09",
++              action: "project.prepare" as const,
+               kind: "mutate",
+               resourceId: "github-project-proposals",
+               risk: "medium",
+diff --git a/setup/src/stages/service.ts b/setup/src/stages/service.ts
+index 5635ca5..b996cd5 100644
+--- a/setup/src/stages/service.ts
++++ b/setup/src/stages/service.ts
+@@ -598,6 +598,7 @@ export function createServiceStage(
+             {
+               id: `s10-prepare-service-${config.release.source_commit.slice(0, 12)}`,
+               stageId: "S10",
++              action: "service.prepare" as const,
+               kind: "mutate",
+               resourceId: "service-layout-and-unit",
+               risk: "high",
+diff --git a/setup/src/stages/system.ts b/setup/src/stages/system.ts
+index bcfe2b7..571b9e4 100644
+--- a/setup/src/stages/system.ts
++++ b/setup/src/stages/system.ts
+@@ -242,6 +242,7 @@ export function createSystemStage(aptAdapter: AptAdapter): StageModule {
+         operations.push({
+           id: operationId("update", planned),
+           stageId: "S02" as const,
++          action: "apt.refresh" as const,
+           kind: "mutate" as const,
+           resourceId: "apt-metadata",
+           risk: "high" as const,
+@@ -257,6 +258,7 @@ export function createSystemStage(aptAdapter: AptAdapter): StageModule {
+           {
+             id: operationId("simulate", planned),
+             stageId: "S02" as const,
++            action: "apt.simulate" as const,
+             kind: "observe" as const,
+             resourceId: "apt-simulation",
+             risk: "low" as const,
+@@ -269,6 +271,7 @@ export function createSystemStage(aptAdapter: AptAdapter): StageModule {
+           {
+             id: operationId("install", planned),
+             stageId: "S02" as const,
++            action: "apt.install" as const,
+             kind: "mutate" as const,
+             resourceId: "system-packages",
+             risk: "high" as const,
+diff --git a/setup/src/stages/update.ts b/setup/src/stages/update.ts
+index c8a2cd4..2a5be23 100644
+--- a/setup/src/stages/update.ts
++++ b/setup/src/stages/update.ts
+@@ -77,6 +77,7 @@ export function createUpdateStage(
+             {
+               id: `s14-update-${config.installation_id.slice(0, 12)}`,
+               stageId: "S14" as const,
++              action: "update.prepare" as const,
+               kind: "mutate" as const,
+               resourceId: "s14-maintenance-update",
+               risk: "high" as const,
+diff --git a/setup/src/stages/verification.ts b/setup/src/stages/verification.ts
+index ef76155..3dd634f 100644
+--- a/setup/src/stages/verification.ts
++++ b/setup/src/stages/verification.ts
+@@ -275,6 +275,7 @@ export function createVerificationStage(
+             {
+               id: `s07-offline-verify-${config.installation_id.slice(0, 12)}`,
+               stageId: "S07",
++              action: "verification.offline" as const,
+               kind: "mutate",
+               resourceId: "runner-offline-verification",
+               risk: "medium",
+diff --git a/setup/tests/helpers/r14-engine.ts b/setup/tests/helpers/r14-engine.ts
+index c1ae192..47e0c7c 100644
+--- a/setup/tests/helpers/r14-engine.ts
++++ b/setup/tests/helpers/r14-engine.ts
+@@ -3,6 +3,7 @@ import os from "node:os";
+ import path from "node:path";
+ import { NodeFilesystemAdapter } from "../../src/adapters/filesystem";
+ import { type ProcessAdapter } from "../../src/adapters/process";
++import { fixtureContextFiles, parseFixturePlan } from "./r22-context";
+ import { initConfig } from "../../src/core/config";
+ import { SetupEngine } from "../../src/core/engine";
+ import { createRegistry } from "../../src/core/plan";
+@@ -10,6 +11,8 @@ import { type StageId, type StageModule, type SetupConfig } from "../../src/core
+ 
+ export const r14Clock = { now: () => new Date("2026-10-24T10:00:00Z") };
+ export const r14Process: ProcessAdapter = {
++  hostIdentity: async () => ({ os: "ubuntu-24.04", arch: "amd64" }),
++  loginSessionId: async () => "injected-fixture-login",
+   pid: () => process.pid, uid: () => 1000, username: () => "factory",
+   bootId: async () => "f324dcd7-4035-4430-ab39-ce31f9e396bf", machineIdHash: async () => "a".repeat(64),
+   processStartTicks: async () => 1, isPidAlive: () => true,
+@@ -22,7 +25,7 @@ export function r14Noop(id: StageId): StageModule {
+     apply: async () => [], verify: async () => [], recover: async () => [] };
+ }
+ export async function r14Fixture(stageId: StageId) {
+-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "af-r14-"));
++  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "af-r14-")));
+   const configPath = path.join(root, "config.json"), f = new NodeFilesystemAdapter();
+   const config = await initConfig(f, configPath, "supervised", "factory");
+   const paths: SetupConfig["paths"] = {
+@@ -33,13 +36,14 @@ export async function r14Fixture(stageId: StageId) {
+   };
+   config.paths = paths; config.secret_refs.auth_dir = paths.application_auth_dir;
+   config.release.archive_path = path.join(root, "release.tar"); config.version_lock_path = path.join(root, "versions.json");
+-  config.selected_stages = [stageId];
++  config.selected_stages = [stageId]; config.host.arch = "amd64";
++  await fixtureContextFiles(config, ["S05","S06","S07","S08","S09","S10","S11","S13","S14"].includes(stageId));
+   await fs.writeFile(configPath, JSON.stringify(config));
+   const engine = (stages: StageModule[]) => new SetupEngine({ fsAdapter: f, processAdapter: r14Process, clock: r14Clock }, createRegistry(stages));
+   const planAndApprove = async (e: SetupEngine) => {
+     const result = await e.run("plan", { configPath });
+     if (result.exitCode !== 0) throw new Error(JSON.stringify(result));
+-    const plan = JSON.parse(await fs.readFile(path.join(paths.setup_state_dir, "plan.json"), "utf8")) as import("../../src/core/types").InstallerPlan;
++    const plan = parseFixturePlan(await fs.readFile(path.join(paths.setup_state_dir, "plan.json"), "utf8"));
+     for (const id of new Set(plan.stages.flatMap(s => [...s.required_gates, ...s.operations.flatMap(o => o.gate_ids)]))) {
+       const approved = await e.run("gate-approve", { configPath, gateId: id, planHash: plan.plan_hash });
+       if (approved.exitCode !== 0) throw new Error(JSON.stringify(approved));
+diff --git a/setup/tests/helpers/r16-commands.ts b/setup/tests/helpers/r16-commands.ts
+index 4d0c2ae..c804a2a 100644
+--- a/setup/tests/helpers/r16-commands.ts
++++ b/setup/tests/helpers/r16-commands.ts
+@@ -54,7 +54,7 @@ export async function commandFixture(entry = "runner.cjs", options: { real?: boo
+   a.extractArchive = async (_config, target) => {a.extractCalls++; await writeFiles(path.join(target, "release"));};
+   a.materializeRelease = async () => {a.materializeCalls++; await writeFiles(x.config.paths.application_dir); a.checkout.exists = true; a.checkout.deployedSourceCommit = x.config.release.source_commit;};
+   const dependent = r14Noop("S06"); dependent.dependencies = ["S05"];
+-  dependent.plan = () => ({stageId: "S06", optional: false, requiredCapabilities: [], requiredGates: [], operations: [{id:"r16-dependent",stageId:"S06",kind:"mutate",resourceId:"r16-downstream",risk:"low",gateIds:[],preconditions:[],sideEffects:["fixture trap"],timeoutSec:1,retryable:false}]});
++  dependent.plan = () => ({stageId: "S06", optional: false, requiredCapabilities: [], requiredGates: [], operations: [{ action: "fixture.counter" as const,id:"r16-dependent",stageId:"S06", kind:"mutate",resourceId:"r16-downstream",risk:"low",gateIds:[],preconditions:[],sideEffects:["fixture trap"],timeoutSec:1,retryable:false}]});
+   dependent.apply = async () => {downstream++; throw Error("Forbidden downstream effect");};
+   const makeEngine = () => new SetupEngine({fsAdapter:x.f,processAdapter:r14Process,clock:r14Clock}, createRegistry([r14Noop("S04"),createApplicationStage(a),...(options.downstream ? [dependent] : [])]));
+   return {x, a, node, pinned, files, body, invocations, makeEngine, stage: () => createApplicationStage(a),
+diff --git a/setup/tests/helpers/r21-admission.ts b/setup/tests/helpers/r21-admission.ts
+index 29bf236..934a7b8 100644
+--- a/setup/tests/helpers/r21-admission.ts
++++ b/setup/tests/helpers/r21-admission.ts
+@@ -1,3 +1,4 @@
++import { parseFixturePlan, stringifyFixturePlan, rehashFixturePlan } from "./r22-context";
+ import fs from "node:fs/promises";
+ import path from "node:path";
+ import { createHash } from "node:crypto";
+@@ -6,7 +7,7 @@ import { SetupEngine } from "../../src/core/engine";
+ import { createRegistry } from "../../src/core/plan";
+ import { stableStringify } from "../../src/core/config";
+ import { createSystemStage } from "../../src/stages/system";
+-import { type InstallerPlan } from "../../src/core/types";
++import { type ExecutionPlan } from "../../src/core/types";
+ export async function aptFixture() {
+   const x = await r14Fixture("S02"), counts = {refresh:0,simulate:0,install:0};
+   let candidate = "1.0.0", fresh = false, installed = false, now = Date.parse("2026-10-25T10:00:00.000Z");
+@@ -17,7 +18,7 @@ export async function aptFixture() {
+   const make = () => new SetupEngine({fsAdapter:x.f,processAdapter:r14Process,clock},createRegistry([r14Noop("S01"),createSystemStage(apt)]));
+   return {x,counts,clock,apt,make,candidate:(value:string)=>{candidate=value;},advance:(ms:number)=>{now+=ms;}};
+ }
+-export function rehash(plan: InstallerPlan) {const {plan_hash,...payload}=plan;plan.plan_hash=createHash("sha256").update(stableStringify(payload)).digest("hex");}
++export const rehash = rehashFixturePlan;
+ 
+ export async function evidence(config: import("../../src/core/types").SetupConfig) {
+   const result: Record<string,string|null> = {};
+@@ -27,15 +28,15 @@ export async function evidence(config: import("../../src/core/types").SetupConfi
+   }
+   return result;
+ }
+-export async function readPlan(x: Awaited<ReturnType<typeof r14Fixture>>) {return JSON.parse(await fs.readFile(x.applyOptions.planPath,"utf8")) as InstallerPlan;}
+-export async function writePlan(x: Awaited<ReturnType<typeof r14Fixture>>, p:InstallerPlan) {rehash(p);await fs.writeFile(x.applyOptions.planPath,JSON.stringify(p));}
++export async function readPlan(x: Awaited<ReturnType<typeof r14Fixture>>) {return parseFixturePlan(await fs.readFile(x.applyOptions.planPath,"utf8"));}
++export async function writePlan(x: Awaited<ReturnType<typeof r14Fixture>>, p:ExecutionPlan) {rehash(p);await fs.writeFile(x.applyOptions.planPath,stringifyFixturePlan(p));}
+ 
+ /** Explicitly synthetic gate-free resource producer, with durable checkpoints and injected time. */
+ export async function counterFixture(operations=1) {
+   const q=await aptFixture();const counts=Array.from({length:operations},()=>0);let revision="reviewed";
+   const stage=r14Noop("S02");stage.dependencies=["S01"];
+   stage.observe=async()=>({stageId:"S02",status:counts.every(n=>n>0)?"verified":"planned",checks:{revision},versions:{},observedAt:q.clock.now().toISOString()});
+-  stage.plan=(_desired,obs)=>({stageId:"S02",optional:false,requiredCapabilities:[],requiredGates:[],operations:counts.map((_n,index)=>({id:`owned-${index}`,stageId:"S02",kind:"mutate",resourceId:`counter-${index}`,risk:"low",gateIds:[],preconditions:[`revision:${obs.checks.revision}`],sideEffects:["owned in-memory counter"],timeoutSec:1,retryable:false}))});
++  stage.plan=(_desired,obs)=>({stageId:"S02",optional:false,requiredCapabilities:[],requiredGates:[],operations:counts.map((_n,index)=>({ action: "fixture.counter" as const,id:`owned-${index}`,stageId:"S02", kind:"mutate",resourceId:`counter-${index}`,risk:"low",gateIds:[],preconditions:[`revision:${obs.checks.revision}`],sideEffects:["owned in-memory counter"],timeoutSec:1,retryable:false}))});
+   stage.apply=async(_ctx,p)=>{const op=p.operations[0]!;counts[Number(op.id.slice(6))]!++;return [{operationId:op.id,stageId:"S02",resourceId:op.resourceId,observedAt:q.clock.now().toISOString(),checks:{done:true},versions:{},artifacts:[]}];};
+   stage.verifyOperation=async(_ctx,r)=>{if(counts[Number(r.operationId.slice(6))]!==1)throw Error("Counter postcondition failed");};
+   const make=()=>new SetupEngine({fsAdapter:q.x.f,processAdapter:r14Process,clock:q.clock},createRegistry([r14Noop("S01"),stage]));
+diff --git a/setup/tests/helpers/r21-worker.cjs b/setup/tests/helpers/r21-worker.cjs
+index b274265..99e19ec 100644
+--- a/setup/tests/helpers/r21-worker.cjs
++++ b/setup/tests/helpers/r21-worker.cjs
+@@ -12,7 +12,7 @@ const {r14Noop,r14Process} = require(path.join(dist,'tests/helpers/r14-engine.js
+  const e=new SetupEngine({fsAdapter:new NodeFilesystemAdapter(),processAdapter:r14Process,clock:{now:()=>new Date('2026-10-25T10:00:00.000Z')}},createRegistry([r14Noop('S01'),createSystemStage(apt)]));
+  const config=JSON.parse(await fs.readFile(configPath,'utf8')),planPath=path.join(config.paths.setup_state_dir,'plan.json');let result;
+  if(mode==='approve'){
+-  const p=JSON.parse(await fs.readFile(planPath,'utf8'));const gates=[...new Set(p.stages.flatMap(s=>s.required_gates))];
++  const p=JSON.parse(await fs.readFile(planPath,'utf8'));const gates=[...new Set(p.stage_scope.flatMap(s=>s.requires_gates))];
+   for(const gateId of gates){result=await e.run('gate-approve',{configPath,gateId,planHash:p.plan_hash});if(result.exitCode!==0)throw Error(JSON.stringify(result));}
+   result={exitCode:0,gates};
+  }else result=await e.run(mode,{configPath,...(mode==='apply'?{planPath,nonInteractive:true}:{})});
+diff --git a/setup/tests/helpers/r211-access.ts b/setup/tests/helpers/r211-access.ts
+index 949672b..06ff624 100644
+--- a/setup/tests/helpers/r211-access.ts
++++ b/setup/tests/helpers/r211-access.ts
+@@ -26,7 +26,7 @@ export async function accessFixture() {
+ }
+ export function accessEngine(root: string, config: SetupConfig, options: {
+   pause?: Phase; now?: () => Date; fs?: FilesystemAdapter; afterEffect?: (phase: Phase) => Promise<void>;
+-  unsafeCutover?: "ownership" | "content"; stagePolicy?: (stage: StageModule) => void;
++  process?: import("../../src/adapters/process").ProcessAdapter; unsafeCutover?: "ownership" | "content"; stagePolicy?: (stage: StageModule) => void;
+ } = {}) {
+   const f = options.fs ?? new NodeFilesystemAdapter();
+   let cancelled = false;
+@@ -56,7 +56,7 @@ export function accessEngine(root: string, config: SetupConfig, options: {
+       return { ok: true, details: "fake rollback" };
+     }
+   };
+-  const proc = { ...r14Process, isPidAlive: (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } } };
++  const proc = { ...r14Process, ...options.process, isPidAlive: (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } } };
+   const stage = createAccessStage(adapter);
+   options.stagePolicy?.(stage);
+   return new SetupEngine({ fsAdapter: f, processAdapter: proc, clock: { now: options.now ?? (() => new Date("2026-10-26T10:00:00.000Z")) } },
+diff --git a/setup/tests/helpers/r211-child.ts b/setup/tests/helpers/r211-child.ts
+index 5241024..9b69581 100644
+--- a/setup/tests/helpers/r211-child.ts
++++ b/setup/tests/helpers/r211-child.ts
+@@ -1,9 +1,10 @@
+ // Owned subprocess fixture: disk facts persist across all engine and process instances.
++import { parseFixturePlan } from "./r22-context";
+ import fs from "node:fs/promises";
+ import path from "node:path";
+ import { NodeFilesystemAdapter } from "../../src/adapters/filesystem";
+ import { accessEngine, type Phase } from "./r211-access";
+-import { type SetupConfig, type InstallerPlan } from "../../src/core/types";
++import { type SetupConfig, type ExecutionPlan } from "../../src/core/types";
+ 
+ async function main() {
+   const [root, command, pause, barrier] = process.argv.slice(2);
+@@ -50,7 +51,7 @@ async function main() {
+     { configPath, ...(command === "apply" ? { planPath: path.join(config.paths.setup_state_dir, "plan.json") } : {}),
+       ...(command === "unlock" ? { lockOnly: true } : {}) });
+   if (command === "review" && result.exitCode === 0) {
+-    const p = JSON.parse(await fs.readFile(path.join(config.paths.setup_state_dir, "plan.json"), "utf8")) as InstallerPlan;
++    const p = parseFixturePlan(await fs.readFile(path.join(config.paths.setup_state_dir, "plan.json"), "utf8"));
+     for (const id of new Set(p.stages.flatMap(s => s.required_gates))) {
+       const approved = await engine.run("gate-approve", { configPath, gateId: id, planHash: p.plan_hash });
+       if (approved.exitCode !== 0) throw Error(JSON.stringify(approved));
+diff --git a/setup/tests/helpers/r22-context.ts b/setup/tests/helpers/r22-context.ts
+new file mode 100644
+index 0000000..3bae11e
+--- /dev/null
++++ b/setup/tests/helpers/r22-context.ts
+@@ -0,0 +1,32 @@
++// Explicit fixture inputs, never a production context bypass.
++import fs from "node:fs/promises";
++import path from "node:path";
++import { createHash } from "node:crypto";
++import { type ExecutionPlan, type InstallerPlan, type SetupConfig } from "../../src/core/types";
++import { decodePlan, encodePlan, nativePlanHash } from "../../src/core/plan-format";
++export async function fixtureContextFiles(config: SetupConfig, release = false): Promise<void> {
++  await fs.mkdir(path.dirname(config.version_lock_path), { recursive: true });
++  try { await fs.access(config.version_lock_path); } catch { await fs.copyFile(path.resolve(__dirname, "../../../versions.lock.json"), config.version_lock_path); }
++  if (release && !await fs.access(config.release.archive_path).then(() => true, () => false)) {
++    const bytes = Buffer.from("owned synthetic release artifact; no build or host effects\n");
++    await fs.mkdir(path.dirname(config.release.archive_path), { recursive: true });
++    await fs.writeFile(config.release.archive_path, bytes);
++    config.release.sha256 = createHash("sha256").update(bytes).digest("hex");
++  }
++}
++export function parseFixturePlan(raw: string): ExecutionPlan { return decodePlan(JSON.parse(raw) as InstallerPlan); }
++export function stringifyFixturePlan(plan: ExecutionPlan): string { return JSON.stringify(encodePlan(plan)); }
++export function rehashFixturePlan(plan: ExecutionPlan): void {
++  const native = encodePlan(plan); plan.plan_hash = nativePlanHash(native);
++}
++
++export async function reviewAndFirstRefusal(x: { configPath: string; applyOptions: { planPath: string } }, engine: import("../../src/core/engine").SetupEngine) {
++  const planned = await engine.run("plan", { configPath: x.configPath });
++  if (planned.exitCode !== 0) return planned;
++  const plan = parseFixturePlan(await fs.readFile(x.applyOptions.planPath, "utf8"));
++  for (const gateId of new Set(plan.stages.flatMap(stage => [...stage.required_gates, ...stage.operations.flatMap(operation => operation.gate_ids)]))) {
++    const approved = await engine.run("gate-approve", { configPath: x.configPath, gateId, planHash: plan.plan_hash });
++    if (approved.exitCode !== 0) return approved;
++  }
++  return engine.run("apply", { configPath: x.configPath, planPath: x.applyOptions.planPath });
++}
+diff --git a/setup/tests/integration/application.test.ts b/setup/tests/integration/application.test.ts
+index c9245f8..673aebb 100644
+--- a/setup/tests/integration/application.test.ts
++++ b/setup/tests/integration/application.test.ts
+@@ -381,8 +381,8 @@ test("U02 failing mandatory S05 probe prevents dependent S06 effects", async ()
+   a.probe.runnerVerifyHelpOk = false;
+   let dependentEffects = 0;
+   const dependent = r14Noop("S06"); dependent.dependencies = ["S05"];
+-  dependent.plan = () => ({ stageId: "S06", optional: false, requiredCapabilities: [], requiredGates: [], operations: [{
+-    id: "s06-effect-trap", stageId: "S06", kind: "mutate", resourceId: "dependent-fixture", risk: "low", gateIds: [], preconditions: [], sideEffects: ["fixture only"], timeoutSec: 1, retryable: false }] });
++  dependent.plan = () => ({ stageId: "S06", optional: false, requiredCapabilities: [], requiredGates: [], operations: [{ action: "fixture.counter" as const,
++    id: "s06-effect-trap", stageId: "S06",  kind: "mutate", resourceId: "dependent-fixture", risk: "low", gateIds: [], preconditions: [], sideEffects: ["fixture only"], timeoutSec: 1, retryable: false }] });
+   dependent.apply = async () => { dependentEffects++; throw new Error("Dependent stage must never execute"); };
+   const e = x.engine([r14Noop("S04"), createApplicationStage(a), dependent]);
+   await x.planAndApprove(e);
+diff --git a/setup/tests/integration/config-images.test.ts b/setup/tests/integration/config-images.test.ts
+index 01c1967..63f1fcc 100644
+--- a/setup/tests/integration/config-images.test.ts
++++ b/setup/tests/integration/config-images.test.ts
+@@ -1,3 +1,5 @@
++import { parseFixturePlan } from "../helpers/r22-context";
++import { fixtureContextFiles } from "../helpers/r22-context";
+ import test from "node:test";
+ import assert from "node:assert/strict";
+ import fs from "node:fs";
+@@ -80,6 +82,8 @@ class FakeProcessAdapter implements ProcessAdapter {
+   username(): string {
+     return "factory";
+   }
++  async hostIdentity(): Promise<{ os: "ubuntu-24.04"; arch: "amd64" }> { return { os: "ubuntu-24.04", arch: "amd64" }; }
++  async loginSessionId(): Promise<string> { return "injected-test-login"; }
+   async bootId(): Promise<string> {
+     return "f324dcd7-4035-4430-ab39-ce31f9e396bf";
+   }
+@@ -236,6 +240,7 @@ async function prepareRoot(): Promise<{ root: string; config: SetupConfig; codex
+ }
+ 
+ async function writeConfig(configPath: string, config: SetupConfig): Promise<void> {
++  await fixtureContextFiles(config, config.selected_stages.some(id => ["S05","S06","S07","S08","S09","S10","S11","S13","S14"].includes(id)));
+   await fs.promises.mkdir(path.dirname(configPath), { recursive: true, mode: 0o700 });
+   await fs.promises.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+ }
+@@ -395,7 +400,7 @@ test("K08 real S06 verified lifecycle executes fresh no-op apply/status/resume",
+   assert.equal(plan2.exitCode, ExitCode.Success, JSON.stringify(plan2.envelope));
+   await approveRequiredGates(engine, configPath, plan2);
+   const plan2File = plan2.envelope.data?.plan_path as string;
+-  const plan2Json = JSON.parse(await fs.promises.readFile(plan2File, "utf8")) as {
++  const plan2Json = parseFixturePlan(await fs.promises.readFile(plan2File, "utf8")) as {
+     stages: Array<{ stage_id: string; operations: unknown[] }>;
+   };
+   const s06Plan = plan2Json.stages.find((entry) => entry.stage_id === "S06");
+diff --git a/setup/tests/integration/core-engine.test.ts b/setup/tests/integration/core-engine.test.ts
+index 29d2b41..1e02333 100644
+--- a/setup/tests/integration/core-engine.test.ts
++++ b/setup/tests/integration/core-engine.test.ts
+@@ -1,3 +1,4 @@
++import { fixtureContextFiles } from "../helpers/r22-context";
+ import test from "node:test";
+ import assert from "node:assert/strict";
+ import os from "node:os";
+@@ -36,6 +37,8 @@ class FakeProcessAdapter {
+   username(): string {
+     return "factory";
+   }
++  async hostIdentity(): Promise<{ os: "ubuntu-24.04"; arch: "amd64" }> { return { os: "ubuntu-24.04", arch: "amd64" }; }
++  async loginSessionId(): Promise<string> { return "injected-test-login"; }
+   async bootId(): Promise<string> {
+     return this.currentBoot;
+   }
+@@ -111,6 +114,7 @@ function makeConfig(root: string): SetupConfig {
+ }
+ 
+ async function writeConfig(configPath: string, config: SetupConfig): Promise<void> {
++  await fixtureContextFiles(config, config.selected_stages.some(id => ["S05","S06","S07","S08","S09","S10","S11","S13","S14"].includes(id)));
+   await fs.promises.mkdir(path.dirname(configPath), { recursive: true });
+   await fs.promises.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+ }
+@@ -175,10 +179,10 @@ function buildRegistry(effectPath: string): StageModule[] {
+         operations: observed.status === "verified"
+           ? []
+           : [
+-              {
++              { action: "fixture.counter" as const,
+                 id: "s01-create-effect",
+                 stageId: "S01",
+-                kind: "mutate",
++                 kind: "mutate",
+                 resourceId: "fixture-effect",
+                 risk: "low",
+                 gateIds: [],
+diff --git a/setup/tests/integration/core-q1a-r1-state-recovery.test.ts b/setup/tests/integration/core-q1a-r1-state-recovery.test.ts
+index 618d3b6..9a3acfb 100644
+--- a/setup/tests/integration/core-q1a-r1-state-recovery.test.ts
++++ b/setup/tests/integration/core-q1a-r1-state-recovery.test.ts
+@@ -1,3 +1,4 @@
++import { fixtureContextFiles } from "../helpers/r22-context";
+ import test from "node:test";
+ import assert from "node:assert/strict";
+ import os from "node:os";
+@@ -222,6 +223,8 @@ class CountingProcessAdapter implements ProcessAdapter {
+     return this.processUser;
+   }
+ 
++  async hostIdentity(): Promise<{ os: "ubuntu-24.04"; arch: "amd64" }> { return { os: "ubuntu-24.04", arch: "amd64" }; }
++  async loginSessionId(): Promise<string> { return "injected-test-login"; }
+   async bootId(): Promise<string> {
+     return this.bootIdValue;
+   }
+@@ -307,6 +310,7 @@ function makeConfig(root: string): SetupConfig {
+ }
+ 
+ async function writeConfig(configPath: string, config: SetupConfig): Promise<void> {
++  await fixtureContextFiles(config, config.selected_stages.some(id => ["S05","S06","S07","S08","S09","S10","S11","S13","S14"].includes(id)));
+   await fs.promises.mkdir(path.dirname(configPath), { recursive: true, mode: 0o700 });
+   await fs.promises.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+ }
+@@ -409,10 +413,10 @@ function makeMutatingStage(effectPath: string): StageModule {
+         requiredCapabilities: [],
+         operations: observed.status === "verified"
+           ? []
+-          : [{
++          : [{ action: "fixture.counter" as const,
+               id: "s01-op",
+               stageId: "S01",
+-              kind: "mutate",
++               kind: "mutate",
+               resourceId: "effect",
+               risk: "low",
+               gateIds: [],
+@@ -1364,6 +1368,8 @@ class Proc {
+   pid() { return process.pid; }
+   uid() { return 1000; }
+   username() { return "factory"; }
++  async hostIdentity() { return {os:"ubuntu-24.04",arch:"amd64"}; }
++  async loginSessionId() { return "injected-test-login"; }
+   async bootId() { return "f324dcd7-4035-4430-ab39-ce31f9e396bf"; }
+   async machineIdHash() { return "1".repeat(64); }
+   async processStartTicks() { return null; }
+@@ -2357,6 +2363,8 @@ class Proc {
+   pid() { return process.pid; }
+   uid() { return 1000; }
+   username() { return "factory"; }
++  async hostIdentity() { return {os:"ubuntu-24.04",arch:"amd64"}; }
++  async loginSessionId() { return "injected-test-login"; }
+   async bootId() { return "f324dcd7-4035-4430-ab39-ce31f9e396bf"; }
+   async machineIdHash() { return "1".repeat(64); }
+   async processStartTicks() { return null; }
+@@ -2447,6 +2455,8 @@ class ProcessAdapterImpl {
+   pid() { return process.pid; }
+   uid() { return 1000; }
+   username() { return "factory"; }
++  async hostIdentity() { return {os:"ubuntu-24.04",arch:"amd64"}; }
++  async loginSessionId() { return "injected-test-login"; }
+   async bootId() { return "f324dcd7-4035-4430-ab39-ce31f9e396bf"; }
+   async machineIdHash() { return "${"1".repeat(64)}"; }
+   async processStartTicks(pid) { return pid === process.pid ? 1 : null; }
+@@ -2500,7 +2510,7 @@ function makeWriterStage() {
+         operations: [{
+           id: "k10-op",
+           stageId: "S01",
+-          kind: "mutate",
++          action: "fixture.counter", kind: "mutate",
+           resourceId: "k10-resource",
+           risk: "low",
+           gateIds: [],
+@@ -3255,10 +3265,10 @@ test("K07 receipts must match planned operation/stage/resource and cannot be for
+         optional: false,
+         requiredCapabilities: [],
+         operations: [
+-          {
++          { action: "fixture.counter" as const,
+             id: "op-a",
+             stageId: "S01",
+-            kind: "mutate",
++             kind: "mutate",
+             resourceId: "resource-a",
+             risk: "low",
+             gateIds: [],
+@@ -3267,10 +3277,10 @@ test("K07 receipts must match planned operation/stage/resource and cannot be for
+             timeoutSec: 5,
+             retryable: false
+           },
+-          {
++          { action: "fixture.counter" as const,
+             id: "op-b",
+             stageId: "S01",
+-            kind: "mutate",
++             kind: "mutate",
+             resourceId: "resource-b",
+             risk: "low",
+             gateIds: [],
+diff --git a/setup/tests/integration/core-q1a.test.ts b/setup/tests/integration/core-q1a.test.ts
+index 1dc0db3..3dc1168 100644
+--- a/setup/tests/integration/core-q1a.test.ts
++++ b/setup/tests/integration/core-q1a.test.ts
+@@ -1,3 +1,5 @@
++import { fixtureContextFiles } from "../helpers/r22-context";
++import { parseFixturePlan } from "../helpers/r22-context";
+ import test from "node:test";
+ import assert from "node:assert/strict";
+ import os from "node:os";
+@@ -45,6 +47,8 @@ class FakeProcessAdapter implements ProcessAdapter {
+     return this.processUser;
+   }
+ 
++  async hostIdentity(): Promise<{ os: "ubuntu-24.04"; arch: "amd64" }> { return { os: "ubuntu-24.04", arch: "amd64" }; }
++  async loginSessionId(): Promise<string> { return "injected-test-login"; }
+   async bootId(): Promise<string> {
+     return this.bootIdValue;
+   }
+@@ -122,6 +126,7 @@ function makeConfig(root: string, selectedStages: SetupConfig["selected_stages"]
+ }
+ 
+ async function writeConfig(configPath: string, config: SetupConfig): Promise<void> {
++  await fixtureContextFiles(config, config.selected_stages.some(id => ["S05","S06","S07","S08","S09","S10","S11","S13","S14"].includes(id)));
+   await fs.promises.mkdir(path.dirname(configPath), { recursive: true, mode: 0o700 });
+   await fs.promises.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+ }
+@@ -220,6 +225,8 @@ class FakeProcessAdapter {
+   pid() { return this.pidValue; }
+   uid() { return 1000; }
+   username() { return "factory"; }
++  async hostIdentity() { return {os:"ubuntu-24.04",arch:"amd64"}; }
++  async loginSessionId() { return "injected-test-login"; }
+   async bootId() { return this.bootIdValue; }
+   async machineIdHash() { return "f".repeat(64); }
+   async processStartTicks(pid) { return pid === this.pidValue ? this.startTicks : null; }
+@@ -260,7 +267,7 @@ function registry(effectPath) {
+         operations: observed.status === "verified" ? [] : [{
+           id: "s01-write-effect",
+           stageId: "S01",
+-          kind: "mutate",
++          action: "fixture.counter", kind: "mutate",
+           resourceId: "effect",
+           risk: "low",
+           gateIds: ["s01-manual-gate"],
+@@ -420,10 +427,10 @@ test("A05 expired gate cannot be approved and stays expired in persisted state",
+         optional: false,
+         requiredCapabilities: [],
+         operations: [
+-          {
++          { action: "fixture.counter" as const,
+             id: "s01-gated-op",
+             stageId: "S01",
+-            kind: "mutate",
++             kind: "mutate",
+             resourceId: "gated",
+             risk: "low",
+             gateIds: ["s01-gate"],
+@@ -461,7 +468,7 @@ test("A05 expired gate cannot be approved and stays expired in persisted state",
+   );
+   const plan = await planner.run("plan", { configPath, stageId: "S01" });
+   assert.equal(plan.exitCode, ExitCode.Success, JSON.stringify(plan.envelope));
+-  const planJson = JSON.parse(await fs.promises.readFile(path.join(config.paths.setup_state_dir, "plan.json"), "utf8")) as { plan_hash: string };
++  const planJson = parseFixturePlan(await fs.promises.readFile(path.join(config.paths.setup_state_dir, "plan.json"), "utf8")) as { plan_hash: string };
+ 
+   const approver = new SetupEngine(
+     {
+@@ -665,10 +672,10 @@ test("A13 cancel requested in stage A stops before stage B mutation", async () =
+         stageId: "S01",
+         optional: false,
+         requiredCapabilities: [],
+-        operations: [{
++        operations: [{ action: "fixture.counter" as const,
+           id: "s01-op",
+           stageId: "S01",
+-          kind: "mutate",
++           kind: "mutate",
+           resourceId: "a",
+           risk: "low",
+           gateIds: [],
+@@ -717,10 +724,10 @@ test("A13 cancel requested in stage A stops before stage B mutation", async () =
+         stageId: "S02",
+         optional: false,
+         requiredCapabilities: [],
+-        operations: [{
++        operations: [{ action: "fixture.counter" as const,
+           id: "s02-op",
+           stageId: "S02",
+-          kind: "mutate",
++           kind: "mutate",
+           resourceId: "b",
+           risk: "low",
+           gateIds: [],
+diff --git a/setup/tests/integration/docker-host.test.ts b/setup/tests/integration/docker-host.test.ts
+index eab7c10..9b8cb00 100644
+--- a/setup/tests/integration/docker-host.test.ts
++++ b/setup/tests/integration/docker-host.test.ts
+@@ -1,3 +1,4 @@
++import { reviewAndFirstRefusal } from "../helpers/r22-context";
+ import test from "node:test";
+ import assert from "node:assert/strict";
+ import {
+@@ -412,8 +413,7 @@ test("U06 engine never adopts unmanaged matching Docker without durable install
+   a.observation.dockerInstalled = true;
+   for (const p of a.observation.packages) p.installedVersion = p.candidateVersion;
+   const e = x.engine([r14Noop("S03"), createDockerStage(a)]);
+-  await x.planAndApprove(e);
+-  const result = await e.run("apply", x.applyOptions);
++  const result = await reviewAndFirstRefusal(x, e);
+   assert.equal(result.exitCode, 5, JSON.stringify(result)); assert.equal(result.envelope.error?.code, "s04_existing_docker_requires_inspection");
+   assert.equal(a.installCalls + a.mergeCalls + a.groupCalls + a.probeCalls + a.markManagedCalls, 0);
+ });
+diff --git a/setup/tests/integration/inference.test.ts b/setup/tests/integration/inference.test.ts
+index 2172b7f..bab21d6 100644
+--- a/setup/tests/integration/inference.test.ts
++++ b/setup/tests/integration/inference.test.ts
+@@ -34,6 +34,8 @@ class FakeProcessAdapter implements ProcessAdapter {
+     return "factory";
+   }
+ 
++  async hostIdentity(): Promise<{ os: "ubuntu-24.04"; arch: "amd64" }> { return { os: "ubuntu-24.04", arch: "amd64" }; }
++  async loginSessionId(): Promise<string> { return "injected-test-login"; }
+   async bootId(): Promise<string> {
+     return "boot-id";
+   }
+@@ -188,10 +190,10 @@ function applyPlan(): StagePlan {
+     optional: true,
+     requiredCapabilities: [],
+     operations: [
+-      {
++      { action: "fixture.counter" as const,
+         id: "s12-op",
+         stageId: "S12",
+-        kind: "mutate",
++         kind: "mutate",
+         resourceId: "s12-ollama-private-serving",
+         risk: "high",
+         gateIds: ["s12-inference-apply-approved"],
+diff --git a/setup/tests/integration/operations.test.ts b/setup/tests/integration/operations.test.ts
+index 4857b59..2fedb17 100644
+--- a/setup/tests/integration/operations.test.ts
++++ b/setup/tests/integration/operations.test.ts
+@@ -108,6 +108,8 @@ class FakeProcessAdapter implements ProcessAdapter {
+     return "factory";
+   }
+ 
++  async hostIdentity(): Promise<{ os: "ubuntu-24.04"; arch: "amd64" }> { return { os: "ubuntu-24.04", arch: "amd64" }; }
++  async loginSessionId(): Promise<string> { return "injected-test-login"; }
+   async bootId(): Promise<string> {
+     return "boot-id";
+   }
+diff --git a/setup/tests/integration/q1a-r15-stages.test.ts b/setup/tests/integration/q1a-r15-stages.test.ts
+index ab31d07..2fb80dc 100644
+--- a/setup/tests/integration/q1a-r15-stages.test.ts
++++ b/setup/tests/integration/q1a-r15-stages.test.ts
+@@ -1,3 +1,5 @@
++import { parseFixturePlan } from "../helpers/r22-context";
++import { reviewAndFirstRefusal } from "../helpers/r22-context";
+ import test from "node:test";
+ import assert from "node:assert/strict";
+ import { r14Fixture, r14Noop } from "../helpers/r14-engine";
+@@ -74,7 +76,7 @@ async function actualApplication(entry = "runner.js", downstream = false) {
+   // Extraction is external/fake; hash-check uses the actual deployed FS only for this fixture.
+   a.extractArchive = async (_config,target) => {a.extractCalls++; await fs.mkdir(path.join(target,"release",path.dirname(entry)),{recursive:true,mode:0o700}); await fs.writeFile(path.join(target,"release",entry),body,{mode:0o600});};
+   const dependent = r14Noop("S06");dependent.dependencies=["S05"];
+-  dependent.plan=()=>({stageId:"S06",optional:false,requiredCapabilities:[],requiredGates:[],operations:[{id:"dependent-trap",stageId:"S06",kind:"mutate",resourceId:"dependent",risk:"low",gateIds:[],preconditions:[],sideEffects:["fixture only"],timeoutSec:1,retryable:false}]});
++  dependent.plan=()=>({stageId:"S06",optional:false,requiredCapabilities:[],requiredGates:[],operations:[{ action: "fixture.counter" as const,id:"dependent-trap",stageId:"S06", kind:"mutate",resourceId:"dependent",risk:"low",gateIds:[],preconditions:[],sideEffects:["fixture only"],timeoutSec:1,retryable:false}]});
+   dependent.apply=async()=>{dependentEffects++;throw Error("Downstream trap executed");};
+   const engine = (f: FilesystemAdapter = x.f) => new SetupEngine({fsAdapter:f,processAdapter:r14Process,clock:r14Clock},createRegistry([r14Noop("S04"),createApplicationStage(a),...(downstream?[dependent]:[])]));
+   return {x,a,node,engine,executable,body,commands:()=>commandInvocations,traps:()=>traps,dependentEffects:()=>dependentEffects,setHashReadFailure:()=>{hashReadFailure=true;}};
+@@ -269,7 +271,7 @@ for(const hazard of ["unmanaged","foreign","public","tcp","world-writable","sock
+  if(hazard==="foreign"){a.observation.workloads.foreignContainerCount=1;a.observation.workloads.foreignContainerIds=["foreign"];}if(hazard==="public")a.observation.workloads.publicPublishedPortCount=1;
+  if(hazard==="tcp")a.observation.tcpApi.configured=true;if(hazard==="world-writable")a.observation.dockerSocket.worldWritable=true;if(hazard==="socket-owner")a.observation.dockerSocket.uid=1;
+  if(hazard==="unknown-workloads")a.inspection="unavailable";if(hazard==="malformed-workloads")a.inspection="malformed";
+- const e=q.make();await x.planAndApprove(e);const result=await e.run("apply",x.applyOptions);assert.notEqual(result.exitCode,0,JSON.stringify(result));
++ const e=q.make();const result=await reviewAndFirstRefusal(x,e);assert.notEqual(result.exitCode,0,JSON.stringify(result));
+  assert.equal(a.installCalls+a.groupCalls+a.mergeCalls+a.restartCalls+a.probeCalls,0);assert.notEqual((await x.state()).stages.find(s=>s.id==="S04")?.status,"verified");
+ });
+ for(const drift of ["package","config","account"] as const)test(`V07 Docker ${drift} drift invalidates installation progress without replay`,async()=>{
+@@ -288,7 +290,7 @@ for(const failure of ["down","api-mismatch","restart-error","api-after-restart",
+  if(failure==="down")a.healthy=false;if(failure==="api-mismatch")a.compatible=false;
+  if(failure==="restart-error"||failure==="api-after-restart"){const restart=a.restartDaemon.bind(a);a.restartDaemon=async()=>{await restart();if(failure==="restart-error")throw setupError({exitCode:ExitCode.OperationOrVerificationFailed,code:"s04_daemon_restart_failed",publicMessage:"fixture restart failure",nextAction:"inspect",stage:"S04"});a.compatible=false;};}
+  if(failure==="probe-error")a.probeResult.cleanupOk=false;
+- e=q.make();await x.planAndApprove(e);const result=await e.run("apply",x.applyOptions);
++ e=q.make();const result=await reviewAndFirstRefusal(x,e);
+  assert.notEqual(result.exitCode,0);assert.notEqual(result.exitCode,4,"operational failure is not a relogin");assert.notEqual((await x.state()).stages.find(s=>s.id==="S04")?.status,"verified");
+  if(["restart-error","api-after-restart","probe-error"].includes(failure)){
+   assert.ok((await x.state()).in_flight_operation);const counts=[a.installCalls,a.groupCalls,a.restartCalls,a.probeCalls];assert.equal((await q.make().run("resume",{configPath:x.configPath})).exitCode,8);assert.deepEqual([a.installCalls,a.groupCalls,a.restartCalls,a.probeCalls],counts);
+@@ -343,7 +345,7 @@ for(const phase of ["effect","bound","pause"] as const)test(`V07 Docker child ${
+   const old=await make().run("resume",{configPath:b.configPath});assert.equal(old.exitCode,phase==="effect"?8:4);assert.equal(a.installCalls+a.groupCalls+a.mergeCalls+a.restartCalls+a.probeCalls,0);
+   if(phase!=="effect"){
+    a.observation.dockerGroup.currentUserInGroup=true;a.observation.reloginRequired=false;e=make();const planned=await e.run("plan",{configPath:b.configPath});assert.equal(planned.exitCode,0,JSON.stringify(planned));
+-   const disk=JSON.parse(await fs.readFile(path.join(b.config.paths.setup_state_dir,"plan.json"),"utf8")) as import("../../src/core/types").InstallerPlan;
++   const disk=parseFixturePlan(await fs.readFile(path.join(b.config.paths.setup_state_dir,"plan.json"),"utf8")) as import("../../src/core/types").ExecutionPlan;
+    for(const gate of new Set(disk.stages.flatMap(s=>[...s.required_gates,...s.operations.flatMap(o=>o.gate_ids)])))assert.equal((await e.run("gate-approve",{configPath:b.configPath,gateId:gate,planHash:disk.plan_hash})).exitCode,0);
+    assert.equal((await e.run("resume",{configPath:b.configPath})).exitCode,0);assert.equal(a.installCalls+a.groupCalls,0);assert.equal(a.restartCalls,1);assert.equal(a.probeCalls,1);
+   }else assert.deepEqual(await evidenceHashes(b.config),before,"unknown group outcome is preserved without replay");
+diff --git a/setup/tests/integration/q1a-r16-commands.test.ts b/setup/tests/integration/q1a-r16-commands.test.ts
+index a623797..e321535 100644
+--- a/setup/tests/integration/q1a-r16-commands.test.ts
++++ b/setup/tests/integration/q1a-r16-commands.test.ts
+@@ -147,7 +147,7 @@ for (const key of ["runner_verify", "runner_stop"] as const) test(`W09 engine-bo
+   actualStage.apply = async (ctx, plan) => {if (plan.operations.some(o => o.id.includes("probe-release"))) boundContext = ctx; return apply(ctx, plan);};
+   const trap = r14Noop("S06"); trap.dependencies = ["S05"];
+   let downstreamCalls = 0;
+-  trap.plan = () => ({stageId:"S06",optional:false,requiredCapabilities:[],requiredGates:[],operations:[{id:"downstream",stageId:"S06",kind:"mutate",resourceId:"trap",risk:"low",gateIds:[],preconditions:[],sideEffects:["trap"],timeoutSec:1,retryable:false}]});
++  trap.plan = () => ({stageId:"S06",optional:false,requiredCapabilities:[],requiredGates:[],operations:[{ action: "fixture.counter" as const,id:"downstream",stageId:"S06", kind:"mutate",resourceId:"trap",risk:"low",gateIds:[],preconditions:[],sideEffects:["trap"],timeoutSec:1,retryable:false}]});
+   trap.apply = async () => {downstreamCalls++; throw Error("Forbidden downstream");};
+   const e = new SetupEngine({fsAdapter:q.x.f,processAdapter:r14Process,clock:r14Clock}, createRegistry([r14Noop("S04"), actualStage, trap]));
+   await q.x.planAndApprove(e);
+diff --git a/setup/tests/integration/q1a-r21-admission.test.ts b/setup/tests/integration/q1a-r21-admission.test.ts
+index f13257b..33f8d99 100644
+--- a/setup/tests/integration/q1a-r21-admission.test.ts
++++ b/setup/tests/integration/q1a-r21-admission.test.ts
+@@ -1,3 +1,5 @@
++import { parseFixturePlan } from "../helpers/r22-context";
++import { stringifyFixturePlan } from "../helpers/r22-context";
+ import test from "node:test";
+ import assert from "node:assert/strict";
+ import fs from "node:fs/promises";
+@@ -7,13 +9,13 @@ import { SetupEngine } from "../../src/core/engine";
+ import { createRegistry } from "../../src/core/plan";
+ import { stableStringify } from "../../src/core/config";
+ import { createSystemStage } from "../../src/stages/system";
+-import { type InstallerPlan } from "../../src/core/types";
++import { type ExecutionPlan } from "../../src/core/types";
+ 
+ import {aptFixture, rehash} from "../helpers/r21-admission";
+ test("A21-01 actual S02 stripped stage+operation gates cannot authorize APT", async () => {
+   const q=await aptFixture(),e=q.make();assert.equal((await e.run("plan",{configPath:q.x.configPath})).exitCode,0);
+-  const p=JSON.parse(await fs.readFile(q.x.applyOptions.planPath,"utf8")) as InstallerPlan;
+-  for(const s of p.stages){s.required_gates=[];for(const op of s.operations)op.gate_ids=[];} rehash(p);await fs.writeFile(q.x.applyOptions.planPath,JSON.stringify(p));
++  const p=parseFixturePlan(await fs.readFile(q.x.applyOptions.planPath,"utf8")) as ExecutionPlan;
++  for(const s of p.stages){s.required_gates=[];for(const op of s.operations)op.gate_ids=[];} rehash(p);await fs.writeFile(q.x.applyOptions.planPath,stringifyFixturePlan(p));
+   const applied=await e.run("apply",{...q.x.applyOptions,nonInteractive:true});assert.notEqual(applied.exitCode,0);assert.deepEqual(q.counts,{refresh:0,simulate:0,install:0});
+ });
+ test("A21-09 independently expired plan refuses even before APT approval checks",async()=>{
+@@ -23,7 +25,7 @@ test("A21-09 independently expired plan refuses even before APT approval checks"
+ for(const age of [31,-60]) test(`A21-09 synthetic gate-free age ${age} minutes cannot execute`,async()=>{
+   const q=await aptFixture();let effects=0;const s=r14Noop("S02");s.dependencies=["S01"];
+   s.observe=async()=>({stageId:"S02",status:effects?"verified":"planned",checks:{},versions:{},observedAt:q.clock.now().toISOString()});
+-  s.plan=()=>({stageId:"S02",optional:false,requiredCapabilities:[],requiredGates:[],operations:[{id:"age-effect",stageId:"S02",kind:"mutate",resourceId:"synthetic",risk:"low",gateIds:[],preconditions:[],sideEffects:["local counter"],timeoutSec:1,retryable:false}]});
++  s.plan=()=>({stageId:"S02",optional:false,requiredCapabilities:[],requiredGates:[],operations:[{ action: "fixture.counter" as const,id:"age-effect",stageId:"S02", kind:"mutate",resourceId:"synthetic",risk:"low",gateIds:[],preconditions:[],sideEffects:["local counter"],timeoutSec:1,retryable:false}]});
+   s.apply=async()=>{effects++;return [{operationId:"age-effect",stageId:"S02",resourceId:"synthetic",observedAt:q.clock.now().toISOString(),checks:{done:true},versions:{},artifacts:[]}];};
+   const e=new SetupEngine({fsAdapter:q.x.f,processAdapter:r14Process,clock:q.clock},createRegistry([r14Noop("S01"),s]));
+   await q.x.planAndApprove(e);q.advance(age*60_000);assert.notEqual((await e.run("apply",q.x.applyOptions)).exitCode,0);assert.equal(effects,0);
+@@ -32,7 +34,7 @@ for(const age of [31,-60]) test(`A21-09 synthetic gate-free age ${age} minutes c
+ import path from "node:path";
+ import { evidence, readPlan, writePlan, counterFixture } from "../helpers/r21-admission";
+ import { type StageModule } from "../../src/core/types";
+-const edits: Array<[string,(s:InstallerPlan["stages"][number])=>void]> = [
++const edits: Array<[string,(s:ExecutionPlan["stages"][number])=>void]> = [
+   ["wrong nonempty gates",s=>{s.required_gates=["forged-review"];for(const op of s.operations)op.gate_ids=["forged-review"];}],
+   ["one mandatory gate removed",s=>{s.required_gates=s.required_gates.filter(g=>g!=="s02-sudo-apt-install");s.operations[2]!.gate_ids=[];}],
+   ["same gate different resources",s=>{s.required_gates=["s02-sudo-apt-install"];for(const op of s.operations)op.gate_ids=["s02-sudo-apt-install"];}],
+@@ -50,7 +52,7 @@ test("A21-02/03 policy tampering matrix: recomputed hash, zero target intents/ef
+     const before=await evidence(q.x.config);const result=await q.make().run("apply",q.x.applyOptions);
+     assert.equal(result.exitCode,2,`${name}: ${JSON.stringify(result)}`);assert.deepEqual(q.counts,{refresh:0,simulate:0,install:0});assert.deepEqual(await evidence(q.x.config),before,name);
+     console.log("R21_TAMPER "+JSON.stringify({name,exit:result.exitCode,error:result.envelope.error?.code,counts:q.counts,before,after:await evidence(q.x.config)}));
+-    if(name==="wrong nonempty gates"){await fs.writeFile(q.x.applyOptions.planPath,JSON.stringify(original));assert.equal((await q.make().run("apply",q.x.applyOptions)).exitCode,0,"original approvals must remain usable for their original policy");assert.deepEqual(q.counts,{refresh:1,simulate:1,install:1});}
++    if(name==="wrong nonempty gates"){await fs.writeFile(q.x.applyOptions.planPath,stringifyFixturePlan(original));assert.equal((await q.make().run("apply",q.x.applyOptions)).exitCode,0,"original approvals must remain usable for their original policy");assert.deepEqual(q.counts,{refresh:1,simulate:1,install:1});}
+   }
+ });
+ test("A21-04 stage-only requirements, optional/capabilities and true no-op are independent policy",async()=>{
+@@ -63,7 +65,7 @@ test("A21-04 stage-only requirements, optional/capabilities and true no-op are i
+     const e=make();assert.equal((await e.run("plan",{configPath:q.x.configPath})).exitCode,0);const p=await readPlan(q.x),original=structuredClone(p);const s=p.stages.find(s=>s.stage_id==="S02")!;
+     if(mode!=="noop"){
+       if(mode==="optional")s.optional=true;else if(mode==="capability")s.required_capabilities=[];else s.required_gates=[];
+-      await writePlan(q.x,p);assert.equal((await make().run("apply",q.x.applyOptions)).exitCode,2);await fs.writeFile(q.x.applyOptions.planPath,JSON.stringify(original));
++      await writePlan(q.x,p);assert.equal((await make().run("apply",q.x.applyOptions)).exitCode,2);await fs.writeFile(q.x.applyOptions.planPath,stringifyFixturePlan(original));
+       assert.equal((await make().run("apply",q.x.applyOptions)).exitCode,4);
+       const approved=await make().run("gate-approve",{configPath:q.x.configPath,gateId:gate,planHash:original.plan_hash});
+       assert.equal(approved.exitCode,mode==="prerequisite"?5:0);
+@@ -74,7 +76,7 @@ test("A21-04 stage-only requirements, optional/capabilities and true no-op are i
+ test("A21-05/06 actual S02 fresh/approved succeeds; no approval, bad hash and one-sided gates remain refusals",async()=>{
+   for(const mode of ["approved","unapproved","hash","one-sided"] as const){
+     const q=await aptFixture(),e=q.make();if(mode==="approved")await q.x.planAndApprove(e);else assert.equal((await e.run("plan",{configPath:q.x.configPath})).exitCode,0);
+-    const p=await readPlan(q.x);if(mode==="hash"){p.plan_hash="0".repeat(64);await fs.writeFile(q.x.applyOptions.planPath,JSON.stringify(p));}if(mode==="one-sided"){p.stages.find(s=>s.stage_id==="S02")!.required_gates=[];await writePlan(q.x,p);}
++    const p=await readPlan(q.x);if(mode==="hash"){p.plan_hash="0".repeat(64);await fs.writeFile(q.x.applyOptions.planPath,stringifyFixturePlan(p));}if(mode==="one-sided"){p.stages.find(s=>s.stage_id==="S02")!.required_gates=[];await writePlan(q.x,p);}
+     const result=await q.make().run("apply",{...q.x.applyOptions,nonInteractive:true});assert.equal(result.exitCode,mode==="approved"?0:mode==="unapproved"?4:2,JSON.stringify(result));
+     assert.deepEqual(q.counts,mode==="approved"?{refresh:1,simulate:1,install:1}:{refresh:0,simulate:0,install:0});
+   }
+@@ -115,13 +117,14 @@ test("A21-13 expired plan approval/resume/upsert never renews approval identity
+   const next=(await q.x.state()).pending_gates;assert.deepEqual(next.map(g=>[g.id,g.operation_id,g.plan_hash,g.expires_at]),gates.map(g=>[g.id,g.operation_id,g.plan_hash,g.expires_at]));assert.ok(next.every(g=>g.status==="expired"));assert.deepEqual(q.counts,{refresh:0,simulate:0,install:0});
+ });
+ 
++import { capturePlanContext } from "../../src/core/plan-context";
+ import { createPlanFile } from "../../src/core/plan";
+ test("A21-01/03 legacy without enrolled basis still derives policy independently from actual S02 producer",async()=>{
+   for(const mode of ["strip", "simulation omitted", "timeout"] as const){
+-    const q=await aptFixture(),e=q.make();await createPlanFile(q.x.f,q.x.config,createRegistry([r14Noop("S01"),createSystemStage(q.apt)]),null,q.clock);
++    const q=await aptFixture(),e=q.make();await createPlanFile(q.x.f,q.x.config,createRegistry([r14Noop("S01"),createSystemStage(q.apt)]),null,q.clock,[],new Map(),await capturePlanContext(q.x.f,r14Process,q.x.config,["S01","S02"]));
+     const p=await readPlan(q.x),s=p.stages.find(s=>s.stage_id==="S02")!;
+     if(mode==="strip"){s.required_gates=[];for(const op of s.operations)op.gate_ids=[];}else edits.find(([name])=>name===mode)![1](s);
+-    await writePlan(q.x,p);const result=await e.run("apply",{...q.x.applyOptions,nonInteractive:true});assert.equal(result.exitCode,2,JSON.stringify(result));assert.equal(result.envelope.error?.code,"plan_policy_mismatch");assert.deepEqual(q.counts,{refresh:0,simulate:0,install:0});assert.equal((await q.x.state()).in_flight_operation,null);
++    await writePlan(q.x,p);const result=await e.run("apply",{...q.x.applyOptions,nonInteractive:true});assert.equal(result.exitCode,8,JSON.stringify(result));assert.equal(result.envelope.error?.code,"plan_review_required");assert.deepEqual(q.counts,{refresh:0,simulate:0,install:0});assert.equal((await q.x.state()).in_flight_operation,null);
+   }
+ });
+ 
+@@ -139,7 +142,7 @@ test("A21-08 separate owned engine subprocesses: plan, tamper refusal, approve,
+   async function run(mode:string){const {stdout}=await promisify(execFile)(process.execPath,[path.resolve(__dirname,"../../../tests/helpers/r21-worker.cjs"),path.resolve(__dirname,"../.."),q.x.configPath,factsPath,mode],{timeout:20_000,maxBuffer:512*1024,env:{PATH:"/usr/bin:/bin",LC_ALL:"C"}});return JSON.parse(stdout) as {pid:number;result:{exitCode:number};facts:{counts:{refresh:number;simulate:number;install:number}}};}
+   const planned=await run("plan");assert.equal(planned.result.exitCode,0);const p=await readPlan(q.x),original=structuredClone(p);for(const s of p.stages){s.required_gates=[];for(const op of s.operations)op.gate_ids=[];}await writePlan(q.x,p);
+   const before=await evidence(q.x.config),refused=await run("apply");assert.equal(refused.result.exitCode,2);assert.deepEqual(refused.facts.counts,{refresh:0,simulate:0,install:0});assert.deepEqual(await evidence(q.x.config),before);
+-  await fs.writeFile(q.x.applyOptions.planPath,JSON.stringify(original));const approved=await run("approve"),applied=await run("apply"),resumed=await run("resume");assert.equal(approved.result.exitCode,0);assert.equal(applied.result.exitCode,0);assert.equal(resumed.result.exitCode,0);assert.deepEqual(resumed.facts.counts,{refresh:1,simulate:1,install:1});assert.notEqual(planned.pid,applied.pid);
++  await fs.writeFile(q.x.applyOptions.planPath,stringifyFixturePlan(original));const approved=await run("approve"),applied=await run("apply"),resumed=await run("resume");assert.equal(approved.result.exitCode,0);assert.equal(applied.result.exitCode,0);assert.equal(resumed.result.exitCode,0);assert.deepEqual(resumed.facts.counts,{refresh:1,simulate:1,install:1});assert.notEqual(planned.pid,applied.pid);
+   console.log("R21_PROCESSES "+JSON.stringify({planned,refused,approved,applied,resumed}));
+ });
+ test("A21-12 planner timestamps and producer-ignored volatile counters do not create false drift",async()=>{
+@@ -149,7 +152,7 @@ test("A21-12 planner timestamps and producer-ignored volatile counters do not cr
+ import { saveState } from "../../src/core/state";
+ import { POLICY_BASIS_KEY } from "../../src/core/policy";
+ test("A21-04/08 internal basis compatibility: legacy fresh policy is validated, malformed/future metadata preserved and blocked",async()=>{
+-  const legacy=await counterFixture(),engine=legacy.make();await createPlanFile(legacy.x.f,legacy.x.config,createRegistry([r14Noop("S01"),legacy.stage]),null,legacy.clock);assert.equal((await engine.run("apply",legacy.x.applyOptions)).exitCode,0);assert.deepEqual(legacy.counts,[1]);
++  const legacy=await counterFixture(),engine=legacy.make();await createPlanFile(legacy.x.f,legacy.x.config,createRegistry([r14Noop("S01"),legacy.stage]),null,legacy.clock,[],new Map(),await capturePlanContext(legacy.x.f,r14Process,legacy.x.config,["S01","S02"]));assert.equal((await engine.run("apply",legacy.x.applyOptions)).exitCode,8);assert.deepEqual(legacy.counts,[0]);await legacy.x.planAndApprove(engine);assert.equal((await engine.run("apply",legacy.x.applyOptions)).exitCode,0);assert.deepEqual(legacy.counts,[1]);
+   for(const corrupt of ["json","version","shape","status-type"] as const){
+     const q=await counterFixture();await q.x.planAndApprove(q.make());const state=await q.x.state(),stage=state.stages.find(s=>s.id==="S02")!;
+     const basis=JSON.parse(stage.versions[POLICY_BASIS_KEY]!) as Record<string,unknown>;
+@@ -188,7 +191,7 @@ test("A21-03 operation IDs are unique across parent stages, not merely within ea
+     const q=await aptFixture(),counts:{[key:string]:number}={S01:0,S02:0};
+     const stages=(["S01","S02"] as const).map(id=>{
+       const s=r14Noop(id);s.dependencies=id==="S02"?["S01"]:[];s.observe=async()=>({stageId:id,status:counts[id]!>0?"verified":"planned",checks:{},versions:{},observedAt:q.clock.now().toISOString()});
+-      s.plan=()=>({stageId:id,optional:false,requiredCapabilities:[],requiredGates:[],operations:[{id:collision?"shared":`owned-${id}`,stageId:id,kind:"mutate",resourceId:`resource-${id}`,risk:"low",gateIds:[],preconditions:[],sideEffects:["owned counter"],timeoutSec:1,retryable:false}]});
++      s.plan=()=>({stageId:id,optional:false,requiredCapabilities:[],requiredGates:[],operations:[{ action: "fixture.counter" as const,id:collision?"shared":`owned-${id}`,stageId:id,kind:"mutate",resourceId:`resource-${id}`,risk:"low",gateIds:[],preconditions:[],sideEffects:["owned counter"],timeoutSec:1,retryable:false}]});
+       s.apply=async(_ctx,p)=>{counts[id]!++;return [{operationId:p.operations[0]!.id,stageId:id,resourceId:`resource-${id}`,observedAt:q.clock.now().toISOString(),checks:{done:true},versions:{},artifacts:[]}];};return s;
+     });
+     const e=new SetupEngine({fsAdapter:q.x.f,processAdapter:r14Process,clock:q.clock},createRegistry(stages));await q.x.planAndApprove(e);const result=await e.run("apply",q.x.applyOptions);assert.equal(result.exitCode,collision?2:0);assert.deepEqual(counts,collision?{S01:0,S02:0}:{S01:1,S02:1});
+diff --git a/setup/tests/integration/q1a-r22-context.test.ts b/setup/tests/integration/q1a-r22-context.test.ts
+new file mode 100644
+index 0000000..8914d10
+--- /dev/null
++++ b/setup/tests/integration/q1a-r22-context.test.ts
+@@ -0,0 +1,216 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import fs from "node:fs/promises";
++import path from "node:path";
++import { aptFixture, evidence } from "../helpers/r21-admission";
++import { r14Process, r14Noop, r14Fixture } from "../helpers/r14-engine";
++import { SetupEngine } from "../../src/core/engine";
++import { createRegistry, loadPlan, validatePlanConsistency } from "../../src/core/plan";
++import { createSystemStage } from "../../src/stages/system";
++import { validateContractSchema } from "../../src/core/validators";
++import { nativePlanHash, canonicalHash, encodePlan } from "../../src/core/plan-format";
++import { type InstallerPlan } from "../../src/core/types";
++import { FakeApplicationAdapter, makeCheckout, makeRelease } from "../helpers/r15-application";
++import { createApplicationStage } from "../../src/stages/application";
++
++async function fixture() {
++  const q = await aptFixture();
++  const identity = { machine: await r14Process.machineIdHash(), boot: await r14Process.bootId(), session: "owner-login-one", uid: 1000, user: "factory", os: "ubuntu-24.04", arch: "amd64" };
++  const proc = { ...r14Process, machineIdHash: async () => identity.machine, bootId: async () => identity.boot,
++    loginSessionId: async () => identity.session, uid: () => identity.uid, username: () => identity.user,
++    hostIdentity: async () => ({ os: identity.os, arch: identity.arch }) };
++  const make = () => new SetupEngine({ fsAdapter: q.x.f, processAdapter: proc, clock: q.clock }, createRegistry([r14Noop("S01"), createSystemStage(q.apt)]));
++  return { ...q, identity, proc, make };
++}
++async function native(q: Awaited<ReturnType<typeof fixture>>): Promise<InstallerPlan> {
++  return JSON.parse(await fs.readFile(q.x.applyOptions.planPath, "utf8")) as InstallerPlan;
++}
++async function write(q: Awaited<ReturnType<typeof fixture>>, plan: InstallerPlan) { plan.plan_hash = nativePlanHash(plan); await fs.writeFile(q.x.applyOptions.planPath, JSON.stringify(plan)); }
++async function refuseWithoutEffects(q: Awaited<ReturnType<typeof fixture>>, command: "apply" | "gate-approve" | "resume" = "apply") {
++  const before = await evidence(q.x.config), counts = { ...q.counts }, plan = await native(q);
++  const result = await q.make().run(command, command === "apply" ? q.x.applyOptions : command === "resume" ? { configPath: q.x.configPath }
++    : { configPath: q.x.configPath, gateId: "s02-sudo-apt-update", planHash: plan.plan_hash });
++  assert.notEqual(result.exitCode, 0, JSON.stringify(result));
++  assert.deepEqual(q.counts, counts); assert.deepEqual(await evidence(q.x.config), before, "no intent/evidence mutation on pre-admission refusal");
++  console.log("R22_REFUSAL " + JSON.stringify({ command, exit: result.exitCode, code: result.envelope.error?.code, counts, before, after: await evidence(q.x.config) }));
++  return result;
++}
++test("A22-01 native C13 is the complete serialized source; canonical round-trip and closed concrete operations", async () => {
++  const q = await fixture(); await q.x.planAndApprove(q.make()); const plan = await native(q);
++  assert.equal(validateContractSchema("plan", plan).ok, true); assert.equal("stages" in plan, false); assert.equal("created_at" in plan, false);
++  assert.deepEqual(plan.operations.map(operation => operation.kind), ["apt.refresh", "apt.simulate", "apt.install"]);
++  assert.deepEqual(plan.stage_scope.map(stage => stage.stage_id), ["S01", "S02"]);
++  const parsed = await loadPlan(q.x.f, q.x.applyOptions.planPath); validatePlanConsistency(q.x.config, parsed);
++  assert.deepEqual(encodePlan(parsed), plan); assert.equal(nativePlanHash(plan), plan.plan_hash);
++  assert.equal(canonicalHash({ b: { z: 1, a: 2 }, a: 3 }), canonicalHash({ a: 3, b: { a: 2, z: 1 } }));
++  assert.notEqual(canonicalHash([1, 2]), canonicalHash([2, 1]));
++  assert.equal((await q.make().run("apply", q.x.applyOptions)).exitCode, 0); assert.deepEqual(q.counts, { refresh: 1, simulate: 1, install: 1 });
++});
++test("A22-01/08 native action/operation/target tampering with recomputed hash never authorizes APT", async () => {
++  const edits: Array<[string, (plan: InstallerPlan) => void]> = [
++    ["duplicate", p => { p.operations.push(structuredClone(p.operations[0]!)); }],
++    ["foreign stage", p => { p.operations[0]!.stage_id = "S03"; }],
++    ["different action", p => { p.operations[0]!.kind = "access.install"; p.operations[0]!.expected_after.action = "access.install"; }],
++    ["wrong postcondition", p => { p.operations[0]!.expected_after.action = "apt.install"; }],
++    ["both gate lists", p => { p.stage_scope.forEach(stage => { stage.requires_gates = []; }); p.operations.forEach(operation => { operation.requires_gates = []; }); }],
++    ["resource", p => { p.operations[0]!.resources = ["other"]; }], ["skip simulation", p => { p.operations.splice(1, 1); }],
++    ["subset/noop dependency", p => { p.stage_scope.shift(); }], ["order", p => { p.stage_scope.reverse(); }],
++    ["target", p => { p.target = { mode: "explicit", stage_id: "S02" }; }]
++  ];
++  for (const [name, edit] of edits) {
++    const q = await fixture(); await q.x.planAndApprove(q.make()); const p = await native(q); edit(p); await write(q, p);
++    const result = await refuseWithoutEffects(q); assert.ok([2, 8].includes(result.exitCode), name);
++  }
++});
++test("A22-01 schema unknown field/action and duplicate/invalid dates are not execution extensions", async () => {
++  const q = await fixture(); await q.x.planAndApprove(q.make()); const plan = await native(q);
++  for (const edit of [ (p: Record<string, unknown>) => { p.extra = true; }, (p: Record<string, unknown>) => { p.operations = [{ ...plan.operations[0], kind: "shell.exec" }]; } ]) {
++    const bad = structuredClone(plan) as unknown as Record<string, unknown>; edit(bad); assert.equal(validateContractSchema("plan", bad).ok, false);
++  }
++});
++for (const change of ["machine", "boot", "login", "uid", "user", "os", "arch", "missing-machine", "missing-session"] as const) test(`A22-03/04/09 ${change}: old approval cannot authorize another context`, async () => {
++  const q = await fixture(); await q.x.planAndApprove(q.make());
++  if (change === "machine") q.identity.machine = "b".repeat(64);
++  if (change === "boot") q.identity.boot = "fe6d5e7a-2737-4898-9c8b-97f09a7a54a7";
++  if (change === "login") q.identity.session = "owner-login-two";
++  if (change === "uid") q.identity.uid = 0;
++  if (change === "user") q.identity.user = "foreign";
++  if (change === "os") q.identity.os = "other-os";
++  if (change === "arch") q.identity.arch = "arm64";
++  if (change === "missing-machine") q.identity.machine = "";
++  if (change === "missing-session") q.identity.session = "";
++  await refuseWithoutEffects(q); await refuseWithoutEffects(q, "gate-approve");
++  if (["boot", "login"].includes(change)) {
++    await q.x.planAndApprove(q.make()); assert.equal((await q.make().run("apply", q.x.applyOptions)).exitCode, 0);
++    assert.deepEqual(q.counts, { refresh: 1, simulate: 1, install: 1 });
++  }
++});
++for (const change of ["replace", "missing", "invalid", "truncated", "symlink"] as const) test(`A22-05 actual reviewed version lock ${change} refuses before intent`, async () => {
++  const q = await fixture(); await q.x.planAndApprove(q.make()); const file = q.x.config.version_lock_path;
++  if (change === "replace") { const lock = JSON.parse(await fs.readFile(file, "utf8")) as {docker: {ce: string}}; lock.docker.ce += ".review-change"; await fs.writeFile(file, JSON.stringify(lock)); }
++  if (change === "missing") await fs.rename(file, file + ".preserved");
++  if (change === "invalid") await fs.writeFile(file, "{");
++  if (change === "truncated") await fs.writeFile(file, " ".repeat(1024 * 1024 + 1));
++  if (change === "symlink") { await fs.rename(file, file + ".preserved"); await fs.symlink(file + ".preserved", file); }
++  await refuseWithoutEffects(q); await refuseWithoutEffects(q, "gate-approve");
++  if (change === "replace") {
++    await q.x.planAndApprove(q.make()); assert.equal((await q.make().run("apply", q.x.applyOptions)).exitCode, 0);
++    assert.deepEqual(q.counts, { refresh: 1, simulate: 1, install: 1 });
++  }
++});
++test("A22-06 host-only scope needs a valid lock but no absent M0 artifact", async () => {
++  const q = await fixture(); assert.equal(await q.x.f.exists(q.x.config.release.archive_path), false);
++  await q.x.planAndApprove(q.make()); assert.equal((await native(q)).release_context.applicable, false);
++  assert.equal((await q.make().run("apply", q.x.applyOptions)).exitCode, 0);
++});
++test("A22-06 applicable S05 actual archive substitution cannot execute commands or publish intent", async () => {
++  const x = await r14Fixture("S05"), adapter = new FakeApplicationAdapter(makeCheckout(x.config), makeRelease(x.config));
++  const engine = () => x.engine([r14Noop("S04"), createApplicationStage(adapter)]);
++  await x.planAndApprove(engine()); const before = await evidence(x.config), probes = adapter.probeCalls;
++  await fs.writeFile(x.config.release.archive_path, "foreign archive bytes");
++  const result = await engine().run("apply", x.applyOptions);
++  assert.equal(result.exitCode, 9); assert.equal(result.envelope.error?.code, "context_release_integrity");
++  assert.equal(adapter.probeCalls, probes); assert.equal(adapter.extractCalls, 0); assert.deepEqual(await evidence(x.config), before);
++});
++for (const age of [30 * 60_000 - 1, 30 * 60_000, 30 * 60_000 + 1, -1]) test(`A22-10 native independent TTL boundary ${age}`, async () => {
++  const q = await fixture(); await q.x.planAndApprove(q.make()); q.advance(age);
++  const valid = age >= 0 && age < 30 * 60_000;
++  if (valid) { assert.equal((await q.make().run("apply", q.x.applyOptions)).exitCode, 0); assert.equal(q.counts.install, 1); }
++  else await refuseWithoutEffects(q);
++});
++test("A22-10 expiry shape, impossible/future timestamps, wrong duration reject a self-hashed plan", async () => {
++  for (const value of ["2026-02-30T10:00:00.000Z", "2026-10-25T10:00:00Z", "2026-10-25T10:30:00.001Z"]) {
++    const q = await fixture(); await q.x.planAndApprove(q.make()); const plan = await native(q); plan.expires_at = value; await write(q, plan);
++    const result = await refuseWithoutEffects(q); assert.equal(result.exitCode, 2);
++  }
++});
++test("A22-07/10 own verified APT refresh remains known when clock crosses TTL inside action", async () => {
++  const q = await fixture(), original = q.apt.refreshMetadata;
++  q.apt.refreshMetadata = async () => { await original(); q.advance(30 * 60_000); };
++  await q.x.planAndApprove(q.make()); const result = await q.make().run("apply", q.x.applyOptions);
++  assert.equal(result.exitCode, 4); assert.deepEqual(q.counts, { refresh: 1, simulate: 0, install: 0 });
++  assert.equal((await q.x.state()).in_flight_operation, null);
++  await refuseWithoutEffects(q, "resume");
++  await q.x.planAndApprove(q.make()); assert.equal((await q.make().run("resume", { configPath: q.x.configPath })).exitCode, 0);
++  assert.deepEqual(q.counts, { refresh: 1, simulate: 1, install: 1 });
++});
++
++import { NodeFilesystemAdapter } from "../../src/adapters/filesystem";
++import { REVIEW_KEY } from "../../src/core/plan-context";
++import { saveState } from "../../src/core/state";
++import { accessFixture, accessEngine, readFacts } from "../helpers/r211-access";
++
++test("A22-04/11/12 new S03 login after checkpoint needs fresh review; original effects never replay", async () => {
++  const x = await accessFixture(); let session = "login-one";
++  const proc = { ...r14Process, loginSessionId: async () => session };
++  const make = (pause?: "cutover") => accessEngine(x.root, x.config, { process: proc, ...(pause ? { pause } : {}) });
++  await x.planAndApprove(make()); assert.equal((await make("cutover").run("apply", x.applyOptions)).exitCode, 130);
++  const before = await evidence(x.config), counts = (await readFacts(x.root)).counts; session = "login-two";
++  const denied = await make().run("resume", { configPath: x.configPath });
++  assert.equal(denied.exitCode, 4); assert.equal(denied.envelope.error?.code, "context_session_changed");
++  assert.deepEqual(await evidence(x.config), before); assert.deepEqual((await readFacts(x.root)).counts, counts);
++  await x.planAndApprove(make()); assert.equal((await make().run("resume", { configPath: x.configPath })).exitCode, 0);
++  assert.deepEqual((await readFacts(x.root)).counts, { install: 1, stage: 1, arm: 1, cutover: 1, tailnet: 1, disarm: 1, rollback: 0 });
++});
++test("A22-13 real lock barrier detects same-path context swap without target intent", async () => {
++  const q = await fixture(); await q.x.planAndApprove(q.make()); let enabled = true, hits = 0;
++  const wrapped = new Proxy(q.x.f, { get(target, key) {
++    if (key === "mkdir") return async (p: string, options?: {recursive?: boolean; mode?: number}) => {
++      if (enabled && p.endsWith(".lock")) {
++        enabled = false; hits++;
++        const lock = JSON.parse(await fs.readFile(q.x.config.version_lock_path, "utf8")) as {docker: {ce: string}};
++        lock.docker.ce += ".changed-at-lock"; await fs.writeFile(q.x.config.version_lock_path, JSON.stringify(lock));
++      }
++      return target.mkdir(p, options);
++    };
++    const value: unknown = Reflect.get(target, key); return typeof value === "function" ? value.bind(target) : value;
++  } });
++  const engine = new SetupEngine({ fsAdapter: wrapped, processAdapter: q.proc, clock: q.clock }, createRegistry([r14Noop("S01"), createSystemStage(q.apt)]));
++  const before = await evidence(q.x.config), result = await engine.run("apply", q.x.applyOptions);
++  assert.equal(hits, 1, "actual acquisition reached controlled barrier"); assert.equal(result.exitCode, 8);
++  assert.deepEqual(q.counts, { refresh: 0, simulate: 0, install: 0 }); assert.deepEqual(await evidence(q.x.config), before);
++});
++test("A22-07/13 version lock changes inside a completed bounded refresh: next effect denied, progress retained", async () => {
++  const q = await fixture(), refresh = q.apt.refreshMetadata;
++  q.apt.refreshMetadata = async () => {
++    await refresh(); const lock = JSON.parse(await fs.readFile(q.x.config.version_lock_path, "utf8")) as {docker: {ce: string}};
++    lock.docker.ce += ".after-effect"; await fs.writeFile(q.x.config.version_lock_path, JSON.stringify(lock));
++  };
++  await q.x.planAndApprove(q.make()); const result = await q.make().run("apply", q.x.applyOptions);
++  assert.equal(result.exitCode, 8); assert.deepEqual(q.counts, { refresh: 1, simulate: 0, install: 0 });
++  assert.equal((await q.x.state()).in_flight_operation, null);
++  q.apt.refreshMetadata = refresh;
++  await q.x.planAndApprove(q.make()); assert.equal((await q.make().run("resume", { configPath: q.x.configPath })).exitCode, 0);
++  assert.deepEqual(q.counts, { refresh: 1, simulate: 1, install: 1 });
++});
++test("A22-09/14 malformed or foreign core review is never authorization and readonly diagnostics never repair it", async () => {
++  for (const mutation of ["missing", "malformed", "future", "foreign-plan", "foreign-context"] as const) {
++    const q = await fixture(); await q.x.planAndApprove(q.make()); const state = await q.x.state(), holder = state.stages.find(stage => stage.id === "S00")!;
++    const record = JSON.parse(holder.versions[REVIEW_KEY]!) as Record<string, unknown>;
++    if (mutation === "missing") delete holder.versions[REVIEW_KEY];
++    else { if (mutation === "future") record.version = 2; if (mutation === "foreign-plan") record.plan_hash = "f".repeat(64); if (mutation === "foreign-context") record.context_hash = "e".repeat(64);
++      holder.versions[REVIEW_KEY] = mutation === "malformed" ? "{" : JSON.stringify(record); }
++    await saveState(q.x.f, q.x.config, state); const before = await evidence(q.x.config);
++    await q.make().run("status", { configPath: q.x.configPath }); await q.make().run("gate-list", { configPath: q.x.configPath });
++    assert.deepEqual(await evidence(q.x.config), before);
++    assert.equal((await refuseWithoutEffects(q)).exitCode, 8); assert.equal((await refuseWithoutEffects(q, "gate-approve")).exitCode, 8);
++  }
++});
++for (const fault of [true, false]) test(`A22-14 actual core review publication write fault ${fault ? "on" : "off"}`, async () => {
++  const q = await fixture(); let hits = 0;
++  const wrapped = new Proxy(q.x.f, { get(target, key) {
++    if (key === "writeText") return async (p: string, body: string, mode?: number) => {
++      if (fault && hits === 0 && p.includes("state.json.tmp-") && body.includes(REVIEW_KEY)) { hits++; throw Object.assign(Error("review publication ENOSPC"), { code: "ENOSPC" }); }
++      return target.writeText(p, body, mode);
++    };
++    const value: unknown = Reflect.get(target, key); return typeof value === "function" ? value.bind(target) : value;
++  } });
++  const engine = new SetupEngine({ fsAdapter: wrapped, processAdapter: q.proc, clock: q.clock }, createRegistry([r14Noop("S01"), createSystemStage(q.apt)]));
++  const planned = await engine.run("plan", { configPath: q.x.configPath });
++  if (fault) {
++    assert.equal(hits, 1); assert.equal(planned.exitCode, 8); const p = await native(q);
++    const approved = await q.make().run("gate-approve", { configPath: q.x.configPath, gateId: "s02-sudo-apt-update", planHash: p.plan_hash });
++    assert.notEqual(approved.exitCode, 0); assert.notEqual((await q.make().run("apply", q.x.applyOptions)).exitCode, 0);
++    assert.deepEqual(q.counts, { refresh: 0, simulate: 0, install: 0 });
++  } else { await q.x.planAndApprove(engine); assert.equal((await engine.run("apply", q.x.applyOptions)).exitCode, 0); assert.equal(q.counts.install, 1); }
++});
+diff --git a/setup/tests/integration/update.test.ts b/setup/tests/integration/update.test.ts
+index 364fda1..6648736 100644
+--- a/setup/tests/integration/update.test.ts
++++ b/setup/tests/integration/update.test.ts
+@@ -54,6 +54,8 @@ class FakeProcessAdapter implements ProcessAdapter {
+     return "factory";
+   }
+ 
++  async hostIdentity(): Promise<{ os: "ubuntu-24.04"; arch: "amd64" }> { return { os: "ubuntu-24.04", arch: "amd64" }; }
++  async loginSessionId(): Promise<string> { return "injected-test-login"; }
+   async bootId(): Promise<string> {
+     return "boot-id";
+   }
+diff --git a/setup/tests/integration/verification-auth.test.ts b/setup/tests/integration/verification-auth.test.ts
+index 42c55ea..2d87d4c 100644
+--- a/setup/tests/integration/verification-auth.test.ts
++++ b/setup/tests/integration/verification-auth.test.ts
+@@ -1,3 +1,4 @@
++import { fixtureContextFiles } from "../helpers/r22-context";
+ import test from "node:test";
+ import assert from "node:assert/strict";
+ import fs from "node:fs";
+@@ -90,6 +91,8 @@ class FakeProcessAdapter implements ProcessAdapter {
+   username(): string {
+     return "factory";
+   }
++  async hostIdentity(): Promise<{ os: "ubuntu-24.04"; arch: "amd64" }> { return { os: "ubuntu-24.04", arch: "amd64" }; }
++  async loginSessionId(): Promise<string> { return "injected-test-login"; }
+   async bootId(): Promise<string> {
+     return "4d445fab-6491-4d34-8ad3-c4d2d29f140f";
+   }
+@@ -171,6 +174,7 @@ function makeConfig(root: string): SetupConfig {
+ }
+ 
+ async function writeConfig(configPath: string, config: SetupConfig): Promise<void> {
++  await fixtureContextFiles(config, config.selected_stages.some(id => ["S05","S06","S07","S08","S09","S10","S11","S13","S14"].includes(id)));
+   await fs.promises.mkdir(path.dirname(configPath), { recursive: true });
+   await fs.promises.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+ }
+diff --git a/setup/tests/unit/apt.test.ts b/setup/tests/unit/apt.test.ts
+index 3e71f3b..c86c249 100644
+--- a/setup/tests/unit/apt.test.ts
++++ b/setup/tests/unit/apt.test.ts
+@@ -30,6 +30,8 @@ class FakeProcessAdapter implements ProcessAdapter {
+   username(): string {
+     return "factory";
+   }
++  async hostIdentity(): Promise<{ os: "ubuntu-24.04"; arch: "amd64" }> { return { os: "ubuntu-24.04", arch: "amd64" }; }
++  async loginSessionId(): Promise<string> { return "injected-test-login"; }
+   async bootId(): Promise<string> {
+     return "boot-id";
+   }
+diff --git a/setup/tests/unit/contracts.test.ts b/setup/tests/unit/contracts.test.ts
+index ec69b70..772ce1c 100644
+--- a/setup/tests/unit/contracts.test.ts
++++ b/setup/tests/unit/contracts.test.ts
+@@ -1,3 +1,4 @@
++import { canonicalHash, nativePlanHash } from "../../src/core/plan-format";
+ import test from "node:test";
+ import assert from "node:assert/strict";
+ import { validateAllContracts, validateContractSchema } from "../../src/core/validators";
+@@ -81,36 +82,18 @@ const VALID_STATE = {
+   last_error: null
+ };
+ 
++// Explicitly synthetic schema fixture, not executable reviewed host evidence.
+ const VALID_PLAN = {
+-  schema_version: 1,
+-  contract_version: "1.0.0",
+-  installation_id: "0f71966d-ef6f-4976-97cb-eb34cb139204",
+-  desired_hash: "cbf18c501796da4ac8f5489f13f8d8e2a2f52f8ceacdf4ecfd171f06dc6f66f6",
+-  plan_hash: "a47a81f4cad8f685dca8f9ff812f39b3b3f6f3867d80a6f0893fc31f06eb2fab",
+-  created_at: "2026-10-21T20:00:00Z",
+-  stages: [
+-    {
+-      stage_id: "S01",
+-      optional: false,
+-      required_capabilities: ["runner-readonly"],
+-      operations: [
+-        {
+-          id: "op-observe-host",
+-          stage_id: "S01",
+-          kind: "observe",
+-          resource_id: "installation:0f71966d-ef6f-4976-97cb-eb34cb139204",
+-          risk: "low",
+-          gate_ids: [],
+-          preconditions: ["host-user-matches"],
+-          side_effects: [],
+-          timeout_sec: 30,
+-          retryable: true
+-        }
+-      ],
+-      required_gates: []
+-    }
+-  ]
++  schema_version: 1 as const, contract_version: "1.0.0" as const, installation_id: VALID_CONFIG.installation_id,
++  host_fingerprint: { machine_id_hash: canonicalHash("schema-host"), os: "ubuntu-24.04" as const, arch: "amd64" as const },
++  owner_session: { uid: 1000, owner: "factory", boot_id: VALID_STATE.host_fingerprint.boot_id, login_session_hash: canonicalHash("schema-login") },
++  generated_at: "2026-10-21T20:00:00.000Z", expires_at: "2026-10-21T20:30:00.000Z",
++  desired_hash: canonicalHash(VALID_CONFIG), version_lock_hash: canonicalHash("schema-lock"), observations_hash: canonicalHash([]),
++  target: { mode: "selected" as const, stage_id: null },
++  stage_scope: [{ stage_id: "S01" as const, optional: false, required_capabilities: [], requires_gates: [] }],
++  release_context: { applicable: false, declared_hash: canonicalHash(VALID_CONFIG.release), artifact_hash: null }, operations: [], plan_hash: ""
+ };
++VALID_PLAN.plan_hash = nativePlanHash(VALID_PLAN);
+ 
+ const VALID_INSTALLER_RELEASE = {
+   schema_version: 1,
+diff --git a/setup/tests/unit/core.test.ts b/setup/tests/unit/core.test.ts
+index cd62e28..a7b3a4c 100644
+--- a/setup/tests/unit/core.test.ts
++++ b/setup/tests/unit/core.test.ts
+@@ -2,7 +2,7 @@ import test from "node:test";
+ import assert from "node:assert/strict";
+ import { buildStageClosure, createRegistry, validatePlanConsistency } from "../../src/core/plan";
+ import { ensureGateApproved, ensureNonInteractiveGates, upsertPlanGates } from "../../src/core/gates";
+-import { ExitCode, type InstallerPlan, type SetupConfig, type SetupState, type StageModule } from "../../src/core/types";
++import { ExitCode, type ExecutionPlan, type SetupConfig, type SetupState, type StageModule } from "../../src/core/types";
+ import { hashConfig } from "../../src/core/config";
+ 
+ function makeConfig(): SetupConfig {
+@@ -104,7 +104,7 @@ test("buildStageClosure rejects cycles", () => {
+ 
+ test("validatePlanConsistency rejects stale desired hash", () => {
+   const config = makeConfig();
+-  const stalePlan: InstallerPlan = {
++  const stalePlan: ExecutionPlan = {
+     schema_version: 1,
+     contract_version: "1.0.0",
+     installation_id: config.installation_id,

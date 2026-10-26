@@ -77,6 +77,7 @@ export function createUpdateStage(
             {
               id: `s14-update-${config.installation_id.slice(0, 12)}`,
               stageId: "S14" as const,
+              action: "update.prepare" as const,
               kind: "mutate" as const,
               resourceId: "s14-maintenance-update",
               risk: "high" as const,

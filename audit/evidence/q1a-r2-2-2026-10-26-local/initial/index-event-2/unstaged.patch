@@ -1,0 +1,342 @@
+diff --git a/audit/evidence/q1a-r2-2-2026-10-26-local/runners/build-c13-adapters.py b/audit/evidence/q1a-r2-2-2026-10-26-local/runners/build-c13-adapters.py
+index 2f31205..a795fa3 100644
+--- a/audit/evidence/q1a-r2-2-2026-10-26-local/runners/build-c13-adapters.py
++++ b/audit/evidence/q1a-r2-2-2026-10-26-local/runners/build-c13-adapters.py
+@@ -27,7 +27,22 @@ for name in names:
+  s=s.replace('const proc={','const proc={hostIdentity:async()=>({os:"ubuntu-24.04",arch:"amd64"}),loginSessionId:async()=>"c13-fixture-owner-login",')
+  s=s.replace('  c.selected_stages = selected;', '  c.selected_stages = selected; c.host.arch="amd64"; await __c13.prepare(c);')
+  s=s.replace("const configPath=path.join(q.root,'config.json');", "c.host.arch='amd64';await __c13.prepare(c);const configPath=path.join(q.root,'config.json');")
+- # Watchdog detects incomplete stdout independently; it does not manufacture rows or retry.
++ # C13 review has two core metadata publications. Its previous snapshot is prepared,
++ # not byte-identical to the pre-review clean state. Preserve the functional oracle:
++ # verified clean progress and exact checkpoint/receipts survive both recover paths.
++ if name=='r14-comparison-fresh-gates.cjs':
++  old="assert.equal(stateHash(__c13.parse(await fs.readFile(x.primary+'.previous','utf8'))),cleanHash);"
++  new="""const prepared=__c13.parse(await fs.readFile(x.primary+'.previous','utf8'));
++   assert.equal(prepared.in_flight_operation,null);assert.equal(prepared.installation_id,x.state.installation_id);
++   assert.equal(prepared.stages.find(s=>s.id==='S01').status,'verified');
++   const proofAfterPlan=await readStateCommitManifest(f,x.c);
++   assert.deepEqual(proofAfterPlan.last_effect_checkpoint,x.m.last_effect_checkpoint);
++   assert.deepEqual(proofAfterPlan.completed_operations,x.m.completed_operations);
++   const beforeBasis=JSON.parse(x.state.stages.find(s=>s.id==='S01').versions.setup_policy_basis_v1);
++   const preparedBasis=JSON.parse(prepared.stages.find(s=>s.id==='S01').versions.setup_policy_basis_v1);
++   assert.deepEqual(preparedBasis.completed,beforeBasis.completed);assert.deepEqual(preparedBasis.progress,beforeBasis.progress);"""
++  assert old in s;s=s.replace(old,new)
++ # Completeness is checked by validate-r22.py, never manufactured by the adapter.
+  prefix="const __c13=require('../c13-fixture-compat.cjs')(process.argv[2]);\n"
+  (adapted/name).write_text('// C13 fixture/input adapter. Original counters/oracles preserved; see adapter-map.md.\n'+prefix+s)
+ print('Separate C13 callsite and fixture layers generated; original runner bytes preserved.')
+diff --git a/audit/evidence/q1a-r2-2-2026-10-26-local/runners/c13/r14-comparison-fresh-gates.cjs b/audit/evidence/q1a-r2-2-2026-10-26-local/runners/c13/r14-comparison-fresh-gates.cjs
+index 8c69d5d..cb5af56 100644
+--- a/audit/evidence/q1a-r2-2-2026-10-26-local/runners/c13/r14-comparison-fresh-gates.cjs
++++ b/audit/evidence/q1a-r2-2-2026-10-26-local/runners/c13/r14-comparison-fresh-gates.cjs
+@@ -157,7 +157,15 @@ const reviewDeadline=setTimeout(()=>{console.error('Review harness deadline exce
+    const previousBefore=__c13.parse(await fs.readFile(x.primary+'.previous','utf8'));
+    const cleanHash=stateHash(x.state), checkpointHash=x.m.last_effect_checkpoint.state_hash;
+    const checkpointingPlan=await x.e.run('plan',{configPath:x.configPath});assert.equal(checkpointingPlan.exitCode,0,__c13.stringify(checkpointingPlan));
+-   assert.equal(stateHash(__c13.parse(await fs.readFile(x.primary+'.previous','utf8'))),cleanHash);
++   const prepared=__c13.parse(await fs.readFile(x.primary+'.previous','utf8'));
++   assert.equal(prepared.in_flight_operation,null);assert.equal(prepared.installation_id,x.state.installation_id);
++   assert.equal(prepared.stages.find(s=>s.id==='S01').status,'verified');
++   const proofAfterPlan=await readStateCommitManifest(f,x.c);
++   assert.deepEqual(proofAfterPlan.last_effect_checkpoint,x.m.last_effect_checkpoint);
++   assert.deepEqual(proofAfterPlan.completed_operations,x.m.completed_operations);
++   const beforeBasis=JSON.parse(x.state.stages.find(s=>s.id==='S01').versions.setup_policy_basis_v1);
++   const preparedBasis=JSON.parse(prepared.stages.find(s=>s.id==='S01').versions.setup_policy_basis_v1);
++   assert.deepEqual(preparedBasis.completed,beforeBasis.completed);assert.deepEqual(preparedBasis.progress,beforeBasis.progress);
+    await fs.unlink(x.primary);
+    const plan=mode==='plan-first'?await x.e.run('plan',{configPath:x.configPath}):null;
+    const before=await evidenceSnapshot(x);
+diff --git a/setup/docs/access-continuation-r211.md b/setup/docs/access-continuation-r211.md
+index b6aa9f1..ac07f7d 100644
+--- a/setup/docs/access-continuation-r211.md
++++ b/setup/docs/access-continuation-r211.md
+@@ -59,3 +59,7 @@ Version-1 R2.1 basis first requires the exact schema-valid old plan, with its se
+ R1.6/basisless known S03 progress is explicitly unsupported for automatic transfer: no reviewed source policy means no safe semantic enrollment. Likewise a retained publication with an empty claimed prefix blocks. Preserve evidence for a separately reviewed migration/reconciliation; never call it fresh or reset it. Existing version-1 handling of other stages is unchanged.
+ 
+ R2.2 full C13 serialization/context binding, R3/Q1B/Q2–Q6 and production remain OPEN. No commits/push/branches/worktree/PR/release/deploy are authorized by this document or any generated follow-up prompt.
++
++## R2.2 context and legacy transition (2026-10-26)
++
++See [plan-context-r22.md](plan-context-r22.md): new-format same-session continuation preserves the admitted prefix; boot/login changes require explicit review and fresh approvals. Strict v1/v2 historical publications migrate only after exact semantic/current-frontier checks; v3 also retains the complete core catalog. R211-O01 automatic final recovery remains R3, with explicit reviewed continuation as the supported no-replay workaround.
+diff --git a/setup/docs/plan-admission-r21.md b/setup/docs/plan-admission-r21.md
+index c97309b..8def7d7 100644
+--- a/setup/docs/plan-admission-r21.md
++++ b/setup/docs/plan-admission-r21.md
+@@ -63,3 +63,7 @@ This package does not claim cryptographic plan authentication or protection agai
+ ## R2.1.1 correction (2026-10-26)
+ 
+ The original R2.1 continuation claim was too broad for S03: same-plan restart lost the predecessor, and explicit re-plan could replay completed observation-derived IDs. See [access-continuation-r211.md](access-continuation-r211.md) for the v2 publication/alias proof and strict full-operation reconciliation. This correction does not retroactively claim that the original A21-08 validation covered these cases.
++
++## R2.2 serialization supersession (2026-10-26)
++
++Execution now uses the strict flat C13 format and independently committed context described in [plan-context-r22.md](plan-context-r22.md). The old stages/created_at representation in this historical design note is an internal decoded view or legacy historical proof only, never an executable wire fallback. Producer policy/TTL/no implicit replan protections remain.
+diff --git a/setup/docs/plan-context-r22.md b/setup/docs/plan-context-r22.md
+index af2d7ea..68b8485 100644
+--- a/setup/docs/plan-context-r22.md
++++ b/setup/docs/plan-context-r22.md
+@@ -1,23 +1,50 @@
+-# R2.2 plan context (implementation in progress)
++# R2.2: C13 plan and checked review context
+ 
+-Contract1.0.0 C09/C13 is normative. The public execution document is a flat C13 plan; a strictly decoded internal StagePlan view is not a second execution format. Legacy plans are readable only as bounded historical proof, never executable approval.
++CONTRACT 1.0.0 C05–C13 remains normative. The execution file is a flat C13 `InstallerPlan`; the internal `ExecutionPlan`/StagePlan view is derived by strict decoding, never persisted as an alternative execution format. Legacy `stages/created_at` files are historical evidence only and require explicit new producer review before effects.
+ 
+-| Fact | Trusted producer | Durable proof | Admission / refusal |
+-|---|---|---|---|
+-| host_fingerprint | checked machine ID and OS/arch from ProcessAdapter | core review hash + existing state host | foreign/missing identity blocks before intent; boot is session freshness, not foreign host |
+-| owner_session | UID/name, boot and Linux audit login session; no environment token/PID identity | exact core review context | new boot/login needs explicit fresh review; same-session new process works |
+-| version_lock_hash | bounded safe-file read, validated lock, exact UTF-8 bytes SHA256 | plan + committed review | substitution/invalid/missing/unsafe file blocks; no placeholder |
+-| release_context | applicable closure, config identity and bounded artifact/content proof | plan/review + existing stage-specific receipts | host-only closure has explicit not-applicable proof; release use requires artifact proof |
+-| observations_hash | ordered stage fingerprints, no timestamps | plan plus per-stage source/expected fingerprints | current expected frontier after own progress; external significant drift refuses |
+-| target/stage_scope | config-selected or explicit producer target and trusted closure | core review context | exact closure including no-ops; submitted subset/order cannot authorize itself |
+-| operation policy | concrete closed producer action and full semantics | flat operations + producer basis | no unknown action, gate stripping or semantic replacement |
++## Serialization and identity
+ 
+-Canonical JSON recursively sorts object keys; array order is significant. Hash excludes only plan_hash. generated_at/expires_at are strict real UTC milliseconds, exactly30minutes. An injected clock controls all TTL checks; no resume/approval renewal.
++The strict public schema defines `schema_version:1`, installation/contract identity, physical `host_fingerprint`, `owner_session`, `generated_at`, `expires_at`, desired/version-lock/observations/plan hashes, `target`, `stage_scope`, `release_context` and flat `operations`. Additional C13-compatible fields are explicit, with unknown properties rejected. `stage_scope` preserves ordered dependency closure, optionality, capabilities and stage-wide gates even for empty/no-op dependencies; target records config-selected versus explicit stage provenance. Core review binds this provenance independently of submitted JSON.
+ 
+-Core review metadata uses the existing atomic state publication mechanism, not another authorization file. Stage observations cannot overwrite reserved core keys. Admission is repeated under installation lock and before subsequent effects; a partially published snapshot/checkpoint/binding never supplies authorization. Known operation publications retain their original identity through explicit reviewed migration; unknown outcomes remain blocked.
++Operations carry a closed concrete adapter action, operation/stage identity, exactly one resource, expected-before hashes (reviewed constraints/source observation/version lock), action-specific expected-after checks, required gates, retry/timeout, risk, execution classification, constraints, estimated effects and enumerated unknown-effect disclosures. Concrete actions are literal declarations in trusted producers; submitted command strings/resource names do not select an adapter. `fixture.counter` exists only for explicitly injected test producers, not the production registry. Unknown-effect disclosures are review limitations, never permission to replay unknown outcomes.
+ 
+-Linux session support requires readable valid audit sessionid and loginuid for the actual owner. Unset audit identity fails closed with an owner login/revalidation action. Tests inject identity explicitly. Production never trusts arbitrary session environment variables. Read-only status/gate list do not repair metadata.
++Canonical JSON recursively sorts object keys, preserves array order, and hashes UTF-8 bytes without only `plan_hash`. Parsing rejects duplicate decoded keys (including escaped aliases), depth over 128, invalid UTF-8/NUL and files over 1 MiB. Dates must be real canonical UTC ISO milliseconds, exactly 30 minutes apart. Future generation is refused; `now >= expires_at` is expired. A single injected clock drives plan and gate expiry. Finishing a bounded action after expiry may publish its verified progress; the next intent is forbidden. Resume/approve/recover do not renew timestamps.
+ 
+-C13 migration invalidates legacy approvals. Historical v1/v2 S03 semantic mapping must preserve exact original publications and full policy comparisons; resources/prefixes alone are insufficient. R211-O01 remains R3: retain the known-red automatic-resume oracle and require explicit fresh review when recovery cannot prove review identity.
++## Trusted facts and admission
+ 
+-OS-level TOCTOU/privileged safe-write qualification remains Q2. No commits/push/branches/worktree/index staging/PR/merge/tag/release/deploy, real privileged commands, providers or live jobs are authorized by this document or generated follow-up prompts.
++| Fact | Producer / persistent proof | Check and next action |
++|---|---|---|
++| Physical host | Checked machine ID + actual Ubuntu 24.04/architecture + existing installation state; plan/core review | Foreign/missing identity refuses before intent. Boot is not foreign-host identity. Reconcile host, never silently rebind copied state. |
++| Owner session | Actual ordinary UID/configured username; Linux audit `sessionid` and `loginuid`, boot UUID; hash in exact plan/review | New PID in same login works. New boot/login requires revalidation, explicit new review and approvals. Unset/unreadable audit identity fails closed; perform a supported owner login. No env token, PID UUID or perpetual config session. |
++| Version lock | Safe bounded schema-validated file; SHA-256 of exact UTF-8 bytes (including whitespace) | Same-path replacement, invalid/missing/truncated/symlink/substitution refuses; review valid new content explicitly. State lock/path hashes are not substitutes. |
++| Release | Config release declaration plus actual safe artifact hash (bounded streaming 1 GiB/120s); stage policy adds manifest/commands/deployed-content and S06 pins | Applicable release closures require bytes matching declared SHA. Host-only S00–S04 do not require absent/live M0. Manifest/entry changes refuse; a path string is not artifact proof. |
++| Observations | Ordered security projection of producer policy inputs; timestamps/irrelevant counters excluded | Initial reviewed source is checked, then committed operation frontier/current invariants after own verified effects. External significant drift refuses. Never rewrite submitted plan to match observations. |
++| Target/closure | Trusted registry closure and original selected/explicit target, core review | Exact order, no-op prerequisites and stage requirements checked; submitted subset/superset/target cannot authorize itself. |
++| Actions/gates | Canonical fresh producer policy compared with entire submitted semantics and published progress | Gate stripping, changed action/resource/risk/constraints/retry/timeouts/order refuse. Gate identity binds plan hash + exact operation/resource; that hash transitively binds all context. Stage-only gates remain mandatory. No auto approvals. |
++
++Filesystem context inventory checks all ancestors (max64), ownership, writable modes, symlinks and regular types. Lock reads are bounded 1 MiB with before/after identity checks. Artifact streaming uses no-follow open and before/after file identity/size/mtime. File ownership is checked against the actual OS UID (501 in this local environment), separately from injected owner UID1000 in tests. Production does not inject identities. Root-sticky temporary ancestors are allowed for owned test copies; arbitrary group/world writable paths are not.
++
++Gate approval, apply and resume use the same checked context, independent producer policy and committed review. Requests are frozen before lock; bytes and identity are rechecked after lock and before each action, including after read-only stage probes/hashing. Invalid approval is refused immediately. Recorded status/gate list do not probe/repair/migrate evidence. OS-level check/use races and privileged safe writes remain Q2; these checks do not claim complete OS TOCTOU elimination.
++
++## Publication, progress and migration
++
++Existing core state publication remains the only metadata writer. S00 reserved `setup_plan_review_v1` has exact fields `{version:1,phase,plan_hash,context_hash}`; phases are prepared/committed, bounded4096 bytes. Stage observation cannot overwrite it. Per-stage `setup_policy_basis_v1` supports strict versions1/2/3; v3 adds exact producer `catalog` and last non-executable policy `frontier` to original source, expected fingerprint, completion IDs and immutable operation/attempt/receipt publication records. Max64 KiB. Unsupported metadata is a blocker, never fresh state.
++
++| Boundary | Durable evidence / restart behavior |
++|---|---|
++| Before proposal publication | Generate/validate in memory; no replacement of historical plan on failure. |
++| Prepared state published | Full semantic catalog and carried publications are durable, review phase prepared; no gate/effect authorization. |
++| New public plan published atomically | Temp write/fsync/rename/directory-fsync; prepared state still cannot authorize. |
++| Committed review published | Existing state/journal/manifest generation protocol binds exact plan/context; only this phase authorizes approvals. |
++| Intent/effect/receipt/verify/checkpoint/binding | Existing R1.4/R2.1.1 protocol unchanged: unknown effects block replay; each completed effect verified and published before next. |
++| Interrupted metadata/final review publication | Preserve confirmed progress. Prepared/unsupported review requires explicit fresh review; do not promote metadata from old snapshots automatically. |
++
++Generic v3 completion requires exact semantic catalog, journal checkpoint attempt/receipt binding and retained manifest publication (or a proven later same-resource successor). S03 additionally requires exact ordered prefix, semantic operation equivalence and current frontier postconditions, distinguishing arm/disarm despite shared resource. Carried records retain original operation/attempt/receipt identities. IDs/resources alone are insufficient. Legacy v1 reads the exact bound old plan, v2 uses immutable publications; action mapping is allowed only after all prior operation semantics match the current trusted action. Legacy execution approvals never become C13 approvals by hash conversion. Explicit fresh review is required; unknown/ambiguous legacy data remains preserved and blocked.
++
++R211-O01 is still R3: a restored snapshot without committed review may refuse automatic resume. The original desired oracle remains known-red; explicit fresh producer review/approval is the supported workaround, with no replay. No recovery-proof relaxation is introduced here.
++
++## Refusal classes and limits
++
++Malformed/schema/semantic/tampered plan: exit2. Unsupported ordinary owner/identity: exit3. Missing/expired gate or ended session/expired plan: exit4. Context/policy drift, foreign state, unproven publication or legacy review: exit8. Unsafe metadata/release integrity: exit9. Runtime adapter errors retain their existing typed contract; pre-admission refusal publishes no target intent or false verified state and preserves confirmed receipts/checkpoints.
++
++Local fake-adapter tests are not privileged qualification. Real S03 cutover remains a Q2 code blocker; VM/live/privileged/provider qualification is NOT RUN. R3/Q1B/Q2–Q6/application/production remain OPEN. No commits, push, branches, worktree, staging/index packaging, PR, merge, tag, release or deploy are authorized here or in generated follow-up prompts.
+diff --git a/setup/docs/privileges.md b/setup/docs/privileges.md
+index bf51076..4978b6c 100644
+--- a/setup/docs/privileges.md
++++ b/setup/docs/privileges.md
+@@ -77,3 +77,7 @@ Read-only diagnostics (`status`, `gate list`, read-only load paths) do not mutat
+ ## Q1A-R1.4 protocol correction
+ 
+ The R1.3 description of operation checkpoints as final recovery proof was incomplete. See [lifecycle-r14.md](lifecycle-r14.md) for the transaction/crash table and typed internal clean/progress proof. Ordinary load and every recovery phase now call the same contradictory-evidence evaluator before mutation. Quarantine is not ignored by a valid primary. A prepared decision contains the exact source manifest and candidate hash; continuation accepts only that source or its defined restore transition. Restoring a proven clean metadata predecessor preserves checkpoint/progress proof and can finish manifest publication after a partial restore. Legacy prepared decisions without the immutable source binding remain blocked and preserved.
++
++### R2.2 owner-session admission
++
++C13 review requires ordinary configured owner identity and checked Linux audit login session/loginuid plus boot UUID. New CLI PIDs share a login; unset audit identity is a fail-closed blocker. A Docker relogin ends prior approval context and requires fresh remaining-plan review. See [plan-context-r22.md](plan-context-r22.md). This adds no privileged executor and does not qualify sudo/SSH/Docker host mutations.
+diff --git a/setup/src/core/action-postconditions.ts b/setup/src/core/action-postconditions.ts
+index db82f28..2d1d830 100644
+--- a/setup/src/core/action-postconditions.ts
++++ b/setup/src/core/action-postconditions.ts
+@@ -28,4 +28,3 @@ export function actionUnknownEffects(action: AdapterAction): string[] {
+   if (["access.arm", "access.cutover", "access.disarm"].includes(action)) return ["privileged-access-implementation-remains-Q2-blocked"];
+   return [];
+ }
+-
+diff --git a/setup/src/core/engine.ts b/setup/src/core/engine.ts
+index d237aa0..3035efc 100644
+--- a/setup/src/core/engine.ts
++++ b/setup/src/core/engine.ts
+@@ -1096,7 +1096,12 @@ export class SetupEngine {
+       for (const id of buildStageClosure(this.registry, stageId === null ? config.selected_stages : [stageId])) {
+         const stage = this.registry.byId.get(id)!;
+         const ctx = { ...this.stageContext(config, hashConfig(config), "planning"), completedOperationReceipts: boundReceipts };
+-        const previous = await restoreOperationProgress(this.deps.fsAdapter, stage, ctx, readPolicyBasis(state, stage));
++        const storedBasis = readPolicyBasis(state, stage);
++        // A fresh review of a changed configuration must not inherit generic-stage
++        // completion. Existing publications stay retained, but confer no new trust.
++        // S03 prefix migration remains stricter and requires its exact configuration.
++        const reviewBasis = !stage.verifyProgress && storedBasis?.configHash !== hashConfig(config) ? null : storedBasis;
++        const previous = await restoreOperationProgress(this.deps.fsAdapter, stage, ctx, reviewBasis);
+         progressContexts.set(id, ctx);
+         admittedBases.set(id, previous);
+         if (!stage.verifyProgress && boundReceipts.some(receipt => receipt.stageId === id)) {
+diff --git a/setup/src/core/plan-history.ts b/setup/src/core/plan-history.ts
+index a3b31e7..54680b4 100644
+--- a/setup/src/core/plan-history.ts
++++ b/setup/src/core/plan-history.ts
+@@ -22,7 +22,7 @@ export async function readHistoricalStage(fs: FilesystemAdapter, config: SetupCo
+       // With no basis, only an exact independently published core review can prove policy.
+       if (basisPlanHash === undefined) {
+         const r = JSON.parse(state.stages.find(item => item.id === "S00")?.versions[REVIEW_KEY] ?? "null") as Record<string, unknown> | null;
+-        if (!r || r.version !== 1 || r.plan_hash !== native.plan_hash || r.context_hash !== reviewContextHash(native)) throw Error("historical review missing");
++        if (!r || Object.keys(r).sort().join(",") !== "context_hash,phase,plan_hash,version" || r.version !== 1 || r.phase !== "committed" || r.plan_hash !== native.plan_hash || r.context_hash !== reviewContextHash(native)) throw Error("historical review missing");
+       }
+     } else if (validateContractSchema("legacy-plan", parsed).ok && basisPlanHash !== undefined) {
+       plan = parsed as ExecutionPlan;
+diff --git a/setup/tests/integration/q1a-r21-admission.test.ts b/setup/tests/integration/q1a-r21-admission.test.ts
+index 2b6f758..4f97180 100644
+--- a/setup/tests/integration/q1a-r21-admission.test.ts
++++ b/setup/tests/integration/q1a-r21-admission.test.ts
+@@ -194,7 +194,16 @@ test("A21-03 operation IDs are unique across parent stages, not merely within ea
+       s.plan=()=>({stageId:id,optional:false,requiredCapabilities:[],requiredGates:[],operations:[{ action: "fixture.counter" as const,id:collision?"shared":`owned-${id}`,stageId:id,kind:"mutate",resourceId:`resource-${id}`,risk:"low",gateIds:[],preconditions:[],sideEffects:["owned counter"],timeoutSec:1,retryable:false}]});
+       s.apply=async(_ctx,p)=>{counts[id]!++;return [{operationId:p.operations[0]!.id,stageId:id,resourceId:`resource-${id}`,observedAt:q.clock.now().toISOString(),checks:{done:true},versions:{},artifacts:[]}];};return s;
+     });
+-    const e=new SetupEngine({fsAdapter:q.x.f,processAdapter:r14Process,clock:q.clock},createRegistry(stages));await q.x.planAndApprove(e);const result=await e.run("apply",q.x.applyOptions);assert.equal(result.exitCode,collision?2:0);assert.deepEqual(counts,collision?{S01:0,S02:0}:{S01:1,S02:1});
++    const e = new SetupEngine({fsAdapter:q.x.f,processAdapter:r14Process,clock:q.clock},createRegistry(stages));
++    if (collision) {
++      const result = await e.run("plan", {configPath:q.x.configPath});
++      assert.equal(result.exitCode, 2, "duplicate producer IDs refuse at serialization, before review/effect");
++      assert.deepEqual(counts, {S01:0,S02:0});
++    } else {
++      await q.x.planAndApprove(e);
++      assert.equal((await e.run("apply",q.x.applyOptions)).exitCode, 0);
++      assert.deepEqual(counts, {S01:1,S02:1});
++    }
+   }
+ });
+ 
+diff --git a/setup/tests/integration/q1a-r22-context.test.ts b/setup/tests/integration/q1a-r22-context.test.ts
+index 27a1550..3ec61d4 100644
+--- a/setup/tests/integration/q1a-r22-context.test.ts
++++ b/setup/tests/integration/q1a-r22-context.test.ts
+@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
+ import fs from "node:fs/promises";
+ import path from "node:path";
+ import { aptFixture, evidence } from "../helpers/r21-admission";
+-import { r14Process, r14Noop, r14Fixture } from "../helpers/r14-engine";
++import { r14Process, r14Noop, r14Fixture, r14Clock } from "../helpers/r14-engine";
+ import { SetupEngine } from "../../src/core/engine";
+ import { createRegistry, loadPlan, validatePlanConsistency } from "../../src/core/plan";
+ import { createSystemStage } from "../../src/stages/system";
+@@ -208,8 +208,9 @@ for (const fault of [true, false]) test(`A22-14 actual core review publication w
+   const engine = new SetupEngine({ fsAdapter: wrapped, processAdapter: q.proc, clock: q.clock }, createRegistry([r14Noop("S01"), createSystemStage(q.apt)]));
+   const planned = await engine.run("plan", { configPath: q.x.configPath });
+   if (fault) {
+-    assert.equal(hits, 1); assert.ok([6,8].includes(planned.exitCode), JSON.stringify(planned)); assert.ok(planned.envelope.error?.code); const p = await native(q);
+-    const approved = await q.make().run("gate-approve", { configPath: q.x.configPath, gateId: "s02-sudo-apt-update", planHash: p.plan_hash });
++    assert.equal(hits, 1); assert.ok([6,8].includes(planned.exitCode), JSON.stringify(planned)); assert.ok(planned.envelope.error?.code);
++    const proposedHash = await fs.readFile(q.x.applyOptions.planPath, "utf8").then(raw => (JSON.parse(raw) as InstallerPlan).plan_hash, () => "0".repeat(64));
++    const approved = await q.make().run("gate-approve", { configPath: q.x.configPath, gateId: "s02-sudo-apt-update", planHash: proposedHash });
+     assert.notEqual(approved.exitCode, 0); assert.notEqual((await q.make().run("apply", q.x.applyOptions)).exitCode, 0);
+     assert.deepEqual(q.counts, { refresh: 0, simulate: 0, install: 0 });
+   } else { await q.x.planAndApprove(engine); assert.equal((await engine.run("apply", q.x.applyOptions)).exitCode, 0); assert.equal(q.counts.install, 1); }
+@@ -264,3 +265,98 @@ test("A22-01 duplicate decoded JSON keys cannot disappear before C13 schema/hash
+   assert.throws(() => parseStrictJson('{"a":1,"\\u0061":2}'), /duplicate/);
+   assert.deepEqual(parseStrictJson('{"a":[{"b":"escaped \\\" string"}]}'), { a: [{ b: 'escaped " string' }] });
+ });
++
++import { requestCancel } from "../../src/core/lock";
++import { POLICY_BASIS_KEY, type PolicyBasis } from "../../src/core/policy";
++
++test("A22-14 generic completed flags require exact checkpoint publication, not just valid metadata strings", async () => {
++  for (const mutation of ["none", "attempt", "receipt", "catalog"] as const) {
++    const q = await fixture(), refresh = q.apt.refreshMetadata;
++    q.apt.refreshMetadata = async () => { await refresh(); await requestCancel(q.x.f, q.x.config); };
++    await q.x.planAndApprove(q.make()); assert.equal((await q.make().run("apply", q.x.applyOptions)).exitCode, 130);
++    const state = await q.x.state(), holder = state.stages.find(stage => stage.id === "S02")!;
++    const basis = JSON.parse(holder.versions[POLICY_BASIS_KEY]!) as PolicyBasis;
++    assert.equal(basis.version, 3); assert.equal(basis.completed.length, 1);
++    if (mutation === "attempt") basis.progress![0]!.attemptId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
++    if (mutation === "receipt") basis.progress![0]!.receiptHash = "0".repeat(64);
++    if (mutation === "catalog") basis.catalog!.operations[0]!.resourceId = "foreign-resource";
++    if (mutation !== "none") { holder.versions[POLICY_BASIS_KEY] = JSON.stringify(basis); await saveState(q.x.f, q.x.config, state); }
++    if (mutation === "none") {
++      assert.equal((await q.make().run("resume", { configPath: q.x.configPath })).exitCode, 0);
++      assert.deepEqual(q.counts, { refresh: 1, simulate: 1, install: 1 });
++    } else {
++      const before = await evidence(q.x.config); const result = await q.make().run("resume", { configPath: q.x.configPath });
++      assert.equal(result.exitCode, 8); assert.deepEqual(await evidence(q.x.config), before);
++      assert.deepEqual(q.counts, { refresh: 1, simulate: 0, install: 0 });
++    }
++  }
++});
++test("A22-14 prepared review cannot authorize a gate/action after final review-state publication fails", async () => {
++  const q = await fixture(); let hits = 0;
++  const wrapped = new Proxy(q.x.f, { get(target, key) {
++    if (key === "writeText") return async (p: string, body: string, mode?: number) => {
++      if (p.includes("state.json.tmp-")) {
++        const payload = JSON.parse(body) as import("../../src/core/types").SetupState;
++        const raw = payload.stages.find(stage => stage.id === "S00")?.versions[REVIEW_KEY];
++        if (raw && (JSON.parse(raw) as {phase:string}).phase === "committed") { hits++; throw Object.assign(Error("commit review ENOSPC"), { code: "ENOSPC" }); }
++      }
++      return target.writeText(p, body, mode);
++    };
++    const value: unknown = Reflect.get(target, key); return typeof value === "function" ? value.bind(target) : value;
++  } });
++  const engine = new SetupEngine({ fsAdapter: wrapped, processAdapter: q.proc, clock: q.clock }, createRegistry([r14Noop("S01"), createSystemStage(q.apt)]));
++  const planned = await engine.run("plan", { configPath: q.x.configPath });
++  assert.equal(hits, 1); assert.notEqual(planned.exitCode, 0);
++  const state = await q.x.state(), record = JSON.parse(state.stages.find(stage => stage.id === "S00")!.versions[REVIEW_KEY]!) as {phase:string};
++  assert.equal(record.phase, "prepared"); const before = await evidence(q.x.config);
++  assert.equal((await refuseWithoutEffects(q, "gate-approve")).exitCode, 8);
++  assert.equal((await refuseWithoutEffects(q)).exitCode, 8); assert.deepEqual(await evidence(q.x.config), before);
++  await q.x.planAndApprove(q.make()); assert.equal((await q.make().run("apply", q.x.applyOptions)).exitCode, 0);
++  assert.deepEqual(q.counts, { refresh: 1, simulate: 1, install: 1 });
++});
++
++import { baseObservation, SessionDockerAdapter } from "../helpers/r15-docker";
++import { createDockerStage } from "../../src/stages/docker";
++
++test("A22-04/12 Docker effective-group login invalidates old approvals; fresh remaining review never replays package/group effects", async () => {
++  const x = await r14Fixture("S04"), o = baseObservation();
++  o.dockerGroup = {exists:false, currentUserInGroup:false, accountUserInGroup:false};
++  o.reloginRequired = false;
++  const adapter = new SessionDockerAdapter(o); adapter.changeGroupMembership = true;
++  let session = "docker-login-one";
++  const proc = {...r14Process, loginSessionId:async () => session};
++  const make = () => new SetupEngine({fsAdapter:x.f,processAdapter:proc}, createRegistry([r14Noop("S03"),createDockerStage(adapter)]));
++  await x.planAndApprove(make());
++  assert.equal((await make().run("apply",x.applyOptions)).exitCode,4);
++  assert.equal(adapter.installCalls,1); assert.equal(adapter.groupCalls,1);
++  assert.equal(adapter.restartCalls,0); assert.equal(adapter.probeCalls,0);
++  assert.equal((await x.state()).in_flight_operation,null);
++  const paused = await evidence(x.config);
++  assert.equal((await make().run("resume",{configPath:x.configPath})).exitCode,4);
++  assert.equal(adapter.installCalls,1); assert.equal(adapter.groupCalls,1);
++  session="docker-login-two"; adapter.observation.dockerGroup.currentUserInGroup=true; adapter.observation.reloginRequired=false;
++  assert.equal((await make().run("resume",{configPath:x.configPath})).envelope.error?.code,"context_session_changed");
++  assert.deepEqual(await evidence(x.config),paused);
++  await x.planAndApprove(make());
++  assert.equal((await make().run("resume",{configPath:x.configPath})).exitCode,0);
++  assert.equal((await make().run("resume",{configPath:x.configPath})).exitCode,0);
++  assert.equal(adapter.installCalls,1); assert.equal(adapter.groupCalls,1);
++  assert.equal(adapter.restartCalls,1); assert.equal(adapter.probeCalls,1);
++});
++
++test("A22-13 release substitution at actual lock acquisition refuses without target proof", async () => {
++  const x = await r14Fixture("S05"), adapter = new FakeApplicationAdapter(makeCheckout(x.config),makeRelease(x.config));
++  const stages = () => [r14Noop("S04"),createApplicationStage(adapter)];
++  await x.planAndApprove(x.engine(stages())); let hits=0;
++  const wrapped = new Proxy(x.f,{get(target,key){
++    if(key==="mkdir") return async (p:string,options?:{recursive?:boolean;mode?:number}) => {
++      await target.mkdir(p,options);
++      if(p===path.join(x.config.paths.setup_state_dir,"lock") && hits===0) {hits++;await fs.writeFile(x.config.release.archive_path,"replaced-at-lock");}
++    };
++    const value:unknown=Reflect.get(target,key);return typeof value==="function"?value.bind(target):value;
++  }});
++  const before=await evidence(x.config), probes=adapter.probeCalls;
++  const result=await new SetupEngine({fsAdapter:wrapped,processAdapter:r14Process,clock:r14Clock},createRegistry(stages())).run("apply",x.applyOptions);
++  assert.equal(hits,1);assert.equal(result.exitCode,9);assert.equal(adapter.probeCalls,probes);assert.equal(adapter.extractCalls,0);
++  assert.deepEqual(await evidence(x.config),before);
++});

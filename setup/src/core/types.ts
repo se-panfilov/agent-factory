@@ -78,6 +78,8 @@ export enum ExitCode {
 }
 
 export interface StageOperation {
+  /** Concrete trusted adapter action; legacy historical snapshots may omit it. */
+  action?: AdapterAction;
   id: string;
   stageId: StageId;
   kind: OperationKind;
@@ -273,7 +275,30 @@ export interface SetupState {
   } | null;
 }
 
+export const ADAPTER_ACTIONS = ["host.observe", "host.verify", "apt.refresh", "apt.simulate", "apt.install", "access.install", "access.stage", "access.arm", "access.cutover", "access.tailnet", "access.disarm", "docker.install", "docker.group", "docker.configure", "docker.restart", "docker.probe", "docker.mark", "release.extract", "release.materialize", "release.probe", "configuration.prepare", "verification.offline", "auth.explicit", "project.prepare", "service.prepare", "operations.backup", "inference.prepare", "platforms.prepare", "update.prepare", "fixture.counter"] as const;
+export type AdapterAction = typeof ADAPTER_ACTIONS[number];
+
+export interface PlanOwnerSession { uid: number; owner: string; boot_id: string; login_session_hash: string }
+export interface PlanReleaseContext { applicable: boolean; declared_hash: string; artifact_hash: string | null }
+export interface PlanStageScope { stage_id: StageId; optional: boolean; required_capabilities: CapabilityName[]; requires_gates: string[] }
+export interface PlanOperation {
+  operation_id: string; stage_id: StageId; kind: AdapterAction; resources: string[];
+  expected_before_hashes: Record<string, string>; expected_after: { verifier: "operation-postconditions"; action: AdapterAction; checks: string[] };
+  requires_gates: string[]; retry_policy: { retryable: boolean; timeout_sec: number };
+  estimated_effects: string[]; unknown_effects: string[]; risk: OperationRiskLevel;
+  constraints: string[]; execution_kind: OperationKind;
+}
 export interface InstallerPlan {
+  schema_version: 1; contract_version: "1.0.0"; installation_id: string;
+  host_fingerprint: Omit<StateHostFingerprint, "boot_id">; owner_session: PlanOwnerSession;
+  generated_at: string; expires_at: string; desired_hash: string; version_lock_hash: string; observations_hash: string; plan_hash: string;
+  target: { mode: "selected" | "explicit"; stage_id: StageId | null };
+  stage_scope: PlanStageScope[]; release_context: PlanReleaseContext; operations: PlanOperation[];
+}
+
+/** Derived internal view. Never serialized as an execution document. */
+export interface ExecutionPlan {
+  native?: InstallerPlan;
   schema_version: 1;
   contract_version: "1.0.0";
   installation_id: string;
@@ -287,6 +312,7 @@ export interface InstallerPlan {
     operations: Array<{
       id: string;
       stage_id: StageId;
+      action?: AdapterAction;
       kind: OperationKind;
       resource_id: string;
       risk: OperationRiskLevel;
