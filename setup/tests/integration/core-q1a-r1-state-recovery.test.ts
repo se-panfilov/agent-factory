@@ -44,6 +44,7 @@ type FsMethod = keyof FilesystemAdapter;
 interface FailureRule {
   method: FsMethod;
   atCall?: number;
+  stackIncludes?: string;
   pathIncludes?: string;
   code: string;
   message?: string;
@@ -51,6 +52,7 @@ interface FailureRule {
 
 class InstrumentedFilesystemAdapter implements FilesystemAdapter {
   private readonly delegate = new NodeFilesystemAdapter();
+  localLockSemantics(dir: string): Promise<boolean> { return this.delegate.localLockSemantics(dir); }
   private readonly callCounts = new Map<FsMethod, number>();
   private failureRules: FailureRule[];
   private readonly consumedRules = new Set<number>();
@@ -174,6 +176,7 @@ class InstrumentedFilesystemAdapter implements FilesystemAdapter {
       !this.consumedRules.has(index)
       && rule.method === method
       && (rule.atCall === undefined || rule.atCall === next)
+      && (rule.stackIncludes === undefined || new Error().stack?.includes(rule.stackIncludes))
       && (rule.pathIncludes === undefined || targetPath.includes(rule.pathIncludes))
     );
     if (matchingRuleIndex >= 0) {
@@ -912,7 +915,7 @@ test("R1-03 marker/quarantine failure windows preserve uncertainty and never res
     { id: "marker-rename", rule: { method: "rename", atCall: 1, pathIncludes: "recovery-required.json.tmp-", code: "EIO" } },
     { id: "marker-dir-fsync", rule: { method: "fsyncDir", atCall: 2, pathIncludes: `${path.sep}state`, code: "EIO" } },
     { id: "quarantine-rename", rule: { method: "rename", atCall: 2, pathIncludes: "state.json.corrupt-", code: "EIO" } },
-    { id: "quarantine-dir-fsync", rule: { method: "fsyncDir", atCall: 3, pathIncludes: `${path.sep}state`, code: "EIO" } }
+    { id: "quarantine-dir-fsync", rule: { method: "fsyncDir", stackIncludes: "restorePrimaryState", pathIncludes: `${path.sep}state`, code: "EIO" } }
   ];
 
   for (const boundary of boundaries) {
@@ -1372,7 +1375,7 @@ class Proc {
   async loginSessionId() { return "injected-test-login"; }
   async bootId() { return "f324dcd7-4035-4430-ab39-ce31f9e396bf"; }
   async machineIdHash() { return "1".repeat(64); }
-  async processStartTicks() { return null; }
+  async processStartTicks() { return 1; }
   isPidAlive(pid) { try { process.kill(pid, 0); return true; } catch { return false; } }
 }
 
@@ -1477,6 +1480,7 @@ test("R1-12 positive controls: fresh state init, cancel request, and lock-only s
   const plan = await engine.run("plan", { configPath, stageId: "S01" });
   assert.equal(plan.exitCode, ExitCode.Success, JSON.stringify(plan.envelope));
 
+  const cancelHandle = await acquireLock(new NodeFilesystemAdapter(), processAdapter, config);
   const cancel = await engine.run("cancel", { configPath });
   assert.equal(cancel.exitCode, ExitCode.Success, JSON.stringify(cancel.envelope));
   assert.equal(
@@ -1484,19 +1488,20 @@ test("R1-12 positive controls: fresh state init, cancel request, and lock-only s
     true
   );
 
+  await cancelHandle.release();
   const lockDir = path.join(config.paths.setup_state_dir, "lock");
   await fs.promises.mkdir(lockDir, { recursive: true, mode: 0o700 });
   await fs.promises.writeFile(
     path.join(lockDir, "owner.json"),
     `${JSON.stringify({
-      boot_id: "11111111-1111-4111-8111-111111111111",
+      boot_id: "f324dcd7-4035-4430-ab39-ce31f9e396bf",
       pid: 999999,
-      process_start_ticks: null,
-      nonce: "stale",
+      process_start_ticks: 1,
+      nonce: "27c6a948-98df-4342-9bc8-841be871a61b",
       installation_id: config.installation_id,
       created_at: "2026-10-23T12:00:00.000Z"
     }, null, 2)}\n`,
-    "utf8"
+    { encoding: "utf8", mode: 0o600 }
   );
   const lockOnly = await engine.run("recover", { configPath, lockOnly: true });
   assert.equal(lockOnly.exitCode, ExitCode.Success, JSON.stringify(lockOnly.envelope));
@@ -2004,7 +2009,7 @@ test("J06 interrupted recovery boundaries keep candidate durable and resume safe
     },
     {
       name: "primary-fsync-dir",
-      rule: { method: "fsyncDir", atCall: 3, pathIncludes: `${path.sep}state`, code: "EIO" }
+      rule: { method: "fsyncDir", stackIncludes: "restorePrimaryState", pathIncludes: `${path.sep}state`, code: "EIO" }
     }
   ];
 
@@ -2337,8 +2342,10 @@ test("J10 pending evidence blocks ordinary effects while cancel and read-only di
   await fs.promises.writeFile(path.join(config.paths.setup_state_dir, "state.json"), "{broken", "utf8");
   const status = await engine.run("status", { configPath });
   assert.equal(status.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(status.envelope));
+  const cancelHandle = await acquireLock(fsAdapter, processAdapter, config);
   const cancel = await engine.run("cancel", { configPath });
   assert.equal(cancel.exitCode, ExitCode.Success, JSON.stringify(cancel.envelope));
+  await cancelHandle.release();
   assert.equal(fs.existsSync(path.join(config.paths.setup_state_dir, "cancel-request.json")), true);
 });
 
@@ -2367,7 +2374,7 @@ class Proc {
   async loginSessionId() { return "injected-test-login"; }
   async bootId() { return "f324dcd7-4035-4430-ab39-ce31f9e396bf"; }
   async machineIdHash() { return "1".repeat(64); }
-  async processStartTicks() { return null; }
+  async processStartTicks() { return 1; }
   isPidAlive(pid) { try { process.kill(pid, 0); return true; } catch { return false; } }
 }
 
@@ -2641,7 +2648,10 @@ main().catch((error) => {
   assert.equal(fs.existsSync(effectPath), true);
 
   const lockOnly = await parentEngine.run("recover", { configPath, lockOnly: true });
-  assert.equal(lockOnly.exitCode, ExitCode.Success, JSON.stringify(lockOnly.envelope));
+  assert.equal(lockOnly.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(lockOnly.envelope));
+  assert.equal(fs.existsSync(path.join(config.paths.setup_state_dir, "lock")), true);
+  // Explicit harness-only manual lock reconciliation after confirmed SIGKILL; product refused takeover.
+  await fs.promises.rename(path.join(config.paths.setup_state_dir, "lock"), path.join(config.paths.setup_state_dir, "lock.manual-k10"));
 
   const recover = await parentEngine.run("recover", { configPath });
   assert.equal(recover.exitCode, ExitCode.DriftOrRecoveryRequired, JSON.stringify(recover.envelope));
@@ -3452,13 +3462,16 @@ for (const mode of ["direct", "plan-first"] as const) {
     const expected = await fs.promises.readFile(`${primary}.previous`, "utf8");
     await fs.promises.unlink(primary);
     if (mode === "plan-first") assert.equal((await x.plan()).exitCode, 8);
-    assert.equal((await x.engine.run("recover", { configPath: x.configPath })).exitCode, 0);
+    const outcome = await x.engine.run("recover", { configPath: x.configPath });
+    assert.equal(outcome.exitCode, 8);
+    assert.equal(outcome.envelope.error?.code, "context_review_unproven");
+    assert.equal(outcome.envelope.data?.review_required, true);
     assert.equal(await fs.promises.readFile(primary, "utf8"), expected);
     const recovered = await readStateCommitManifest(new NodeFilesystemAdapter(), x.config);
     assert.deepEqual(recovered?.last_effect_checkpoint, manifestBefore?.last_effect_checkpoint);
     assert.ok(recovered?.clean_proof?.snapshot_hashes.includes(stateHash(JSON.parse(expected) as SetupState)));
     const beforeRepeat = await r14EvidenceBytes(x.config);
-    assert.equal((await x.engine.run("recover", { configPath: x.configPath })).exitCode, 0);
+    assert.equal((await x.engine.run("recover", { configPath: x.configPath })).exitCode, 8);
     assert.deepEqual(await r14EvidenceBytes(x.config), beforeRepeat);
     assert.equal((await x.plan()).exitCode, 0); assert.equal((await x.runApply()).exitCode, 0);
     assert.equal(x.effects(), 1, "resource observe prevents effect replay after proven restore");
@@ -3625,11 +3638,19 @@ for (const phase of ["between-operations", "checkpoint-before-binding", "before-
       const exit = once(child, "exit"); child.kill("SIGKILL");
       const [code, signal] = await exit; assert.equal(code, null); assert.equal(signal, "SIGKILL");
       const unlocked = await e.run("recover", { configPath: barrier.configPath, lockOnly: true });
-      assert.equal(unlocked.exitCode, 0, JSON.stringify(unlocked));
+      const uncertain = ["checkpoint-before-binding", "before-install", "install-after-effect", "final-primary"].includes(phase);
+      assert.equal(unlocked.exitCode, uncertain ? 8 : 0, JSON.stringify(unlocked));
+      if (uncertain) {
+        assert.equal(fs.existsSync(path.join(barrier.config.paths.setup_state_dir, "lock")), true);
+        // Harness-only manual lock reconciliation keeps all unknown operation/state evidence intact.
+        await fs.promises.rename(path.join(barrier.config.paths.setup_state_dir, "lock"), path.join(barrier.config.paths.setup_state_dir, "lock.manual-u04"));
+      }
       assert.deepEqual(await r14EvidenceBytes(barrier.config), before, "lock-only reconciliation never rewrites state evidence");
       const result = await e.run("recover", { configPath: barrier.configPath });
       const expected = ["checkpoint-before-binding", "before-install", "install-after-effect", "final-primary"].includes(phase) ? 8 : 0;
-      assert.equal(result.exitCode, expected, JSON.stringify(result));
+      const reviewRequired = ["recovery-prepared", "recovery-restored", "cleanup-before-remove", "cleanup-after-remove"].includes(phase);
+      assert.equal(result.exitCode, reviewRequired ? 8 : expected, JSON.stringify(result));
+      if (reviewRequired) assert.equal(result.envelope.error?.code, "context_review_unproven");
       assert.equal(await fs.promises.readFile(barrier.effectsFile, "utf8"), effectsBefore, "restart does not replay effects");
       const effects: string[] = JSON.parse(effectsBefore) as string[];
       if (["between-operations", "checkpoint-before-binding"].includes(phase)) assert.deepEqual(effects, ["refresh"]);

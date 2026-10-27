@@ -1,0 +1,10 @@
+{
+  "base": "b92e833c3d743d2f15975ee6433b453f07f173b8",
+  "product_base": "134ecd884ab77f537f1890b3dd456cc6592090ad",
+  "base_delta": "audit only",
+  "snapshot": "/private/tmp/q1a-r3-final-snapshot-2",
+  "input_count": 166,
+  "actual_uid": 501,
+  "fake_application_uid": 1000,
+  "fs_uid": 501
+}

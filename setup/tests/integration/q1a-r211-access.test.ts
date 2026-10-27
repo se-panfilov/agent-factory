@@ -192,7 +192,10 @@ for (const barrier of ["install", "checkpoint", "binding"] as const) test(`A211-
     const ended = once(child, "exit"); child.kill("SIGKILL"); const [code, signal] = await ended;
     assert.equal(code, null); assert.equal(signal, "SIGKILL");
     const unlocked = await accessEngine(x.root, x.config).run("recover", { configPath: x.configPath, lockOnly: true });
-    assert.equal(unlocked.exitCode, 0, JSON.stringify(unlocked)); assert.deepEqual(await evidence(x.config), before);
+    assert.equal(unlocked.exitCode, 8, JSON.stringify(unlocked)); assert.deepEqual(await evidence(x.config), before);
+    assert.equal(await fs.access(path.join(x.config.paths.setup_state_dir, "lock/owner.json")).then(() => true, () => false), true);
+    // Explicit harness-only manual resource/lock reconciliation; automatic product takeover was refused.
+    await fs.rename(path.join(x.config.paths.setup_state_dir, "lock"), path.join(x.config.paths.setup_state_dir, "lock.manual-a211"));
     const recovered = await accessEngine(x.root, x.config).run("recover", { configPath: x.configPath });
     const resumed = await accessEngine(x.root, x.config).run("resume", { configPath: x.configPath });
     if (barrier === "binding") {

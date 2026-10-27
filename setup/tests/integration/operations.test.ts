@@ -337,27 +337,12 @@ test("S11 sqlite busy/enospc does not delete previous good backup", async () => 
 });
 
 test("S11 emergency cancel ignores lock and stops only owned resources", async () => {
-  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), "p11-emergency-"));
-  const config = makeConfig(root);
-  await writeManifest(config);
-  await fs.promises.mkdir(config.paths.application_state_dir, { recursive: true, mode: 0o700 });
-  await fs.promises.mkdir(path.join(config.paths.setup_state_dir, "lock"), { recursive: true, mode: 0o700 });
-  await fs.promises.writeFile(path.join(config.paths.setup_state_dir, "lock", "owner.json"), "{\"pid\":1234}\n", "utf8");
-  await fs.promises.mkdir(config.paths.setup_state_dir, { recursive: true, mode: 0o700 });
-  await fs.promises.writeFile(
-    path.join(config.paths.setup_state_dir, "s11-emergency-inventory.json"),
-    `${JSON.stringify({
-      schema_version: 1,
-      installation_id: config.installation_id,
-      owned_container_labels: [`agent-factory.installation_id=${config.installation_id}`],
-      service_unit: null
-    }, null, 2)}\n`,
-    "utf8"
-  );
-
-  const processAdapter = new FakeProcessAdapter("ok");
-  const result = await emergencyCancel({ processAdapter }, config);
-  assert.deepEqual(processAdapter.stoppedContainerIds, ["owned-container"]);
-  assert.deepEqual(result.skippedForeignContainers, ["foreign-container"]);
-  assert.equal(await fs.promises.access(path.join(config.paths.setup_state_dir, "cancel-request.json")).then(() => true).catch(() => false), false);
+  const { trustedEmergencyFixture } = await import("../helpers/r3-protocol");
+  const q = await trustedEmergencyFixture();
+  await q.inventory();
+  await fs.promises.mkdir(path.join(q.x.config.paths.setup_state_dir, "lock"), { mode: 0o700 });
+  const result = await emergencyCancel({ processAdapter: q.proc, fsAdapter: q.x.f }, q.x.config);
+  assert.deepEqual([...q.stopped], ["a".repeat(12)]);
+  assert.deepEqual(result.skippedForeignContainers, ["b".repeat(12)]);
+  assert.equal(await fs.promises.access(path.join(q.x.config.paths.setup_state_dir, "cancel-request.json")).then(() => true).catch(() => false), false);
 });

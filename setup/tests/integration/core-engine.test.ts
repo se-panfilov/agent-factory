@@ -353,9 +353,9 @@ test("apply returns exit 7 on duplicate invocation lock", async () => {
         boot_id: "f324dcd7-4035-4430-ab39-ce31f9e396bf",
         pid: 6000,
         process_start_ticks: 888,
-        nonce: "nonce",
+        nonce: "27c6a948-98df-4342-9bc8-841be871a61b",
         installation_id: config.installation_id,
-        created_at: "2026-10-21T20:00:00Z"
+        created_at: "2026-10-21T20:00:00.000Z"
       },
       null,
       2
@@ -394,17 +394,17 @@ test("recover --lock-only quarantines stale lock and stale plan is rejected", as
     path.join(lockDir, "owner.json"),
     JSON.stringify(
       {
-        boot_id: "7fd14fd8-b3f2-41a1-a4bc-49f06df7fd11",
+        boot_id: "f324dcd7-4035-4430-ab39-ce31f9e396bf",
         pid: 9999,
         process_start_ticks: 1,
-        nonce: "nonce",
+        nonce: "27c6a948-98df-4342-9bc8-841be871a61b",
         installation_id: config.installation_id,
-        created_at: "2026-10-21T20:00:00Z"
+        created_at: "2026-10-21T20:00:00.000Z"
       },
       null,
       2
     ),
-    "utf8"
+    { encoding: "utf8", mode: 0o600 }
   );
 
   const engine = new SetupEngine(

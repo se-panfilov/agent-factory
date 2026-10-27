@@ -1,0 +1,15 @@
+{
+  "base": "b92e833c3d743d2f15975ee6433b453f07f173b8",
+  "base_tree": "dde4eb40ea514a7000714709773fd1a34906a6dd",
+  "patch_sha256": "3f5b1c0377d1bf4eac66402b581f03f378c131778c804178147675e00c9c90c8",
+  "check_exit": 0,
+  "apply_exit": 0,
+  "tested_hashes_match": 270,
+  "payload_hashes_match": 543,
+  "report_hash": "466733ed1460381f55463b41f055ededdeca00fb0dad014f5095bb61c154697c",
+  "owner_hash": "24e46c942f1766e1e79e81f6b3f264cde7c51c57aa606b43f595e6b67826af0b",
+  "no_index_used": true,
+  "new_files_tar": false,
+  "single_apply": true,
+  "reconstructed": "/private/tmp/q1a-r3-reconstructed-v3vlubwj"
+}

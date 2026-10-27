@@ -1,0 +1,6 @@
+AssertionError [ERR_ASSERTION]: {"envelope":{"schema_version":1,"command":"plan","installation_id":"unknown","desired_hash":"unknown","plan_hash":null,"overall_status":"failed","stages":[],"manual_actions":["Preserve control evidence; reconcile ownership/resources manually before retrying."],"error":{"code":"lock_filesystem_unsupported","stage":null,"operation_id":"n/a","retryable":false,"public_message":"Known local atomic mkdir/rename semantics are required.","next_action":"Preserve control evidence; reconcile ownership/resources manually before retrying.","evidence_ref":"/private/tmp/af-r14-PuUmr9/state"}},"exitCode":8}
+
+8 !== 0
+
+    at scenario (/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/inherited/prior-r22/runners/legacy-to-c13-explicit-review.cjs:74:81)
+    at async /Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/inherited/prior-r22/runners/legacy-to-c13-explicit-review.cjs:99:123

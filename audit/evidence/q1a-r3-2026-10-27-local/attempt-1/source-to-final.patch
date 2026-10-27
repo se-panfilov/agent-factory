@@ -1,0 +1,157 @@
+diff --git a/setup/src/core/engine.ts b/setup/src/core/engine.ts
+index f370f69..2e435a4 100644
+--- a/setup/src/core/engine.ts
++++ b/setup/src/core/engine.ts
+@@ -1060,7 +1060,15 @@ export class SetupEngine {
+   }
+ 
+   /** One final gate for approvals/effects: probes first, checked context, bounded reseal, TTL. */
+-  private async finalPlanAdmission(options: CommandOptions, configBytes: string, planBytes: string, config: SetupConfig, state: SetupState, plan: ExecutionPlan, owner?: LockOwner): Promise<void> {
++  private async finalPlanAdmission(
++    options: CommandOptions,
++    configBytes: string,
++    planBytes: string,
++    config: SetupConfig,
++    state: SetupState,
++    plan: ExecutionPlan,
++    owner?: LockOwner
++  ): Promise<void> {
+     this.assertOrdinaryOwner(config, "S00");
+     this.validateApplyPlanAdmission(config, plan);
+     await this.admitPlanPolicies(config, state, plan);
+@@ -1074,7 +1082,14 @@ export class SetupEngine {
+   }
+ 
+   /** All potentially long reads finish before the final file-identity fence. */
+-  private async sealAdmissionInputs(options: CommandOptions, configBytes: string, planBytes: string | undefined, config: SetupConfig, capture: Awaited<ReturnType<typeof captureContextEvidence>>, owner?: LockOwner): Promise<void> {
++  private async sealAdmissionInputs(
++    options: CommandOptions,
++    configBytes: string,
++    planBytes: string | undefined,
++    config: SetupConfig,
++    capture: Awaited<ReturnType<typeof captureContextEvidence>>,
++    owner?: LockOwner
++  ): Promise<void> {
+     await revalidateContextEvidence(this.deps.fsAdapter, this.deps.processAdapter, config, capture);
+     const requestFiles: FileWitness[] = [await witnessFile(this.deps.fsAdapter, options.configPath)];
+     if (planBytes !== undefined && options.planPath !== undefined) requestFiles.push(await witnessFile(this.deps.fsAdapter, options.planPath));
+@@ -1510,11 +1525,11 @@ export class SetupEngine {
+     } catch (error) {
+       let setup = toSetupError(error);
+       if ((setup.exitCode === ExitCode.SigIntCleanupConfirmed || setup.exitCode === ExitCode.SigTermCleanupConfirmed)
+-        && state?.in_flight_operation !== null && state !== null) {
++        && state !== null && state.in_flight_operation !== null) {
+         setup = setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "cleanup_unconfirmed",
+           publicMessage: "Cancellation interrupted an operation without a confirmed durable safe boundary.",
+           nextAction: "Preserve in-flight evidence and reconcile the operation; do not replay it.",
+-          stage: state.in_flight_operation!.stage_id, evidenceRef: config.paths.setup_state_dir });
++          stage: state.in_flight_operation.stage_id, evidenceRef: config.paths.setup_state_dir });
+       }
+ 
+       const failedStage = setup.stage ?? activeStage;
+diff --git a/setup/src/operations/emergency.ts b/setup/src/operations/emergency.ts
+index d8b64e2..7efb295 100644
+--- a/setup/src/operations/emergency.ts
++++ b/setup/src/operations/emergency.ts
+@@ -126,7 +126,7 @@ export async function emergencyCancel(deps: EmergencyDeps, config: SetupConfig):
+           const v = parseStrictJson(raw) as { Id?: string; Config?: { Labels?: Record<string, unknown> }; State?: { Running?: unknown } };
+           const label = v.Config?.Labels?.["agent-factory.installation_id"];
+           if (v.Id?.startsWith(id) && /^[0-9a-f]{64}$/.test(v.Id) && typeof label === "string"
+-            && /^[0-9a-f-]{36}$/.test(label) && typeof v.State?.Running === "boolean") return { label, running: v.State.Running };
++            && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(label) && typeof v.State?.Running === "boolean") return { label, running: v.State.Running };
+         } catch { /* unknown inspection never becomes foreign */ }
+         controlError("emergency_inspection_unknown", paused, "Docker ownership/status inspection is unknown.");
+       };
+diff --git a/setup/tests/integration/q1a-r15-stages.test.ts b/setup/tests/integration/q1a-r15-stages.test.ts
+index 2fb80dc..88395b7 100644
+--- a/setup/tests/integration/q1a-r15-stages.test.ts
++++ b/setup/tests/integration/q1a-r15-stages.test.ts
+@@ -340,7 +340,12 @@ for(const phase of ["effect","bound","pause"] as const)test(`V07 Docker child ${
+   let e=make();const before=await evidenceHashes(b.config);await e.run("status",{configPath:b.configPath});assert.deepEqual(await evidenceHashes(b.config),before);
+   assert.equal((await e.run("recover",{configPath:b.configPath})).exitCode,7);assert.deepEqual(await evidenceHashes(b.config),before);
+   const exited=once(child,"exit");child.kill("SIGKILL");const[code,signal]=await exited;assert.equal(code,null);assert.equal(signal,"SIGKILL");
+-  assert.equal((await e.run("recover",{configPath:b.configPath,lockOnly:true})).exitCode,0);assert.deepEqual(await evidenceHashes(b.config),before);
++  const lockOnly = await e.run("recover", { configPath: b.configPath, lockOnly: true });
++  assert.equal(lockOnly.exitCode, 8, JSON.stringify(lockOnly));
++  assert.deepEqual(await evidenceHashes(b.config), before);
++  assert.equal(await fs.access(path.join(b.config.paths.setup_state_dir, "lock/owner.json")).then(() => true, () => false), true);
++  // Explicit harness-only manual reconciliation after confirmed child death; no daemon runs here.
++  await fs.rename(path.join(b.config.paths.setup_state_dir, "lock"), path.join(b.config.paths.setup_state_dir, "lock.manual-v07"));
+   const recovered=await e.run("recover",{configPath:b.configPath});assert.equal(recovered.exitCode,phase==="effect"?8:0);
+   const old=await make().run("resume",{configPath:b.configPath});assert.equal(old.exitCode,phase==="effect"?8:4);assert.equal(a.installCalls+a.groupCalls+a.mergeCalls+a.restartCalls+a.probeCalls,0);
+   if(phase!=="effect"){
+diff --git a/setup/tests/integration/q1a-r211-access.test.ts b/setup/tests/integration/q1a-r211-access.test.ts
+index d3c01a0..2481cec 100644
+--- a/setup/tests/integration/q1a-r211-access.test.ts
++++ b/setup/tests/integration/q1a-r211-access.test.ts
+@@ -192,7 +192,10 @@ for (const barrier of ["install", "checkpoint", "binding"] as const) test(`A211-
+     const ended = once(child, "exit"); child.kill("SIGKILL"); const [code, signal] = await ended;
+     assert.equal(code, null); assert.equal(signal, "SIGKILL");
+     const unlocked = await accessEngine(x.root, x.config).run("recover", { configPath: x.configPath, lockOnly: true });
+-    assert.equal(unlocked.exitCode, 0, JSON.stringify(unlocked)); assert.deepEqual(await evidence(x.config), before);
++    assert.equal(unlocked.exitCode, 8, JSON.stringify(unlocked)); assert.deepEqual(await evidence(x.config), before);
++    assert.equal(await fs.access(path.join(x.config.paths.setup_state_dir, "lock/owner.json")).then(() => true, () => false), true);
++    // Explicit harness-only manual resource/lock reconciliation; automatic product takeover was refused.
++    await fs.rename(path.join(x.config.paths.setup_state_dir, "lock"), path.join(x.config.paths.setup_state_dir, "lock.manual-a211"));
+     const recovered = await accessEngine(x.root, x.config).run("recover", { configPath: x.configPath });
+     const resumed = await accessEngine(x.root, x.config).run("resume", { configPath: x.configPath });
+     if (barrier === "binding") {
+diff --git a/setup/tests/integration/q1a-r3-protocol.test.ts b/setup/tests/integration/q1a-r3-protocol.test.ts
+index 2b23d1f..a9baa4f 100644
+--- a/setup/tests/integration/q1a-r3-protocol.test.ts
++++ b/setup/tests/integration/q1a-r3-protocol.test.ts
+@@ -128,7 +128,11 @@ test("R3 cancel consumer never deletes concurrent/new generation request; no act
+   const file = path.join(x.config.paths.setup_state_dir, "cancel-request.json"); let hits = 0;
+   const f = proxyFs(x.f, { readTextBounded: async (p, n) => { const result = await x.f.readTextBounded(p, n); if (p === file && hits++ === 0) await requestCancel(x.f, x.config, r14Process); return result; } });
+   // Repeated request has identical payload; consumer is read-only and retains it.
+-  const result = await consumeCancelRequest(f, x.config, old.owner).catch(() => false); assert.equal(typeof result, "boolean"); assert.equal(hits, 1);
++  let observation: boolean | undefined, observedError: { code?: string; exitCode?: number } | undefined;
++  try { observation = await consumeCancelRequest(f, x.config, old.owner); } catch (error) { observedError = error as typeof observedError; }
++  if (observedError) { assert.equal(observedError.code, "cancel_evidence_unknown"); assert.equal(observedError.exitCode, 8); }
++  else assert.equal(observation, true);
++  assert.equal(hits, 1);
+   assert.equal(await consumeCancelRequest(x.f, x.config, old.owner), true);
+   await old.release(); const next = await acquireLock(x.f, r14Process, x.config);
+   assert.equal(await consumeCancelRequest(x.f, x.config, next.owner), false);
+@@ -186,9 +190,10 @@ for (const verb of ["cancel", "recover", "emergency"] as const) for (const user
+   const proc = { ...r14Process, uid: () => user === "root" ? 0 : 1234, username: () => user === "root" ? "root" : "other", runCommand: async (cmd: unknown) => { calls.push(cmd); return ok(); } };
+   const result = await new SetupEngine({ fsAdapter: q.x.f, processAdapter: proc, clock: q.clock }, createRegistry([])).run(verb === "emergency" ? "cancel" : verb, { configPath: q.x.configPath, ...(verb === "emergency" ? { emergency: true } : { lockOnly: true }) });
+   assert.equal(result.exitCode, 3); assert.equal(calls.length, 0); assert.deepEqual(await evidence(q.x.config), before);
++  record(`owner-${verb}-${user}`, { barrier: "entrypoint-owner", exit: result.exitCode, code: result.envelope.error?.code, before, after: await evidence(q.x.config), calls: calls.length, counters: q.counts });
+   assert.equal(await q.x.f.exists(path.join(q.x.config.paths.application_state_dir, "PAUSED")), false);
+ });
+-for (const kind of ["valid", "tamper", "traversal", "symlink", "cwd-symlink", "node-pin", "node-symlink", "sudo", "shell", "unknown-inspect", "timeout", "output-limit", "failed-stop", "partial-stop", "postcondition", "missing-status"]) test(`R3 trusted emergency ${kind}`, async () => {
++for (const kind of ["valid", "tamper", "traversal", "symlink", "cwd-symlink", "node-pin", "node-symlink", "sudo", "shell", "unknown-inspect", "invalid-label", "inspect-timeout", "inspect-limit", "invalid-ids", "timeout", "output-limit", "failed-stop", "partial-stop", "postcondition", "missing-status"]) test(`R3 trusted emergency ${kind}`, async () => {
+   const q = await trustedEmergencyFixture(); await q.inventory();
+   const manifestFile = path.join(q.x.config.paths.application_dir, "deployment-manifest.json"), entry = path.join(q.x.config.paths.application_dir, "runner.cjs"), paused = path.join(q.x.config.paths.application_state_dir, "PAUSED");
+   if (kind === "tamper") await fs.appendFile(entry, "drift");
+@@ -203,6 +208,9 @@ for (const kind of ["valid", "tamper", "traversal", "symlink", "cwd-symlink", "n
+   let hits = 0;
+   q.onCommand(async cmd => {
+     if (kind === "unknown-inspect" && cmd.args[0] === "inspect") { hits++; return ok("malformed"); }
++    if (kind === "invalid-label" && cmd.args[0] === "inspect") { hits++; return ok(JSON.stringify({ Id: "a".repeat(64), Config: { Labels: { "agent-factory.installation_id": "-".repeat(36) } }, State: { Running: false } })); }
++    if (["inspect-timeout", "inspect-limit"].includes(kind) && cmd.args[0] === "inspect") { hits++; return { ...ok(), timedOut: kind === "inspect-timeout", outputLimitExceeded: kind === "inspect-limit" }; }
++    if (kind === "invalid-ids" && cmd.args[0] === "ps") { hits++; return ok("--all\n"); }
+     if (["timeout", "output-limit", "failed-stop"].includes(kind) && cmd.binary === q.pin) { hits++; return { ...ok(), timedOut: kind === "timeout", outputLimitExceeded: kind === "output-limit", exitCode: kind === "failed-stop" ? 1 : 0 }; }
+     if (kind === "partial-stop" && cmd.args[0] === "inspect" && q.stopped.size) { hits++; return { ...ok(), exitCode: 1 }; }
+     if (kind === "postcondition" && cmd.args.at(-1) === "status") { hits++; return ok('{"status":"running"}'); }
+@@ -217,7 +225,7 @@ for (const kind of ["valid", "tamper", "traversal", "symlink", "cwd-symlink", "n
+     assert.ok(q.calls.filter(c => c.binary === q.pin).every(c => c.cwd === q.x.config.paths.application_dir));
+   } else {
+     assert.ok(error?.exitCode && error.exitCode !== 0, JSON.stringify(error));
+-    const late = ["unknown-inspect", "timeout", "output-limit", "failed-stop", "partial-stop", "postcondition"].includes(kind);
++    const late = ["unknown-inspect", "invalid-label", "inspect-timeout", "inspect-limit", "invalid-ids", "timeout", "output-limit", "failed-stop", "partial-stop", "postcondition"].includes(kind);
+     assert.equal(await q.x.f.exists(paused), late);
+     if (late) assert.ok(hits > 0); else assert.equal(q.calls.length, 0);
+   }
+@@ -251,3 +259,10 @@ test("R3 emergency runtime bytes changed after bootstrap cannot dispatch", async
+   await assert.rejects(emergencyCancel({ fsAdapter: q.x.f, processAdapter: q.proc }, q.x.config), { code: "emergency_node_pin_unproven" });
+   assert.equal(q.calls.length, 0); assert.equal(await q.x.f.exists(path.join(q.x.config.paths.application_state_dir, "PAUSED")), false);
+ });
++for (const signalExit of [130, 143]) test(`R3 injected signal ${signalExit} before any intent has confirmed release`, async () => {
++  const q = await counterFixture(); await q.x.planAndApprove(q.make()); let hits = 0;
++  q.stage.admitOperation = async () => { hits++; const { setupError } = await import("../../src/core/errors"); throw setupError({ exitCode: signalExit, code: "injected_signal_at_safe_boundary", publicMessage: "no operation started", nextAction: "inspect" }); };
++  const result = await q.make().run("apply", q.x.applyOptions);
++  assert.ok(hits > 0); assert.equal(result.exitCode, signalExit); assert.deepEqual(q.counts, [0]);
++  assert.equal(await q.x.f.exists(path.join(q.x.config.paths.setup_state_dir, "lock")), false);
++});

@@ -1,0 +1,359 @@
+[
+  {
+    "argv": [
+      "node",
+      "--version"
+    ],
+    "cwd": "/private/tmp/q1a-r3-final-snapshot-2",
+    "pid": 68415,
+    "exit_code": 0,
+    "signal": null,
+    "elapsed_seconds": 0.024,
+    "stdout": "logs/node.stdout",
+    "stderr": "logs/node.stderr",
+    "expected_exit": 0,
+    "env_allowlist": {
+      "PATH": "/Users/splswrd/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/Users/splswrd/.codex/tmp/arg0-macos/codex-arg0l7IgCV:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Applications/ChatGPT.app/Contents/Resources:/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS",
+      "TMPDIR": "/private/tmp",
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C.UTF-8"
+    }
+  },
+  {
+    "argv": [
+      "npm",
+      "--version"
+    ],
+    "cwd": "/private/tmp/q1a-r3-final-snapshot-2",
+    "pid": 68416,
+    "exit_code": 0,
+    "signal": null,
+    "elapsed_seconds": 0.09,
+    "stdout": "logs/npm.stdout",
+    "stderr": "logs/npm.stderr",
+    "expected_exit": 0,
+    "env_allowlist": {
+      "PATH": "/Users/splswrd/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/Users/splswrd/.codex/tmp/arg0-macos/codex-arg0l7IgCV:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Applications/ChatGPT.app/Contents/Resources:/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS",
+      "TMPDIR": "/private/tmp",
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C.UTF-8"
+    }
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "cwd": "/private/tmp/q1a-r3-final-snapshot-2",
+    "pid": 68417,
+    "exit_code": 0,
+    "signal": null,
+    "elapsed_seconds": 0.424,
+    "stdout": "logs/ci.stdout",
+    "stderr": "logs/ci.stderr",
+    "expected_exit": 0,
+    "env_allowlist": {
+      "PATH": "/Users/splswrd/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/Users/splswrd/.codex/tmp/arg0-macos/codex-arg0l7IgCV:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Applications/ChatGPT.app/Contents/Resources:/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS",
+      "TMPDIR": "/private/tmp",
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C.UTF-8"
+    }
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "run",
+      "typecheck",
+      "--silent"
+    ],
+    "cwd": "/private/tmp/q1a-r3-final-snapshot-2",
+    "pid": 68420,
+    "exit_code": 0,
+    "signal": null,
+    "elapsed_seconds": 1.664,
+    "stdout": "logs/typecheck.stdout",
+    "stderr": "logs/typecheck.stderr",
+    "expected_exit": 0,
+    "env_allowlist": {
+      "PATH": "/Users/splswrd/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/Users/splswrd/.codex/tmp/arg0-macos/codex-arg0l7IgCV:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Applications/ChatGPT.app/Contents/Resources:/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS",
+      "TMPDIR": "/private/tmp",
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C.UTF-8"
+    }
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "run",
+      "test",
+      "--silent"
+    ],
+    "cwd": "/private/tmp/q1a-r3-final-snapshot-2",
+    "pid": 68832,
+    "exit_code": 0,
+    "signal": null,
+    "elapsed_seconds": 125.607,
+    "stdout": "logs/test.stdout",
+    "stderr": "logs/test.stderr",
+    "expected_exit": 0,
+    "env_allowlist": {
+      "PATH": "/Users/splswrd/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/Users/splswrd/.codex/tmp/arg0-macos/codex-arg0l7IgCV:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Applications/ChatGPT.app/Contents/Resources:/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS",
+      "TMPDIR": "/private/tmp",
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C.UTF-8"
+    }
+  },
+  {
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/inherited/runners/test-completion.py"
+    ],
+    "cwd": "/private/tmp/q1a-r3-final-snapshot-2",
+    "pid": 69750,
+    "exit_code": 0,
+    "signal": null,
+    "elapsed_seconds": 0.196,
+    "stdout": "logs/completion-controls.stdout",
+    "stderr": "logs/completion-controls.stderr",
+    "expected_exit": 0,
+    "env_allowlist": {
+      "PATH": "/Users/splswrd/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/Users/splswrd/.codex/tmp/arg0-macos/codex-arg0l7IgCV:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Applications/ChatGPT.app/Contents/Resources:/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS",
+      "TMPDIR": "/private/tmp",
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C.UTF-8"
+    }
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/inherited/runners/original/context-boundary-probes.cjs",
+      "/private/tmp/q1a-r3-final-snapshot-2"
+    ],
+    "cwd": "/private/tmp/q1a-r3-final-snapshot-2",
+    "pid": 69757,
+    "exit_code": 0,
+    "signal": null,
+    "elapsed_seconds": 2.193,
+    "stdout": "logs/boundaries/context-boundary-probes.stdout",
+    "stderr": "logs/boundaries/context-boundary-probes.stderr",
+    "expected_exit": 0,
+    "env_allowlist": {
+      "PATH": "/Users/splswrd/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/Users/splswrd/.codex/tmp/arg0-macos/codex-arg0l7IgCV:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Applications/ChatGPT.app/Contents/Resources:/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS",
+      "TMPDIR": "/private/tmp",
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C.UTF-8"
+    }
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/inherited/runners/release-boundary-final-admission.cjs",
+      "/private/tmp/q1a-r3-final-snapshot-2"
+    ],
+    "cwd": "/private/tmp/q1a-r3-final-snapshot-2",
+    "pid": 69763,
+    "exit_code": 0,
+    "signal": null,
+    "elapsed_seconds": 1.448,
+    "stdout": "logs/boundaries/release-boundary-probes.stdout",
+    "stderr": "logs/boundaries/release-boundary-probes.stderr",
+    "expected_exit": 0,
+    "env_allowlist": {
+      "PATH": "/Users/splswrd/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/Users/splswrd/.codex/tmp/arg0-macos/codex-arg0l7IgCV:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Applications/ChatGPT.app/Contents/Resources:/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS",
+      "TMPDIR": "/private/tmp",
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C.UTF-8"
+    }
+  },
+  {
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/inherited/runners/original/check-boundary-results.py",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/inherited/logs/boundaries",
+      "--expect",
+      "fixed"
+    ],
+    "cwd": "/private/tmp/q1a-r3-final-snapshot-2",
+    "pid": 69766,
+    "exit_code": 0,
+    "signal": null,
+    "elapsed_seconds": 0.05,
+    "stdout": "logs/boundary-desired.stdout",
+    "stderr": "logs/boundary-desired.stderr",
+    "expected_exit": 0,
+    "env_allowlist": {
+      "PATH": "/Users/splswrd/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/Users/splswrd/.codex/tmp/arg0-macos/codex-arg0l7IgCV:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Applications/ChatGPT.app/Contents/Resources:/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS",
+      "TMPDIR": "/private/tmp",
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C.UTF-8"
+    }
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/inherited/prior-r22/runners/context-binding-c13.cjs",
+      "/private/tmp/q1a-r3-final-snapshot-2"
+    ],
+    "cwd": "/private/tmp/q1a-r3-final-snapshot-2",
+    "pid": 69769,
+    "exit_code": 0,
+    "signal": null,
+    "elapsed_seconds": 1.388,
+    "stdout": "logs/context.stdout",
+    "stderr": "logs/context.stderr",
+    "expected_exit": 0,
+    "env_allowlist": {
+      "PATH": "/Users/splswrd/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/Users/splswrd/.codex/tmp/arg0-macos/codex-arg0l7IgCV:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Applications/ChatGPT.app/Contents/Resources:/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS",
+      "TMPDIR": "/private/tmp",
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C.UTF-8"
+    }
+  },
+  {
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/inherited/prior-r22/runners/original/check-context-binding.py",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/inherited/logs/context.stdout",
+      "--expect",
+      "fixed"
+    ],
+    "cwd": "/private/tmp/q1a-r3-final-snapshot-2",
+    "pid": 69772,
+    "exit_code": 0,
+    "signal": null,
+    "elapsed_seconds": 0.049,
+    "stdout": "logs/context-oracle.stdout",
+    "stderr": "logs/context-oracle.stderr",
+    "expected_exit": 0,
+    "env_allowlist": {
+      "PATH": "/Users/splswrd/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/Users/splswrd/.codex/tmp/arg0-macos/codex-arg0l7IgCV:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Applications/ChatGPT.app/Contents/Resources:/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS",
+      "TMPDIR": "/private/tmp",
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C.UTF-8"
+    }
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/inherited/prior-r22/runners/original/access-continuation-probes.cjs",
+      "/private/tmp/q1a-r3-final-snapshot-2"
+    ],
+    "cwd": "/private/tmp/q1a-r3-final-snapshot-2",
+    "pid": 69773,
+    "exit_code": 0,
+    "signal": null,
+    "elapsed_seconds": 15.285,
+    "stdout": "logs/s03.stdout",
+    "stderr": "logs/s03.stderr",
+    "expected_exit": 0,
+    "env_allowlist": {
+      "PATH": "/Users/splswrd/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/Users/splswrd/.codex/tmp/arg0-macos/codex-arg0l7IgCV:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Applications/ChatGPT.app/Contents/Resources:/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS",
+      "TMPDIR": "/private/tmp",
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C.UTF-8"
+    }
+  },
+  {
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/inherited/prior-r22/runners/original/check-access-continuation.py",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/inherited/logs/s03.stdout",
+      "--expect",
+      "fixed"
+    ],
+    "cwd": "/private/tmp/q1a-r3-final-snapshot-2",
+    "pid": 69778,
+    "exit_code": 0,
+    "signal": null,
+    "elapsed_seconds": 0.083,
+    "stdout": "logs/s03-oracle.stdout",
+    "stderr": "logs/s03-oracle.stderr",
+    "expected_exit": 0,
+    "env_allowlist": {
+      "PATH": "/Users/splswrd/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/Users/splswrd/.codex/tmp/arg0-macos/codex-arg0l7IgCV:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Applications/ChatGPT.app/Contents/Resources:/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS",
+      "TMPDIR": "/private/tmp",
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C.UTF-8"
+    }
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "cwd": "/private/tmp/q1a-r3-validation-work-2/v1",
+    "pid": 69780,
+    "exit_code": 0,
+    "signal": null,
+    "elapsed_seconds": 0.434,
+    "stdout": "logs/v1-ci.stdout",
+    "stderr": "logs/v1-ci.stderr",
+    "expected_exit": 0,
+    "env_allowlist": {
+      "PATH": "/Users/splswrd/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/Users/splswrd/.codex/tmp/arg0-macos/codex-arg0l7IgCV:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Applications/ChatGPT.app/Contents/Resources:/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS",
+      "TMPDIR": "/private/tmp",
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C.UTF-8"
+    }
+  },
+  {
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "run",
+      "build",
+      "--silent"
+    ],
+    "cwd": "/private/tmp/q1a-r3-validation-work-2/v1",
+    "pid": 69781,
+    "exit_code": 0,
+    "signal": null,
+    "elapsed_seconds": 1.446,
+    "stdout": "logs/v1-build.stdout",
+    "stderr": "logs/v1-build.stderr",
+    "expected_exit": 0,
+    "env_allowlist": {
+      "PATH": "/Users/splswrd/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/Users/splswrd/.codex/tmp/arg0-macos/codex-arg0l7IgCV:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Applications/ChatGPT.app/Contents/Resources:/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS",
+      "TMPDIR": "/private/tmp",
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C.UTF-8"
+    }
+  },
+  {
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/inherited/prior-r22/runners/legacy-to-c13-explicit-review.cjs",
+      "/private/tmp/q1a-r3-validation-work-2/v1",
+      "/private/tmp/q1a-r3-final-snapshot-2"
+    ],
+    "cwd": "/private/tmp/q1a-r3-final-snapshot-2",
+    "pid": 69800,
+    "exit_code": 1,
+    "signal": null,
+    "elapsed_seconds": 1.294,
+    "stdout": "logs/v1.stdout",
+    "stderr": "logs/v1.stderr",
+    "expected_exit": 0,
+    "env_allowlist": {
+      "PATH": "/Users/splswrd/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/Users/splswrd/.codex/tmp/arg0-macos/codex-arg0l7IgCV:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Users/splswrd/.local/bin:/Users/splswrd/.local/share/solana/install/active_release/bin:/Users/splswrd/.nvm/versions/node/v26.5.1/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/Applications/ChatGPT.app/Contents/Resources:/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS",
+      "TMPDIR": "/private/tmp",
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C.UTF-8"
+    }
+  }
+]

@@ -89,3 +89,7 @@ Use these steps when installer reports blocked/degraded or host tools are unavai
    - run `factory-setup backup verify --config PATH`
    - if restore needed, run restore with explicit plan and backup ID
    - resume only after S11 verification, never as implicit unpause
+
+### Q1A-R3 emergency correction (2026-10-27)
+
+The earlier raw-manifest emergency description is superseded by [lock-cancel-r3.md](lock-cancel-r3.md). A checked ordinary owner, journal-bound reviewed deployment, matching current content and installed Node identity are required before durable PAUSED and stop. Arbitrary manifest commands cannot dispatch. Status/ownership postconditions are required for success; unknown inspection, timeout, truncated output and partial stop return nonzero with PAUSED retained. Service capability remains unsupported. These local fake-daemon tests do not qualify real Docker/host behavior.

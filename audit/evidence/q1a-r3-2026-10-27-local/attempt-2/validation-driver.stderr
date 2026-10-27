@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/inherited/runners/validate-r3-inherited.py", line 46, in <module>
+    tree=archive(sha,name);assert matrix(name,prior/'runners/legacy-to-c13-explicit-review.cjs','s03-legacy',tree,fixed);run(name+'-oracle',['python3',prior/'runners/original/check-access-continuation.py',out/(name+'.stdout'),'--expect','fixed'])
+                                  ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError

@@ -1,0 +1,5 @@
+AssertionError [ERR_ASSERTION]: {"envelope":{"schema_version":1,"command":"resume","installation_id":"unknown","desired_hash":"unknown","plan_hash":null,"overall_status":"failed","stages":[],"manual_actions":["Revalidate this host/owner session and artifacts, then explicitly generate, review and approve a fresh plan. Preserve existing progress evidence."],"error":{"code":"context_review_unproven","stage":null,"operation_id":"n/a","retryable":false,"public_message":"Current submitted plan/context has no matching committed producer review.","next_action":"Revalidate this host/owner session and artifacts, then explicitly generate, review and approve a fresh plan. Preserve existing progress evidence.","evidence_ref":"state/events.jsonl"}},"exitCode":8}
+
+8 !== 0
+
+    at /workspace/scratch/d38639edcc79/r221-review/evidence/independent-bundle/prior-r22/runners/original/access-final-recovery.cjs:20:100

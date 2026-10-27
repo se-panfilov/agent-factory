@@ -1,0 +1,68 @@
+[
+  {
+    "file": "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/r3-final.jsonl",
+    "mode": "desired",
+    "cases_complete": 14,
+    "desired_pass": 14,
+    "desired_fail": 0,
+    "results": [
+      {
+        "id": "L-active",
+        "desired_pass": true
+      },
+      {
+        "id": "L-known-dead",
+        "desired_pass": true
+      },
+      {
+        "id": "L-unknown-start",
+        "desired_pass": true
+      },
+      {
+        "id": "L-invalid-json",
+        "desired_pass": true
+      },
+      {
+        "id": "L-invalid-shape",
+        "desired_pass": true
+      },
+      {
+        "id": "L-recovery-race",
+        "desired_pass": true
+      },
+      {
+        "id": "C-none",
+        "desired_pass": true
+      },
+      {
+        "id": "C-early",
+        "desired_pass": true
+      },
+      {
+        "id": "C-late",
+        "desired_pass": true
+      },
+      {
+        "id": "C-atomic-control",
+        "desired_pass": true
+      },
+      {
+        "id": "C-atomic-fault",
+        "desired_pass": true
+      },
+      {
+        "id": "E-missing",
+        "desired_pass": true
+      },
+      {
+        "id": "E-sudo",
+        "desired_pass": true
+      },
+      {
+        "id": "E-root",
+        "desired_pass": true
+      }
+    ],
+    "verdict": "PASS"
+  }
+]

@@ -1,0 +1,37 @@
+[
+  {
+    "name": "r3-final",
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/runners/r3-adapted-probes.cjs",
+      "/private/tmp/q1a-r3-final-snapshot-2"
+    ],
+    "exit": 0,
+    "signal": null,
+    "duration": 4.5427931669401005
+  },
+  {
+    "name": "r3-final-check",
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/runners/check-r3-adapted.py",
+      "--mode",
+      "desired",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/r3-final.jsonl"
+    ],
+    "exit": 0,
+    "signal": null,
+    "duration": 0.03566212498117238
+  },
+  {
+    "name": "r3-checker-controls",
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/runners/check-r3-checker-controls.py",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/r3-final.jsonl"
+    ],
+    "exit": 0,
+    "signal": null,
+    "duration": 0.11177583294920623
+  }
+]

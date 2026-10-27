@@ -1,0 +1,26 @@
+[
+  {
+    "name": "r3-final",
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/runners/r3-adapted-probes.cjs",
+      "/private/tmp/q1a-r3-final-snapshot"
+    ],
+    "exit": 0,
+    "signal": null,
+    "duration": 1.2484873330104165
+  },
+  {
+    "name": "r3-final-check",
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/runners/check-r3-adapted.py",
+      "--mode",
+      "desired",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/r3-final.jsonl"
+    ],
+    "exit": 0,
+    "signal": null,
+    "duration": 0.03715820796787739
+  }
+]

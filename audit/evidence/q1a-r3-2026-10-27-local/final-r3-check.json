@@ -1,0 +1,12 @@
+{
+  "suite": 589,
+  "pass": 589,
+  "fail": 0,
+  "cancelled": 0,
+  "skipped": 0,
+  "todo": 0,
+  "R3_ordered_unique": 74,
+  "snapshot_equals_current_source": 166,
+  "runner_inputs_unchanged": 104,
+  "O02": "cause OPEN; a complete run does not prove runtime cause fixed"
+}

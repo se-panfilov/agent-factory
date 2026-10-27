@@ -1,0 +1,1164 @@
+{
+  "identity": {
+    "baseline_commit": "3e4e07c4ec4bf5ca898025b68520c43c5d9905e3",
+    "baseline_tree": "65615c07df68047b8fb45ff6635b4c64a72352a9",
+    "tested_commit": "4c28f49228a01a0cb4e8f25a7504883c90ea8672",
+    "tested_tree": "62e71f3d7585493602af88b5861eb21d00b35c66",
+    "method": "git archive SHA, no working-tree code inputs; code.patch includes all additions/modifications versus baseline",
+    "source_tar_sha256": "568e5a1e68a3022dadea73f83930f97fd3a6d2f19784a6a742dcc9cbdb268452",
+    "code_patch_sha256": "928ffe21afe1de6cb7e198aa8b8be1bd5549c8b983c4cd07d0fc780a31787f18",
+    "real_host_qualification": "NOT RUN",
+    "preserved_staged_inputs": [
+      "A  audit/copilot-r14-task.ru.md",
+      "A  audit/evidence/agent-factory-r13-evidence-3e4e07c.zip",
+      "A  audit/evidence/agent-factory-r13-evidence-3e4e07c.zip.sha256",
+      "A  audit/reviews/agent-factory-r13-audit-3e4e07c.ru.md"
+    ],
+    "concurrent_input_commit": "6557e9b (audit fixes 7): committed the four previously staged inputs; preserved, not created or rewritten by this agent"
+  },
+  "findings": {
+    "R11-F01": {
+      "meaning": "stale primary / committed generation",
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Stale primary cannot override committed generation",
+      "passed_test_names": [
+        "K01 stale primary plus completed journal checkpoint remains recovery-blocked"
+      ],
+      "additional_evidence": []
+    },
+    "R11-F02": {
+      "meaning": "recovery evidence / immutable prepared decision",
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "56 phase/contradiction combinations preserve exact primary/previous/manifest/journal/decision bytes and quarantine, with no new effects",
+      "passed_test_names": [
+        "U05 admission current/quarantine refuses before state-evidence writes",
+        "U05 admission current/attempt refuses before state-evidence writes",
+        "U05 admission current/operation refuses before state-evidence writes",
+        "U05 admission current/stage refuses before state-evidence writes",
+        "U05 admission current/sequence refuses before state-evidence writes",
+        "U05 admission current/hash refuses before state-evidence writes",
+        "U05 admission current/previous refuses before state-evidence writes",
+        "U05 admission current/journal refuses before state-evidence writes",
+        "U05 admission current/generation refuses before state-evidence writes",
+        "U05 admission current/manifest-missing refuses before state-evidence writes",
+        "U05 admission current/manifest-malformed refuses before state-evidence writes",
+        "U05 admission current/manifest-foreign refuses before state-evidence writes",
+        "U05 admission current/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission current/decision refuses before state-evidence writes",
+        "U05 admission missing/quarantine refuses before state-evidence writes",
+        "U05 admission missing/attempt refuses before state-evidence writes",
+        "U05 admission missing/operation refuses before state-evidence writes",
+        "U05 admission missing/stage refuses before state-evidence writes",
+        "U05 admission missing/sequence refuses before state-evidence writes",
+        "U05 admission missing/hash refuses before state-evidence writes",
+        "U05 admission missing/previous refuses before state-evidence writes",
+        "U05 admission missing/journal refuses before state-evidence writes",
+        "U05 admission missing/generation refuses before state-evidence writes",
+        "U05 admission missing/manifest-missing refuses before state-evidence writes",
+        "U05 admission missing/manifest-malformed refuses before state-evidence writes",
+        "U05 admission missing/manifest-foreign refuses before state-evidence writes",
+        "U05 admission missing/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission missing/decision refuses before state-evidence writes",
+        "U05 admission prepared/quarantine refuses before state-evidence writes",
+        "U05 admission prepared/attempt refuses before state-evidence writes",
+        "U05 admission prepared/operation refuses before state-evidence writes",
+        "U05 admission prepared/stage refuses before state-evidence writes",
+        "U05 admission prepared/sequence refuses before state-evidence writes",
+        "U05 admission prepared/hash refuses before state-evidence writes",
+        "U05 admission prepared/previous refuses before state-evidence writes",
+        "U05 admission prepared/journal refuses before state-evidence writes",
+        "U05 admission prepared/generation refuses before state-evidence writes",
+        "U05 admission prepared/manifest-missing refuses before state-evidence writes",
+        "U05 admission prepared/manifest-malformed refuses before state-evidence writes",
+        "U05 admission prepared/manifest-foreign refuses before state-evidence writes",
+        "U05 admission prepared/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission prepared/decision refuses before state-evidence writes",
+        "U05 admission primary_restored/quarantine refuses before state-evidence writes",
+        "U05 admission primary_restored/attempt refuses before state-evidence writes",
+        "U05 admission primary_restored/operation refuses before state-evidence writes",
+        "U05 admission primary_restored/stage refuses before state-evidence writes",
+        "U05 admission primary_restored/sequence refuses before state-evidence writes",
+        "U05 admission primary_restored/hash refuses before state-evidence writes",
+        "U05 admission primary_restored/previous refuses before state-evidence writes",
+        "U05 admission primary_restored/journal refuses before state-evidence writes",
+        "U05 admission primary_restored/generation refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-missing refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-malformed refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-foreign refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission primary_restored/decision refuses before state-evidence writes"
+      ],
+      "additional_evidence": []
+    },
+    "R11-F03": {
+      "meaning": "receipt admission / journal execution protocol",
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Receipt missing/duplicate/foreign/unplanned/stage/resource mismatches and invalid journal attempt ordering are refused",
+      "passed_test_names": [
+        "J03 new attempt, duplicate/gap/reorder/stage mismatch and receipt-before-intent require journal recovery",
+        "J04 effect evidence without verify/checkpoint stays unknown and blocks plan/recover replay",
+        "K07 receipts must match planned operation/stage/resource and cannot be foreign"
+      ],
+      "additional_evidence": []
+    },
+    "R11-F04": {
+      "meaning": "no-op / verify-only and S06",
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Empty/verify-only and actual S06 no-op never invoke effectful apply",
+      "passed_test_names": [
+        "K08 real S06 verified lifecycle executes fresh no-op apply/status/resume",
+        "K09 empty or verify-only plan does not call stage.apply (trap stage)"
+      ],
+      "additional_evidence": []
+    },
+    "R11-F05": {
+      "meaning": "typed persistence errors",
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Typed manifest/restore errors preserve evidence; defined partial restore resumes or remains honestly unresolved",
+      "passed_test_names": [
+        "J06 interrupted recovery boundaries keep candidate durable and resume safely",
+        "J07 committed recovery with marker cleanup failure resumes idempotently",
+        "J09 fault injections assert exact hit and fail when disabled on fresh fixture",
+        "U08 engine clean proof survives metadata-only generation and recovery restore-manifest-write",
+        "U08 engine clean proof survives metadata-only generation and recovery restore-manifest-rename",
+        "U08 engine clean proof survives metadata-only generation and recovery cleanup-remove",
+        "U08 engine clean proof survives metadata-only generation and recovery control"
+      ],
+      "additional_evidence": []
+    },
+    "R11-F06": {
+      "meaning": "evidence/coverage/packaging",
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Real Node24 commands against exact clean code archive; patch reconstructs every tracked file; full logs, identical comparison runner/frozen fixtures and deterministic ZIP/checksum",
+      "passed_test_names": [],
+      "additional_evidence": [
+        "identity.json",
+        "patch-reconstruction.json",
+        "clean-fixed/commands.json",
+        "clean-baseline/commands.json",
+        "SHA256SUMS"
+      ]
+    },
+    "R12-F01": {
+      "meaning": "producer/engine alignment",
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Same frozen C01-C12 fixtures measured on baseline/fixed with product assertions, plus S03/S04/S05/S07 producer controls",
+      "passed_test_names": [],
+      "additional_evidence": [
+        "comparison-assertions.json",
+        "clean-baseline/comparison.log",
+        "clean-fixed/comparison.log",
+        "clean-fixed/stages.log"
+      ]
+    },
+    "R12-F02": {
+      "meaning": "uniform recovery evidence rules",
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "56 phase/contradiction combinations preserve exact primary/previous/manifest/journal/decision bytes and quarantine, with no new effects",
+      "passed_test_names": [
+        "U05 admission current/quarantine refuses before state-evidence writes",
+        "U05 admission current/attempt refuses before state-evidence writes",
+        "U05 admission current/operation refuses before state-evidence writes",
+        "U05 admission current/stage refuses before state-evidence writes",
+        "U05 admission current/sequence refuses before state-evidence writes",
+        "U05 admission current/hash refuses before state-evidence writes",
+        "U05 admission current/previous refuses before state-evidence writes",
+        "U05 admission current/journal refuses before state-evidence writes",
+        "U05 admission current/generation refuses before state-evidence writes",
+        "U05 admission current/manifest-missing refuses before state-evidence writes",
+        "U05 admission current/manifest-malformed refuses before state-evidence writes",
+        "U05 admission current/manifest-foreign refuses before state-evidence writes",
+        "U05 admission current/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission current/decision refuses before state-evidence writes",
+        "U05 admission missing/quarantine refuses before state-evidence writes",
+        "U05 admission missing/attempt refuses before state-evidence writes",
+        "U05 admission missing/operation refuses before state-evidence writes",
+        "U05 admission missing/stage refuses before state-evidence writes",
+        "U05 admission missing/sequence refuses before state-evidence writes",
+        "U05 admission missing/hash refuses before state-evidence writes",
+        "U05 admission missing/previous refuses before state-evidence writes",
+        "U05 admission missing/journal refuses before state-evidence writes",
+        "U05 admission missing/generation refuses before state-evidence writes",
+        "U05 admission missing/manifest-missing refuses before state-evidence writes",
+        "U05 admission missing/manifest-malformed refuses before state-evidence writes",
+        "U05 admission missing/manifest-foreign refuses before state-evidence writes",
+        "U05 admission missing/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission missing/decision refuses before state-evidence writes",
+        "U05 admission prepared/quarantine refuses before state-evidence writes",
+        "U05 admission prepared/attempt refuses before state-evidence writes",
+        "U05 admission prepared/operation refuses before state-evidence writes",
+        "U05 admission prepared/stage refuses before state-evidence writes",
+        "U05 admission prepared/sequence refuses before state-evidence writes",
+        "U05 admission prepared/hash refuses before state-evidence writes",
+        "U05 admission prepared/previous refuses before state-evidence writes",
+        "U05 admission prepared/journal refuses before state-evidence writes",
+        "U05 admission prepared/generation refuses before state-evidence writes",
+        "U05 admission prepared/manifest-missing refuses before state-evidence writes",
+        "U05 admission prepared/manifest-malformed refuses before state-evidence writes",
+        "U05 admission prepared/manifest-foreign refuses before state-evidence writes",
+        "U05 admission prepared/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission prepared/decision refuses before state-evidence writes",
+        "U05 admission primary_restored/quarantine refuses before state-evidence writes",
+        "U05 admission primary_restored/attempt refuses before state-evidence writes",
+        "U05 admission primary_restored/operation refuses before state-evidence writes",
+        "U05 admission primary_restored/stage refuses before state-evidence writes",
+        "U05 admission primary_restored/sequence refuses before state-evidence writes",
+        "U05 admission primary_restored/hash refuses before state-evidence writes",
+        "U05 admission primary_restored/previous refuses before state-evidence writes",
+        "U05 admission primary_restored/journal refuses before state-evidence writes",
+        "U05 admission primary_restored/generation refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-missing refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-malformed refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-foreign refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission primary_restored/decision refuses before state-evidence writes"
+      ],
+      "additional_evidence": []
+    },
+    "R12-F03": {
+      "meaning": "plan-written marker blocks proven recovery",
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Engine-generated plan/apply/plan direct and marker-first restore preserves final/checkpoint proof, is idempotent and never repeats effect",
+      "passed_test_names": [
+        "U03 C01 engine-generated plan-apply-plan recovery direct retains final proof without replay",
+        "U03 C01 engine-generated plan-apply-plan recovery plan-first retains final proof without replay"
+      ],
+      "additional_evidence": []
+    },
+    "R12-F04": {
+      "meaning": "durable operation progress",
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Real S02 refresh/simulation receipts and bound checkpoints precede install; late exception and child interruption retain unknown current attempt and never verify partial stage",
+      "passed_test_names": [
+        "U04 U08 separate S02 child writer between-operations: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer checkpoint-before-binding: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer before-install: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer install-after-effect: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer final-primary: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer final-manifest: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer recovery-prepared: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer recovery-restored: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer cleanup-before-remove: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer cleanup-after-remove: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 S02 late exception preserves real refresh/simulate checkpoints and unknown install"
+      ],
+      "additional_evidence": []
+    },
+    "R12-F05": {
+      "meaning": "evidence/mapping discipline",
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Immutable historical R11/R12/R13 mapping and explicit correction note; every PASS points to a concrete assertion/test or recorded external product check",
+      "passed_test_names": [],
+      "additional_evidence": [
+        "acceptance-mapping.json",
+        "comparison-assertions.json"
+      ]
+    },
+    "R13-F01": {
+      "meaning": "S03 input drift guard regression",
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Approved input/raw content/ownership/diff/manual drift before/between operations blocks all unauthorized cutover; normal own transitions and failed-tailnet rollback retain behavior",
+      "passed_test_names": [
+        "U01 S03 engine normal: reviewed inputs and own transitions",
+        "U01 S03 engine before: reviewed inputs and own transitions",
+        "U01 S03 engine between: reviewed inputs and own transitions",
+        "U01 S03 engine during-install: reviewed inputs and own transitions",
+        "U01 S03 engine tailnet-failure: reviewed inputs and own transitions",
+        "U01 S03 engine ownership-before: reviewed inputs and own transitions",
+        "U01 S03 engine ownership-between: reviewed inputs and own transitions",
+        "U01 S03 engine diff-before: reviewed inputs and own transitions",
+        "U01 S03 engine manual-before: reviewed inputs and own transitions",
+        "U01 real input proof hashes raw config and ownership and refuses unsafe/unbounded input"
+      ],
+      "additional_evidence": []
+    },
+    "R13-F02": {
+      "meaning": "engine-generated checkpoint/final-state recovery regression",
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Engine-generated plan/apply/plan direct and marker-first restore preserves final/checkpoint proof, is idempotent and never repeats effect",
+      "passed_test_names": [
+        "U03 C01 engine-generated plan-apply-plan recovery direct retains final proof without replay",
+        "U03 C01 engine-generated plan-apply-plan recovery plan-first retains final proof without replay"
+      ],
+      "additional_evidence": []
+    },
+    "R13-F03": {
+      "meaning": "S05 mandatory probes skipped",
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Mandatory S05 probes run; negative/timeout/missing commands cannot verify or checkpoint probe; repeat verify invalidates stage; dependent S06 effects remain zero",
+      "passed_test_names": [
+        "U02 S05 engine success: materialization cannot substitute mandatory probes",
+        "U02 S05 engine negative: materialization cannot substitute mandatory probes",
+        "U02 S05 engine timeout: materialization cannot substitute mandatory probes",
+        "U02 S05 engine missing: materialization cannot substitute mandatory probes",
+        "U02 existing commit without journal-bound deployment trust cannot spawn probes during plan",
+        "U02 failing mandatory S05 probe prevents dependent S06 effects"
+      ],
+      "additional_evidence": []
+    },
+    "R13-F04": {
+      "meaning": "incomplete all-evidence admission",
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "56 phase/contradiction combinations preserve exact primary/previous/manifest/journal/decision bytes and quarantine, with no new effects",
+      "passed_test_names": [
+        "U05 admission current/quarantine refuses before state-evidence writes",
+        "U05 admission current/attempt refuses before state-evidence writes",
+        "U05 admission current/operation refuses before state-evidence writes",
+        "U05 admission current/stage refuses before state-evidence writes",
+        "U05 admission current/sequence refuses before state-evidence writes",
+        "U05 admission current/hash refuses before state-evidence writes",
+        "U05 admission current/previous refuses before state-evidence writes",
+        "U05 admission current/journal refuses before state-evidence writes",
+        "U05 admission current/generation refuses before state-evidence writes",
+        "U05 admission current/manifest-missing refuses before state-evidence writes",
+        "U05 admission current/manifest-malformed refuses before state-evidence writes",
+        "U05 admission current/manifest-foreign refuses before state-evidence writes",
+        "U05 admission current/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission current/decision refuses before state-evidence writes",
+        "U05 admission missing/quarantine refuses before state-evidence writes",
+        "U05 admission missing/attempt refuses before state-evidence writes",
+        "U05 admission missing/operation refuses before state-evidence writes",
+        "U05 admission missing/stage refuses before state-evidence writes",
+        "U05 admission missing/sequence refuses before state-evidence writes",
+        "U05 admission missing/hash refuses before state-evidence writes",
+        "U05 admission missing/previous refuses before state-evidence writes",
+        "U05 admission missing/journal refuses before state-evidence writes",
+        "U05 admission missing/generation refuses before state-evidence writes",
+        "U05 admission missing/manifest-missing refuses before state-evidence writes",
+        "U05 admission missing/manifest-malformed refuses before state-evidence writes",
+        "U05 admission missing/manifest-foreign refuses before state-evidence writes",
+        "U05 admission missing/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission missing/decision refuses before state-evidence writes",
+        "U05 admission prepared/quarantine refuses before state-evidence writes",
+        "U05 admission prepared/attempt refuses before state-evidence writes",
+        "U05 admission prepared/operation refuses before state-evidence writes",
+        "U05 admission prepared/stage refuses before state-evidence writes",
+        "U05 admission prepared/sequence refuses before state-evidence writes",
+        "U05 admission prepared/hash refuses before state-evidence writes",
+        "U05 admission prepared/previous refuses before state-evidence writes",
+        "U05 admission prepared/journal refuses before state-evidence writes",
+        "U05 admission prepared/generation refuses before state-evidence writes",
+        "U05 admission prepared/manifest-missing refuses before state-evidence writes",
+        "U05 admission prepared/manifest-malformed refuses before state-evidence writes",
+        "U05 admission prepared/manifest-foreign refuses before state-evidence writes",
+        "U05 admission prepared/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission prepared/decision refuses before state-evidence writes",
+        "U05 admission primary_restored/quarantine refuses before state-evidence writes",
+        "U05 admission primary_restored/attempt refuses before state-evidence writes",
+        "U05 admission primary_restored/operation refuses before state-evidence writes",
+        "U05 admission primary_restored/stage refuses before state-evidence writes",
+        "U05 admission primary_restored/sequence refuses before state-evidence writes",
+        "U05 admission primary_restored/hash refuses before state-evidence writes",
+        "U05 admission primary_restored/previous refuses before state-evidence writes",
+        "U05 admission primary_restored/journal refuses before state-evidence writes",
+        "U05 admission primary_restored/generation refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-missing refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-malformed refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-foreign refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission primary_restored/decision refuses before state-evidence writes"
+      ],
+      "additional_evidence": []
+    },
+    "R13-F05": {
+      "meaning": "clean S04 group prerequisite cycle",
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Initially absent packages/group/account/session: install/group durable pause; old session blocked before intent; active new session resumes/repeats without reinstall; unmanaged matching Docker refused",
+      "passed_test_names": [
+        "U06 clean S04 engine installs, checkpoints group, pauses, observes new session, resumes and repeats",
+        "U06 engine never adopts unmanaged matching Docker without durable install progress"
+      ],
+      "additional_evidence": []
+    },
+    "R13-F06": {
+      "meaning": "inaccurate tests/inventory/acceptance claims",
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Immutable historical R11/R12/R13 mapping and explicit correction note; every PASS points to a concrete assertion/test or recorded external product check",
+      "passed_test_names": [],
+      "additional_evidence": [
+        "acceptance-mapping.json",
+        "comparison-assertions.json"
+      ]
+    }
+  },
+  "K": {
+    "K01": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Stale primary cannot override committed generation",
+      "passed_test_names": [
+        "K01 stale primary plus completed journal checkpoint remains recovery-blocked"
+      ],
+      "additional_evidence": []
+    },
+    "K02": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Engine-generated plan/apply/plan direct and marker-first restore preserves final/checkpoint proof, is idempotent and never repeats effect",
+      "passed_test_names": [
+        "U03 C01 engine-generated plan-apply-plan recovery direct retains final proof without replay",
+        "U03 C01 engine-generated plan-apply-plan recovery plan-first retains final proof without replay"
+      ],
+      "additional_evidence": []
+    },
+    "K03": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "36 fresh-fixture manifest initial/operation-binding/final paths: write ENOSPC, file-fsync/rename/dir-fsync EIO before/after boundary and fault-off controls, exact hit and typed errors, no unknown replay",
+      "passed_test_names": [
+        "U07 manifest initial/writeText/before: fresh fixture and fault-off control",
+        "U07 manifest initial/writeText/after: fresh fixture and fault-off control",
+        "U07 manifest initial/writeText/control: fresh fixture and fault-off control",
+        "U07 manifest initial/fsyncFile/before: fresh fixture and fault-off control",
+        "U07 manifest initial/fsyncFile/after: fresh fixture and fault-off control",
+        "U07 manifest initial/fsyncFile/control: fresh fixture and fault-off control",
+        "U07 manifest initial/rename/before: fresh fixture and fault-off control",
+        "U07 manifest initial/rename/after: fresh fixture and fault-off control",
+        "U07 manifest initial/rename/control: fresh fixture and fault-off control",
+        "U07 manifest initial/fsyncDir/before: fresh fixture and fault-off control",
+        "U07 manifest initial/fsyncDir/after: fresh fixture and fault-off control",
+        "U07 manifest initial/fsyncDir/control: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/writeText/before: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/writeText/after: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/writeText/control: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/fsyncFile/before: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/fsyncFile/after: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/fsyncFile/control: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/rename/before: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/rename/after: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/rename/control: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/fsyncDir/before: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/fsyncDir/after: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/fsyncDir/control: fresh fixture and fault-off control",
+        "U07 manifest final-commit/writeText/before: fresh fixture and fault-off control",
+        "U07 manifest final-commit/writeText/after: fresh fixture and fault-off control",
+        "U07 manifest final-commit/writeText/control: fresh fixture and fault-off control",
+        "U07 manifest final-commit/fsyncFile/before: fresh fixture and fault-off control",
+        "U07 manifest final-commit/fsyncFile/after: fresh fixture and fault-off control",
+        "U07 manifest final-commit/fsyncFile/control: fresh fixture and fault-off control",
+        "U07 manifest final-commit/rename/before: fresh fixture and fault-off control",
+        "U07 manifest final-commit/rename/after: fresh fixture and fault-off control",
+        "U07 manifest final-commit/rename/control: fresh fixture and fault-off control",
+        "U07 manifest final-commit/fsyncDir/before: fresh fixture and fault-off control",
+        "U07 manifest final-commit/fsyncDir/after: fresh fixture and fault-off control",
+        "U07 manifest final-commit/fsyncDir/control: fresh fixture and fault-off control"
+      ],
+      "additional_evidence": [
+        "manifest-fault-matrix.json"
+      ]
+    },
+    "K04": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Prepared decision remains immutable under previous/current substitution and phase conflicts",
+      "passed_test_names": [
+        "K04 prepared recovery decision is immutable across previous/current substitution",
+        "U05 admission current/quarantine refuses before state-evidence writes",
+        "U05 admission current/attempt refuses before state-evidence writes",
+        "U05 admission current/operation refuses before state-evidence writes",
+        "U05 admission current/stage refuses before state-evidence writes",
+        "U05 admission current/sequence refuses before state-evidence writes",
+        "U05 admission current/hash refuses before state-evidence writes",
+        "U05 admission current/previous refuses before state-evidence writes",
+        "U05 admission current/journal refuses before state-evidence writes",
+        "U05 admission current/generation refuses before state-evidence writes",
+        "U05 admission current/manifest-missing refuses before state-evidence writes",
+        "U05 admission current/manifest-malformed refuses before state-evidence writes",
+        "U05 admission current/manifest-foreign refuses before state-evidence writes",
+        "U05 admission current/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission current/decision refuses before state-evidence writes",
+        "U05 admission missing/quarantine refuses before state-evidence writes",
+        "U05 admission missing/attempt refuses before state-evidence writes",
+        "U05 admission missing/operation refuses before state-evidence writes",
+        "U05 admission missing/stage refuses before state-evidence writes",
+        "U05 admission missing/sequence refuses before state-evidence writes",
+        "U05 admission missing/hash refuses before state-evidence writes",
+        "U05 admission missing/previous refuses before state-evidence writes",
+        "U05 admission missing/journal refuses before state-evidence writes",
+        "U05 admission missing/generation refuses before state-evidence writes",
+        "U05 admission missing/manifest-missing refuses before state-evidence writes",
+        "U05 admission missing/manifest-malformed refuses before state-evidence writes",
+        "U05 admission missing/manifest-foreign refuses before state-evidence writes",
+        "U05 admission missing/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission missing/decision refuses before state-evidence writes",
+        "U05 admission prepared/quarantine refuses before state-evidence writes",
+        "U05 admission prepared/attempt refuses before state-evidence writes",
+        "U05 admission prepared/operation refuses before state-evidence writes",
+        "U05 admission prepared/stage refuses before state-evidence writes",
+        "U05 admission prepared/sequence refuses before state-evidence writes",
+        "U05 admission prepared/hash refuses before state-evidence writes",
+        "U05 admission prepared/previous refuses before state-evidence writes",
+        "U05 admission prepared/journal refuses before state-evidence writes",
+        "U05 admission prepared/generation refuses before state-evidence writes",
+        "U05 admission prepared/manifest-missing refuses before state-evidence writes",
+        "U05 admission prepared/manifest-malformed refuses before state-evidence writes",
+        "U05 admission prepared/manifest-foreign refuses before state-evidence writes",
+        "U05 admission prepared/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission prepared/decision refuses before state-evidence writes",
+        "U05 admission primary_restored/quarantine refuses before state-evidence writes",
+        "U05 admission primary_restored/attempt refuses before state-evidence writes",
+        "U05 admission primary_restored/operation refuses before state-evidence writes",
+        "U05 admission primary_restored/stage refuses before state-evidence writes",
+        "U05 admission primary_restored/sequence refuses before state-evidence writes",
+        "U05 admission primary_restored/hash refuses before state-evidence writes",
+        "U05 admission primary_restored/previous refuses before state-evidence writes",
+        "U05 admission primary_restored/journal refuses before state-evidence writes",
+        "U05 admission primary_restored/generation refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-missing refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-malformed refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-foreign refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission primary_restored/decision refuses before state-evidence writes"
+      ],
+      "additional_evidence": []
+    },
+    "K05": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Missing primary with legacy/unknown evidence is never fresh; newer uncertainty is preserved",
+      "passed_test_names": [
+        "K05 missing primary with old previous and empty journal remains unresolved without generation proof",
+        "T04 newer manifest generation blocks old checkpoint recovery candidate",
+        "T05 manifest-only evidence never reinitializes fresh state and malformed/foreign manifests stay blocked"
+      ],
+      "additional_evidence": []
+    },
+    "K06": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Typed manifest/restore errors preserve evidence; defined partial restore resumes or remains honestly unresolved",
+      "passed_test_names": [
+        "J06 interrupted recovery boundaries keep candidate durable and resume safely",
+        "J07 committed recovery with marker cleanup failure resumes idempotently",
+        "J09 fault injections assert exact hit and fail when disabled on fresh fixture",
+        "U08 engine clean proof survives metadata-only generation and recovery restore-manifest-write",
+        "U08 engine clean proof survives metadata-only generation and recovery restore-manifest-rename",
+        "U08 engine clean proof survives metadata-only generation and recovery cleanup-remove",
+        "U08 engine clean proof survives metadata-only generation and recovery control"
+      ],
+      "additional_evidence": []
+    },
+    "K07": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Receipt missing/duplicate/foreign/unplanned/stage/resource mismatches and invalid journal attempt ordering are refused",
+      "passed_test_names": [
+        "J03 new attempt, duplicate/gap/reorder/stage mismatch and receipt-before-intent require journal recovery",
+        "J04 effect evidence without verify/checkpoint stays unknown and blocks plan/recover replay",
+        "K07 receipts must match planned operation/stage/resource and cannot be foreign"
+      ],
+      "additional_evidence": []
+    },
+    "K08": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "All actual S00-S07 modules in one engine apply/status/resume with explicit synthetic existing-M0/active-group fixture; separate per-stage controls and accurate S00-S14 route inventory",
+      "passed_test_names": [
+        "K08 real S06 verified lifecycle executes fresh no-op apply/status/resume",
+        "J01 real S00->S01 lifecycle plan/apply/status/resume stays journal-compatible",
+        "J02 real S02 install/refresh/no-op repeat preserves operation evidence and status/resume"
+      ],
+      "additional_evidence": [
+        "full-lifecycle-fixed.log",
+        "clean-fixed/stages.log",
+        "clean-fixed/lifecycle.log",
+        "clean-fixed/s06.log",
+        "docs/stage-inventory.md"
+      ]
+    },
+    "K09": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Empty/verify-only and actual S06 no-op never invoke effectful apply",
+      "passed_test_names": [
+        "K08 real S06 verified lifecycle executes fresh no-op apply/status/resume",
+        "K09 empty or verify-only plan does not call stage.apply (trap stage)"
+      ],
+      "additional_evidence": []
+    },
+    "K10": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Original interrupted writer control plus new operation/binding/final/recovery boundaries; unknown outcomes never replay",
+      "passed_test_names": [
+        "K10 cross-process interrupted writer keeps reader non-mutating and blocks unsafe recovery",
+        "U04 U08 separate S02 child writer between-operations: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer checkpoint-before-binding: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer before-install: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer install-after-effect: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer final-primary: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer final-manifest: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer recovery-prepared: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer recovery-restored: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer cleanup-before-remove: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer cleanup-after-remove: IPC barrier, reader, foreign lock, SIGKILL and restart"
+      ],
+      "additional_evidence": []
+    },
+    "K11": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Regression controls retain cancellation/read-only/lock and fresh safe initialization behavior",
+      "passed_test_names": [
+        "R1-12 positive controls: fresh state init, cancel request, and lock-only stale cleanup keep working",
+        "J08 malformed marker, oversized/growing journal and EACCES return typed bounded diagnostics",
+        "J10 pending evidence blocks ordinary effects while cancel and read-only diagnostics remain available"
+      ],
+      "additional_evidence": []
+    },
+    "K12": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Real Node24 commands against exact clean code archive; patch reconstructs every tracked file; full logs, identical comparison runner/frozen fixtures and deterministic ZIP/checksum",
+      "passed_test_names": [],
+      "additional_evidence": [
+        "identity.json",
+        "patch-reconstruction.json",
+        "clean-fixed/commands.json",
+        "clean-baseline/commands.json",
+        "SHA256SUMS"
+      ]
+    }
+  },
+  "T": {
+    "T01": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Same frozen C01-C12 fixtures measured on baseline/fixed with product assertions, plus S03/S04/S05/S07 producer controls",
+      "passed_test_names": [],
+      "additional_evidence": [
+        "comparison-assertions.json",
+        "clean-baseline/comparison.log",
+        "clean-fixed/comparison.log",
+        "clean-fixed/stages.log"
+      ]
+    },
+    "T02": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "All actual S00-S07 modules in one engine apply/status/resume with explicit synthetic existing-M0/active-group fixture; separate per-stage controls and accurate S00-S14 route inventory",
+      "passed_test_names": [
+        "K08 real S06 verified lifecycle executes fresh no-op apply/status/resume",
+        "J01 real S00->S01 lifecycle plan/apply/status/resume stays journal-compatible",
+        "J02 real S02 install/refresh/no-op repeat preserves operation evidence and status/resume"
+      ],
+      "additional_evidence": [
+        "full-lifecycle-fixed.log",
+        "clean-fixed/stages.log",
+        "clean-fixed/lifecycle.log",
+        "clean-fixed/s06.log",
+        "docs/stage-inventory.md"
+      ]
+    },
+    "T03": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Real S02 refresh/simulation receipts and bound checkpoints precede install; late exception and child interruption retain unknown current attempt and never verify partial stage",
+      "passed_test_names": [
+        "U04 U08 separate S02 child writer between-operations: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer checkpoint-before-binding: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer before-install: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer install-after-effect: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer final-primary: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer final-manifest: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer recovery-prepared: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer recovery-restored: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer cleanup-before-remove: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer cleanup-after-remove: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 S02 late exception preserves real refresh/simulate checkpoints and unknown install"
+      ],
+      "additional_evidence": []
+    },
+    "T04": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Newer unknown manifest cannot be covered by an older checkpoint",
+      "passed_test_names": [
+        "T04 newer manifest generation blocks old checkpoint recovery candidate"
+      ],
+      "additional_evidence": []
+    },
+    "T05": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Manifest-only/malformed/foreign evidence never initializes fresh",
+      "passed_test_names": [
+        "T05 manifest-only evidence never reinitializes fresh state and malformed/foreign manifests stay blocked"
+      ],
+      "additional_evidence": []
+    },
+    "T06": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "56 phase/contradiction combinations preserve exact primary/previous/manifest/journal/decision bytes and quarantine, with no new effects",
+      "passed_test_names": [
+        "U05 admission current/quarantine refuses before state-evidence writes",
+        "U05 admission current/attempt refuses before state-evidence writes",
+        "U05 admission current/operation refuses before state-evidence writes",
+        "U05 admission current/stage refuses before state-evidence writes",
+        "U05 admission current/sequence refuses before state-evidence writes",
+        "U05 admission current/hash refuses before state-evidence writes",
+        "U05 admission current/previous refuses before state-evidence writes",
+        "U05 admission current/journal refuses before state-evidence writes",
+        "U05 admission current/generation refuses before state-evidence writes",
+        "U05 admission current/manifest-missing refuses before state-evidence writes",
+        "U05 admission current/manifest-malformed refuses before state-evidence writes",
+        "U05 admission current/manifest-foreign refuses before state-evidence writes",
+        "U05 admission current/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission current/decision refuses before state-evidence writes",
+        "U05 admission missing/quarantine refuses before state-evidence writes",
+        "U05 admission missing/attempt refuses before state-evidence writes",
+        "U05 admission missing/operation refuses before state-evidence writes",
+        "U05 admission missing/stage refuses before state-evidence writes",
+        "U05 admission missing/sequence refuses before state-evidence writes",
+        "U05 admission missing/hash refuses before state-evidence writes",
+        "U05 admission missing/previous refuses before state-evidence writes",
+        "U05 admission missing/journal refuses before state-evidence writes",
+        "U05 admission missing/generation refuses before state-evidence writes",
+        "U05 admission missing/manifest-missing refuses before state-evidence writes",
+        "U05 admission missing/manifest-malformed refuses before state-evidence writes",
+        "U05 admission missing/manifest-foreign refuses before state-evidence writes",
+        "U05 admission missing/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission missing/decision refuses before state-evidence writes",
+        "U05 admission prepared/quarantine refuses before state-evidence writes",
+        "U05 admission prepared/attempt refuses before state-evidence writes",
+        "U05 admission prepared/operation refuses before state-evidence writes",
+        "U05 admission prepared/stage refuses before state-evidence writes",
+        "U05 admission prepared/sequence refuses before state-evidence writes",
+        "U05 admission prepared/hash refuses before state-evidence writes",
+        "U05 admission prepared/previous refuses before state-evidence writes",
+        "U05 admission prepared/journal refuses before state-evidence writes",
+        "U05 admission prepared/generation refuses before state-evidence writes",
+        "U05 admission prepared/manifest-missing refuses before state-evidence writes",
+        "U05 admission prepared/manifest-malformed refuses before state-evidence writes",
+        "U05 admission prepared/manifest-foreign refuses before state-evidence writes",
+        "U05 admission prepared/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission prepared/decision refuses before state-evidence writes",
+        "U05 admission primary_restored/quarantine refuses before state-evidence writes",
+        "U05 admission primary_restored/attempt refuses before state-evidence writes",
+        "U05 admission primary_restored/operation refuses before state-evidence writes",
+        "U05 admission primary_restored/stage refuses before state-evidence writes",
+        "U05 admission primary_restored/sequence refuses before state-evidence writes",
+        "U05 admission primary_restored/hash refuses before state-evidence writes",
+        "U05 admission primary_restored/previous refuses before state-evidence writes",
+        "U05 admission primary_restored/journal refuses before state-evidence writes",
+        "U05 admission primary_restored/generation refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-missing refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-malformed refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-foreign refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission primary_restored/decision refuses before state-evidence writes"
+      ],
+      "additional_evidence": []
+    },
+    "T07": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Engine-generated plan/apply/plan direct and marker-first restore preserves final/checkpoint proof, is idempotent and never repeats effect",
+      "passed_test_names": [
+        "U03 C01 engine-generated plan-apply-plan recovery direct retains final proof without replay",
+        "U03 C01 engine-generated plan-apply-plan recovery plan-first retains final proof without replay"
+      ],
+      "additional_evidence": []
+    },
+    "T08": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "36 fresh-fixture manifest initial/operation-binding/final paths: write ENOSPC, file-fsync/rename/dir-fsync EIO before/after boundary and fault-off controls, exact hit and typed errors, no unknown replay",
+      "passed_test_names": [
+        "U07 manifest initial/writeText/before: fresh fixture and fault-off control",
+        "U07 manifest initial/writeText/after: fresh fixture and fault-off control",
+        "U07 manifest initial/writeText/control: fresh fixture and fault-off control",
+        "U07 manifest initial/fsyncFile/before: fresh fixture and fault-off control",
+        "U07 manifest initial/fsyncFile/after: fresh fixture and fault-off control",
+        "U07 manifest initial/fsyncFile/control: fresh fixture and fault-off control",
+        "U07 manifest initial/rename/before: fresh fixture and fault-off control",
+        "U07 manifest initial/rename/after: fresh fixture and fault-off control",
+        "U07 manifest initial/rename/control: fresh fixture and fault-off control",
+        "U07 manifest initial/fsyncDir/before: fresh fixture and fault-off control",
+        "U07 manifest initial/fsyncDir/after: fresh fixture and fault-off control",
+        "U07 manifest initial/fsyncDir/control: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/writeText/before: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/writeText/after: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/writeText/control: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/fsyncFile/before: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/fsyncFile/after: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/fsyncFile/control: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/rename/before: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/rename/after: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/rename/control: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/fsyncDir/before: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/fsyncDir/after: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/fsyncDir/control: fresh fixture and fault-off control",
+        "U07 manifest final-commit/writeText/before: fresh fixture and fault-off control",
+        "U07 manifest final-commit/writeText/after: fresh fixture and fault-off control",
+        "U07 manifest final-commit/writeText/control: fresh fixture and fault-off control",
+        "U07 manifest final-commit/fsyncFile/before: fresh fixture and fault-off control",
+        "U07 manifest final-commit/fsyncFile/after: fresh fixture and fault-off control",
+        "U07 manifest final-commit/fsyncFile/control: fresh fixture and fault-off control",
+        "U07 manifest final-commit/rename/before: fresh fixture and fault-off control",
+        "U07 manifest final-commit/rename/after: fresh fixture and fault-off control",
+        "U07 manifest final-commit/rename/control: fresh fixture and fault-off control",
+        "U07 manifest final-commit/fsyncDir/before: fresh fixture and fault-off control",
+        "U07 manifest final-commit/fsyncDir/after: fresh fixture and fault-off control",
+        "U07 manifest final-commit/fsyncDir/control: fresh fixture and fault-off control"
+      ],
+      "additional_evidence": [
+        "manifest-fault-matrix.json"
+      ]
+    },
+    "T09": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Typed manifest/restore errors preserve evidence; defined partial restore resumes or remains honestly unresolved",
+      "passed_test_names": [
+        "J06 interrupted recovery boundaries keep candidate durable and resume safely",
+        "J07 committed recovery with marker cleanup failure resumes idempotently",
+        "J09 fault injections assert exact hit and fail when disabled on fresh fixture",
+        "U08 engine clean proof survives metadata-only generation and recovery restore-manifest-write",
+        "U08 engine clean proof survives metadata-only generation and recovery restore-manifest-rename",
+        "U08 engine clean proof survives metadata-only generation and recovery cleanup-remove",
+        "U08 engine clean proof survives metadata-only generation and recovery control"
+      ],
+      "additional_evidence": []
+    },
+    "T10": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Ten real engine S02 child barriers with bounded IPC, readers byte-identical, foreign lock exit7, own SIGKILL, lock-only state preservation and real-S02 restart; four clean metadata predecessor recovery fault controls",
+      "passed_test_names": [
+        "U04 U08 separate S02 child writer between-operations: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer checkpoint-before-binding: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer before-install: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer install-after-effect: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer final-primary: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer final-manifest: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer recovery-prepared: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer recovery-restored: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer cleanup-before-remove: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer cleanup-after-remove: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U08 engine clean proof survives metadata-only generation and recovery restore-manifest-write",
+        "U08 engine clean proof survives metadata-only generation and recovery restore-manifest-rename",
+        "U08 engine clean proof survives metadata-only generation and recovery cleanup-remove",
+        "U08 engine clean proof survives metadata-only generation and recovery control"
+      ],
+      "additional_evidence": [
+        "child-crash-matrix.json",
+        "recovery-fault-matrix.json"
+      ]
+    },
+    "T11": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Empty/verify-only and actual S06 no-op never invoke effectful apply",
+      "passed_test_names": [
+        "K08 real S06 verified lifecycle executes fresh no-op apply/status/resume",
+        "K09 empty or verify-only plan does not call stage.apply (trap stage)"
+      ],
+      "additional_evidence": []
+    },
+    "T12": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Real Node24 commands against exact clean code archive; patch reconstructs every tracked file; full logs, identical comparison runner/frozen fixtures and deterministic ZIP/checksum",
+      "passed_test_names": [],
+      "additional_evidence": [
+        "identity.json",
+        "patch-reconstruction.json",
+        "clean-fixed/commands.json",
+        "clean-baseline/commands.json",
+        "SHA256SUMS"
+      ]
+    }
+  },
+  "U": {
+    "U01": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Approved input/raw content/ownership/diff/manual drift before/between operations blocks all unauthorized cutover; normal own transitions and failed-tailnet rollback retain behavior",
+      "passed_test_names": [
+        "U01 S03 engine normal: reviewed inputs and own transitions",
+        "U01 S03 engine before: reviewed inputs and own transitions",
+        "U01 S03 engine between: reviewed inputs and own transitions",
+        "U01 S03 engine during-install: reviewed inputs and own transitions",
+        "U01 S03 engine tailnet-failure: reviewed inputs and own transitions",
+        "U01 S03 engine ownership-before: reviewed inputs and own transitions",
+        "U01 S03 engine ownership-between: reviewed inputs and own transitions",
+        "U01 S03 engine diff-before: reviewed inputs and own transitions",
+        "U01 S03 engine manual-before: reviewed inputs and own transitions",
+        "U01 real input proof hashes raw config and ownership and refuses unsafe/unbounded input"
+      ],
+      "additional_evidence": []
+    },
+    "U02": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Mandatory S05 probes run; negative/timeout/missing commands cannot verify or checkpoint probe; repeat verify invalidates stage; dependent S06 effects remain zero",
+      "passed_test_names": [
+        "U02 S05 engine success: materialization cannot substitute mandatory probes",
+        "U02 S05 engine negative: materialization cannot substitute mandatory probes",
+        "U02 S05 engine timeout: materialization cannot substitute mandatory probes",
+        "U02 S05 engine missing: materialization cannot substitute mandatory probes",
+        "U02 existing commit without journal-bound deployment trust cannot spawn probes during plan",
+        "U02 failing mandatory S05 probe prevents dependent S06 effects"
+      ],
+      "additional_evidence": []
+    },
+    "U03": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Engine-generated plan/apply/plan direct and marker-first restore preserves final/checkpoint proof, is idempotent and never repeats effect",
+      "passed_test_names": [
+        "U03 C01 engine-generated plan-apply-plan recovery direct retains final proof without replay",
+        "U03 C01 engine-generated plan-apply-plan recovery plan-first retains final proof without replay"
+      ],
+      "additional_evidence": []
+    },
+    "U04": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Real S02 refresh/simulation receipts and bound checkpoints precede install; late exception and child interruption retain unknown current attempt and never verify partial stage",
+      "passed_test_names": [
+        "U04 U08 separate S02 child writer between-operations: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer checkpoint-before-binding: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer before-install: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer install-after-effect: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer final-primary: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer final-manifest: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer recovery-prepared: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer recovery-restored: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer cleanup-before-remove: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer cleanup-after-remove: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 S02 late exception preserves real refresh/simulate checkpoints and unknown install"
+      ],
+      "additional_evidence": []
+    },
+    "U05": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "56 phase/contradiction combinations preserve exact primary/previous/manifest/journal/decision bytes and quarantine, with no new effects",
+      "passed_test_names": [
+        "U05 admission current/quarantine refuses before state-evidence writes",
+        "U05 admission current/attempt refuses before state-evidence writes",
+        "U05 admission current/operation refuses before state-evidence writes",
+        "U05 admission current/stage refuses before state-evidence writes",
+        "U05 admission current/sequence refuses before state-evidence writes",
+        "U05 admission current/hash refuses before state-evidence writes",
+        "U05 admission current/previous refuses before state-evidence writes",
+        "U05 admission current/journal refuses before state-evidence writes",
+        "U05 admission current/generation refuses before state-evidence writes",
+        "U05 admission current/manifest-missing refuses before state-evidence writes",
+        "U05 admission current/manifest-malformed refuses before state-evidence writes",
+        "U05 admission current/manifest-foreign refuses before state-evidence writes",
+        "U05 admission current/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission current/decision refuses before state-evidence writes",
+        "U05 admission missing/quarantine refuses before state-evidence writes",
+        "U05 admission missing/attempt refuses before state-evidence writes",
+        "U05 admission missing/operation refuses before state-evidence writes",
+        "U05 admission missing/stage refuses before state-evidence writes",
+        "U05 admission missing/sequence refuses before state-evidence writes",
+        "U05 admission missing/hash refuses before state-evidence writes",
+        "U05 admission missing/previous refuses before state-evidence writes",
+        "U05 admission missing/journal refuses before state-evidence writes",
+        "U05 admission missing/generation refuses before state-evidence writes",
+        "U05 admission missing/manifest-missing refuses before state-evidence writes",
+        "U05 admission missing/manifest-malformed refuses before state-evidence writes",
+        "U05 admission missing/manifest-foreign refuses before state-evidence writes",
+        "U05 admission missing/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission missing/decision refuses before state-evidence writes",
+        "U05 admission prepared/quarantine refuses before state-evidence writes",
+        "U05 admission prepared/attempt refuses before state-evidence writes",
+        "U05 admission prepared/operation refuses before state-evidence writes",
+        "U05 admission prepared/stage refuses before state-evidence writes",
+        "U05 admission prepared/sequence refuses before state-evidence writes",
+        "U05 admission prepared/hash refuses before state-evidence writes",
+        "U05 admission prepared/previous refuses before state-evidence writes",
+        "U05 admission prepared/journal refuses before state-evidence writes",
+        "U05 admission prepared/generation refuses before state-evidence writes",
+        "U05 admission prepared/manifest-missing refuses before state-evidence writes",
+        "U05 admission prepared/manifest-malformed refuses before state-evidence writes",
+        "U05 admission prepared/manifest-foreign refuses before state-evidence writes",
+        "U05 admission prepared/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission prepared/decision refuses before state-evidence writes",
+        "U05 admission primary_restored/quarantine refuses before state-evidence writes",
+        "U05 admission primary_restored/attempt refuses before state-evidence writes",
+        "U05 admission primary_restored/operation refuses before state-evidence writes",
+        "U05 admission primary_restored/stage refuses before state-evidence writes",
+        "U05 admission primary_restored/sequence refuses before state-evidence writes",
+        "U05 admission primary_restored/hash refuses before state-evidence writes",
+        "U05 admission primary_restored/previous refuses before state-evidence writes",
+        "U05 admission primary_restored/journal refuses before state-evidence writes",
+        "U05 admission primary_restored/generation refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-missing refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-malformed refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-foreign refuses before state-evidence writes",
+        "U05 admission primary_restored/manifest-unsupported refuses before state-evidence writes",
+        "U05 admission primary_restored/decision refuses before state-evidence writes"
+      ],
+      "additional_evidence": []
+    },
+    "U06": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Initially absent packages/group/account/session: install/group durable pause; old session blocked before intent; active new session resumes/repeats without reinstall; unmanaged matching Docker refused",
+      "passed_test_names": [
+        "U06 clean S04 engine installs, checkpoints group, pauses, observes new session, resumes and repeats",
+        "U06 engine never adopts unmanaged matching Docker without durable install progress"
+      ],
+      "additional_evidence": []
+    },
+    "U07": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "36 fresh-fixture manifest initial/operation-binding/final paths: write ENOSPC, file-fsync/rename/dir-fsync EIO before/after boundary and fault-off controls, exact hit and typed errors, no unknown replay",
+      "passed_test_names": [
+        "U07 manifest initial/writeText/before: fresh fixture and fault-off control",
+        "U07 manifest initial/writeText/after: fresh fixture and fault-off control",
+        "U07 manifest initial/writeText/control: fresh fixture and fault-off control",
+        "U07 manifest initial/fsyncFile/before: fresh fixture and fault-off control",
+        "U07 manifest initial/fsyncFile/after: fresh fixture and fault-off control",
+        "U07 manifest initial/fsyncFile/control: fresh fixture and fault-off control",
+        "U07 manifest initial/rename/before: fresh fixture and fault-off control",
+        "U07 manifest initial/rename/after: fresh fixture and fault-off control",
+        "U07 manifest initial/rename/control: fresh fixture and fault-off control",
+        "U07 manifest initial/fsyncDir/before: fresh fixture and fault-off control",
+        "U07 manifest initial/fsyncDir/after: fresh fixture and fault-off control",
+        "U07 manifest initial/fsyncDir/control: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/writeText/before: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/writeText/after: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/writeText/control: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/fsyncFile/before: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/fsyncFile/after: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/fsyncFile/control: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/rename/before: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/rename/after: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/rename/control: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/fsyncDir/before: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/fsyncDir/after: fresh fixture and fault-off control",
+        "U07 manifest operation-binding/fsyncDir/control: fresh fixture and fault-off control",
+        "U07 manifest final-commit/writeText/before: fresh fixture and fault-off control",
+        "U07 manifest final-commit/writeText/after: fresh fixture and fault-off control",
+        "U07 manifest final-commit/writeText/control: fresh fixture and fault-off control",
+        "U07 manifest final-commit/fsyncFile/before: fresh fixture and fault-off control",
+        "U07 manifest final-commit/fsyncFile/after: fresh fixture and fault-off control",
+        "U07 manifest final-commit/fsyncFile/control: fresh fixture and fault-off control",
+        "U07 manifest final-commit/rename/before: fresh fixture and fault-off control",
+        "U07 manifest final-commit/rename/after: fresh fixture and fault-off control",
+        "U07 manifest final-commit/rename/control: fresh fixture and fault-off control",
+        "U07 manifest final-commit/fsyncDir/before: fresh fixture and fault-off control",
+        "U07 manifest final-commit/fsyncDir/after: fresh fixture and fault-off control",
+        "U07 manifest final-commit/fsyncDir/control: fresh fixture and fault-off control"
+      ],
+      "additional_evidence": [
+        "manifest-fault-matrix.json"
+      ]
+    },
+    "U08": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Ten real engine S02 child barriers with bounded IPC, readers byte-identical, foreign lock exit7, own SIGKILL, lock-only state preservation and real-S02 restart; four clean metadata predecessor recovery fault controls",
+      "passed_test_names": [
+        "U04 U08 separate S02 child writer between-operations: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer checkpoint-before-binding: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer before-install: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer install-after-effect: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer final-primary: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer final-manifest: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer recovery-prepared: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer recovery-restored: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer cleanup-before-remove: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U04 U08 separate S02 child writer cleanup-after-remove: IPC barrier, reader, foreign lock, SIGKILL and restart",
+        "U08 engine clean proof survives metadata-only generation and recovery restore-manifest-write",
+        "U08 engine clean proof survives metadata-only generation and recovery restore-manifest-rename",
+        "U08 engine clean proof survives metadata-only generation and recovery cleanup-remove",
+        "U08 engine clean proof survives metadata-only generation and recovery control"
+      ],
+      "additional_evidence": [
+        "child-crash-matrix.json",
+        "recovery-fault-matrix.json"
+      ]
+    },
+    "U09": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "All actual S00-S07 modules in one engine apply/status/resume with explicit synthetic existing-M0/active-group fixture; separate per-stage controls and accurate S00-S14 route inventory",
+      "passed_test_names": [
+        "K08 real S06 verified lifecycle executes fresh no-op apply/status/resume",
+        "J01 real S00->S01 lifecycle plan/apply/status/resume stays journal-compatible",
+        "J02 real S02 install/refresh/no-op repeat preserves operation evidence and status/resume"
+      ],
+      "additional_evidence": [
+        "full-lifecycle-fixed.log",
+        "clean-fixed/stages.log",
+        "clean-fixed/lifecycle.log",
+        "clean-fixed/s06.log",
+        "docs/stage-inventory.md"
+      ]
+    },
+    "U10": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Stale/newer/manifest-only, malformed receipts, no-op/verify-only/S06, owner/root/lock/gates/read-only/cancel guards retained",
+      "passed_test_names": [
+        "K08 real S06 verified lifecycle executes fresh no-op apply/status/resume",
+        "R1-01 status/gate-list read-only path is mutation-free even with held writer lock",
+        "J03 new attempt, duplicate/gap/reorder/stage mismatch and receipt-before-intent require journal recovery",
+        "J10 pending evidence blocks ordinary effects while cancel and read-only diagnostics remain available",
+        "K01 stale primary plus completed journal checkpoint remains recovery-blocked",
+        "T04 newer manifest generation blocks old checkpoint recovery candidate",
+        "T05 manifest-only evidence never reinitializes fresh state and malformed/foreign manifests stay blocked",
+        "K07 receipts must match planned operation/stage/resource and cannot be foreign",
+        "K09 empty or verify-only plan does not call stage.apply (trap stage)"
+      ],
+      "additional_evidence": []
+    },
+    "U11": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Immutable historical R11/R12/R13 mapping and explicit correction note; every PASS points to a concrete assertion/test or recorded external product check",
+      "passed_test_names": [],
+      "additional_evidence": [
+        "acceptance-mapping.json",
+        "comparison-assertions.json"
+      ]
+    },
+    "U12": {
+      "status": "PASS",
+      "scope": "local deterministic validation only",
+      "assertion": "Real Node24 commands against exact clean code archive; patch reconstructs every tracked file; full logs, identical comparison runner/frozen fixtures and deterministic ZIP/checksum",
+      "passed_test_names": [],
+      "additional_evidence": [
+        "identity.json",
+        "patch-reconstruction.json",
+        "clean-fixed/commands.json",
+        "clean-baseline/commands.json",
+        "SHA256SUMS"
+      ]
+    }
+  },
+  "overall_q1a": "OPEN",
+  "real_host_qualification": "NOT RUN",
+  "remaining_blockers": [
+    "Existing NodeAccessAdapter host cutover is unimplemented and timer/rollback are local markers: explicit Q2 prerequisite, not live SSH/firewall qualification",
+    "No real reviewed M0 release or production/VM/privileged qualification is established by synthetic fixtures",
+    "Unknown effects and legacy prepared decisions without exact source-manifest proof require owner-reviewed reconciliation",
+    "Physical power loss and full process-tree cancellation are not covered; R2/R3/Q1B are not started"
+  ]
+}

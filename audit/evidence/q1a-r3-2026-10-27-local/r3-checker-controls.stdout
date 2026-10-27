@@ -1,0 +1,46 @@
+{
+  "controls": 8,
+  "pass": 8,
+  "cases": [
+    {
+      "id": "valid",
+      "rejected": false,
+      "acceptance": true
+    },
+    {
+      "id": "missing-meta",
+      "rejected": true,
+      "acceptance": true
+    },
+    {
+      "id": "duplicate",
+      "rejected": true,
+      "acceptance": true
+    },
+    {
+      "id": "order",
+      "rejected": true,
+      "acceptance": true
+    },
+    {
+      "id": "counter",
+      "rejected": true,
+      "acceptance": true
+    },
+    {
+      "id": "barrier",
+      "rejected": true,
+      "acceptance": true
+    },
+    {
+      "id": "typed-fault",
+      "rejected": true,
+      "acceptance": true
+    },
+    {
+      "id": "count",
+      "rejected": true,
+      "acceptance": true
+    }
+  ]
+}

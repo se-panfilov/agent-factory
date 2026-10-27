@@ -1,0 +1,53 @@
+[
+  {
+    "name": "baseline24-build",
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "run",
+      "build",
+      "--silent"
+    ],
+    "exit": 0,
+    "signal": null,
+    "duration": 2.2550584580167197
+  },
+  {
+    "name": "baseline24",
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/runners/r3-baseline-probes.cjs",
+      "/private/tmp/q1a-r3-baseline"
+    ],
+    "exit": 0,
+    "signal": null,
+    "duration": 2.4709140000049956
+  },
+  {
+    "name": "baseline24-check",
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/runners/check-r3-probes.py",
+      "--mode",
+      "baseline",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/baseline24.jsonl"
+    ],
+    "exit": 0,
+    "signal": null,
+    "duration": 0.04429475002689287
+  },
+  {
+    "name": "baseline24-desired",
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/runners/check-r3-probes.py",
+      "--mode",
+      "desired",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/baseline24.jsonl"
+    ],
+    "exit": 1,
+    "signal": null,
+    "duration": 0.03192766598658636
+  }
+]

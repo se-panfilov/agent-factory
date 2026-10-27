@@ -1,0 +1,8 @@
+{
+  "reviewer_zip_sha256": "e6dee72f1f516cf2c3d7833b468cf0781abc252db64e59afcfc7cc8410eb452c",
+  "outer_zip_sha256": "4b50f489fed88124919a4c0fcbc8af73fdfef9b44100fd929a1783d3752807e2",
+  "original_r3_runner_sha256": "18e0d7d26f777803bc96b960e0b6d06a56d64a3ad635ab8ead0da26153bf9528",
+  "original_r3_checker_sha256": "63d3f3785e981080539835efe5b8edbf379d56784192396b3659402cd492264c",
+  "full_input_inventory": "initial/input-hashes.json",
+  "archives_not_repackaged": true
+}

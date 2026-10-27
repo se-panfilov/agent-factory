@@ -1,0 +1,194 @@
+{
+  "original_replays": 1,
+  "instrumented_attempts": 0,
+  "no_splicing": true,
+  "matrices": [
+    {
+      "matrix": "boundaries/context-boundary-probes",
+      "exact_ids_unique_and_complete": true,
+      "rows": 11,
+      "predicates": {
+        "expected_safe": true
+      },
+      "pid": 72250
+    },
+    {
+      "matrix": "boundaries/release-boundary-probes",
+      "exact_ids_unique_and_complete": true,
+      "rows": 5,
+      "predicates": {
+        "expected_safe": true
+      },
+      "pid": 72257
+    },
+    {
+      "matrix": "context",
+      "exact_ids_unique_and_complete": true,
+      "rows": 6,
+      "predicates": {
+        "acceptance": true
+      },
+      "pid": 72259
+    },
+    {
+      "matrix": "s03",
+      "exact_ids_unique_and_complete": true,
+      "rows": 14,
+      "predicates": {
+        "acceptance": true,
+        "stage_status": "verified",
+        "timer_armed": false
+      },
+      "pid": 72265
+    },
+    {
+      "matrix": "v1",
+      "exact_ids_unique_and_complete": true,
+      "rows": 14,
+      "predicates": {
+        "acceptance": true,
+        "stage_status": "verified",
+        "timer_armed": false
+      },
+      "pid": 72307
+    },
+    {
+      "matrix": "v2",
+      "exact_ids_unique_and_complete": true,
+      "rows": 14,
+      "predicates": {
+        "acceptance": true,
+        "stage_status": "verified",
+        "timer_armed": false
+      },
+      "pid": 72335
+    },
+    {
+      "matrix": "final-recovery",
+      "exact_ids_unique_and_complete": true,
+      "rows": 2,
+      "predicates": {
+        "resume": 8,
+        "explicit_review_resume": 0,
+        "checkpoint_retained": true
+      },
+      "pid": 72344
+    },
+    {
+      "matrix": "comparisons/baseline-adapter-final.jsonl",
+      "exact_ids_unique_and_complete": true,
+      "rows": 5,
+      "predicates": {},
+      "pid": 72390
+    },
+    {
+      "matrix": "comparisons/baseline-stage-final.jsonl",
+      "exact_ids_unique_and_complete": true,
+      "rows": 5,
+      "predicates": {},
+      "pid": 72399
+    },
+    {
+      "matrix": "comparisons/fixed-adapter-final.jsonl",
+      "exact_ids_unique_and_complete": true,
+      "rows": 5,
+      "predicates": {
+        "acceptance": true
+      },
+      "pid": 72408
+    },
+    {
+      "matrix": "comparisons/fixed-stage-final.jsonl",
+      "exact_ids_unique_and_complete": true,
+      "rows": 5,
+      "predicates": {
+        "acceptance": true
+      },
+      "pid": 72415
+    },
+    {
+      "matrix": "comparisons/baseline-r2-final.log",
+      "exact_ids_unique_and_complete": true,
+      "rows": 9,
+      "predicates": {},
+      "pid": 72422
+    },
+    {
+      "matrix": "comparisons/fixed-r2-final.log",
+      "exact_ids_unique_and_complete": true,
+      "rows": 9,
+      "predicates": {
+        "acceptance": true
+      },
+      "pid": 72427
+    },
+    {
+      "matrix": "comparisons/frozen/fixed-new-probes.jsonl",
+      "exact_ids_unique_and_complete": true,
+      "rows": 7,
+      "predicates": {
+        "acceptance": true,
+        "harness_ok": true
+      },
+      "pid": 72428
+    },
+    {
+      "matrix": "comparisons/frozen/fixed-new-probes-adapted.jsonl",
+      "exact_ids_unique_and_complete": true,
+      "rows": 7,
+      "predicates": {
+        "acceptance": true,
+        "harness_ok": true
+      },
+      "pid": 72429
+    },
+    {
+      "matrix": "comparisons/frozen/fixed-comparison.jsonl",
+      "exact_ids_unique_and_complete": true,
+      "rows": 13,
+      "predicates": {},
+      "pid": 72430
+    },
+    {
+      "matrix": "comparisons/frozen/fixed-full-lifecycle.jsonl",
+      "exact_ids_unique_and_complete": true,
+      "rows": 1,
+      "predicates": {
+        "status": "PASS"
+      },
+      "pid": 72431
+    },
+    {
+      "matrix": "comparisons/frozen/fixed-lifecycle-controls.jsonl",
+      "exact_ids_unique_and_complete": true,
+      "rows": 3,
+      "predicates": {
+        "passed": true
+      },
+      "pid": 72458
+    },
+    {
+      "matrix": "comparisons/frozen/fixed-s06-noop.jsonl",
+      "exact_ids_unique_and_complete": true,
+      "rows": 1,
+      "predicates": {
+        "passed": true
+      },
+      "pid": 72459
+    },
+    {
+      "matrix": "comparisons/frozen/fixed-stage-compat.jsonl",
+      "exact_ids_unique_and_complete": true,
+      "rows": 5,
+      "predicates": {
+        "plan_exit": 0,
+        "apply_exit": 0,
+        "status_exit": 0,
+        "inflight": null
+      },
+      "pid": 72460
+    }
+  ],
+  "source_inputs_unchanged": 166,
+  "O02": "NOT REPRODUCED in this single attempt; cause OPEN, no runtime fix claimed"
+}

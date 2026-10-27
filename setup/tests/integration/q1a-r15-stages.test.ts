@@ -340,7 +340,12 @@ for(const phase of ["effect","bound","pause"] as const)test(`V07 Docker child ${
   let e=make();const before=await evidenceHashes(b.config);await e.run("status",{configPath:b.configPath});assert.deepEqual(await evidenceHashes(b.config),before);
   assert.equal((await e.run("recover",{configPath:b.configPath})).exitCode,7);assert.deepEqual(await evidenceHashes(b.config),before);
   const exited=once(child,"exit");child.kill("SIGKILL");const[code,signal]=await exited;assert.equal(code,null);assert.equal(signal,"SIGKILL");
-  assert.equal((await e.run("recover",{configPath:b.configPath,lockOnly:true})).exitCode,0);assert.deepEqual(await evidenceHashes(b.config),before);
+  const lockOnly = await e.run("recover", { configPath: b.configPath, lockOnly: true });
+  assert.equal(lockOnly.exitCode, 8, JSON.stringify(lockOnly));
+  assert.deepEqual(await evidenceHashes(b.config), before);
+  assert.equal(await fs.access(path.join(b.config.paths.setup_state_dir, "lock/owner.json")).then(() => true, () => false), true);
+  // Explicit harness-only manual reconciliation after confirmed child death; no daemon runs here.
+  await fs.rename(path.join(b.config.paths.setup_state_dir, "lock"), path.join(b.config.paths.setup_state_dir, "lock.manual-v07"));
   const recovered=await e.run("recover",{configPath:b.configPath});assert.equal(recovered.exitCode,phase==="effect"?8:0);
   const old=await make().run("resume",{configPath:b.configPath});assert.equal(old.exitCode,phase==="effect"?8:4);assert.equal(a.installCalls+a.groupCalls+a.mergeCalls+a.restartCalls+a.probeCalls,0);
   if(phase!=="effect"){

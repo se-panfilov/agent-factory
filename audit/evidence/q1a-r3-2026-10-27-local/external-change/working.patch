@@ -1,0 +1,995 @@
+diff --git a/setup/src/adapters/filesystem.ts b/setup/src/adapters/filesystem.ts
+index 8a06995..06ae3fb 100644
+--- a/setup/src/adapters/filesystem.ts
++++ b/setup/src/adapters/filesystem.ts
+@@ -11,6 +11,7 @@ import {
+   rename,
+   rm,
+   stat,
++  statfs,
+   writeFile
+ } from "node:fs/promises";
+ import path from "node:path";
+@@ -18,6 +19,7 @@ import { createHash } from "node:crypto";
+ import { performance } from "node:perf_hooks";
+ 
+ export interface FilesystemAdapter {
++  localLockSemantics?(dirPath: string): Promise<boolean>;
+   readText(filePath: string): Promise<string>;
+   hashFile?(filePath: string, maxBytes: number, deadlineMs: number): Promise<string>;
+   readTextBounded(filePath: string, maxBytes: number): Promise<{
+@@ -41,6 +43,12 @@ export interface FilesystemAdapter {
+ }
+ 
+ export class NodeFilesystemAdapter implements FilesystemAdapter {
++  async localLockSemantics(dirPath: string): Promise<boolean> {
++    const info = await statfs(dirPath);
++    // ext, tmpfs, overlay (local test containers), APFS/HFS (development only).
++    return [0xef53, 0x01021994, 0x794c7630, 0x1a, 0x11].includes(Number(info.type));
++  }
++
+   async hashFile(filePath: string, maxBytes: number, deadlineMs: number): Promise<string> {
+     const started = performance.now();
+     const handle = await open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+diff --git a/setup/src/adapters/process.ts b/setup/src/adapters/process.ts
+index 8d712bb..9e6e030 100644
+--- a/setup/src/adapters/process.ts
++++ b/setup/src/adapters/process.ts
+@@ -28,6 +28,7 @@ export interface CommandOptions {
+   timeoutMs: number;
+   maxOutputBytes: number;
+   operationId?: string;
++  cwd?: string;
+ }
+ 
+ export interface ProcessAdapter {
+@@ -41,6 +42,8 @@ export interface ProcessAdapter {
+   machineIdHash(): Promise<string>;
+   processStartTicks(pid: number): Promise<number | null>;
+   isPidAlive(pid: number): boolean;
++  nodeRuntime?(): { executable: string; version: string };
++  pidLiveness?(pid: number): "alive" | "dead" | "unknown";
+ }
+ 
+ function sanitize(content: string): string {
+@@ -93,6 +96,7 @@ export class NodeProcessAdapter implements ProcessAdapter {
+     return new Promise<CommandResult>((resolve, reject) => {
+       const child = spawn(options.binary, options.args, {
+         shell: false,
++        cwd: options.cwd,
+         stdio: ["ignore", "pipe", "pipe"],
+         env: {
+           PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
+@@ -219,9 +223,7 @@ export class NodeProcessAdapter implements ProcessAdapter {
+   async processStartTicks(pid: number): Promise<number | null> {
+     try {
+       const statContent = await readFile(`/proc/${pid}/stat`, "utf8");
+-      const fields = statContent.trim().split(" ");
+-      const startTicks = Number.parseInt(fields[21] ?? "", 10);
+-      return Number.isFinite(startTicks) ? startTicks : null;
++      return parseProcStartTicks(statContent, pid);
+     } catch {
+       return null;
+     }
+@@ -231,8 +233,30 @@ export class NodeProcessAdapter implements ProcessAdapter {
+     try {
+       process.kill(pid, 0);
+       return true;
+-    } catch {
+-      return false;
++    } catch (error) {
++      // Legacy boolean callers must never interpret permission/unknown as dead.
++      return (error as NodeJS.ErrnoException).code !== "ESRCH";
+     }
+   }
++
++  pidLiveness(pid: number): "alive" | "dead" | "unknown" {
++    return probePidLiveness(pid, process.kill);
++  }
++}
++
++/** comm can contain whitespace and parentheses. Fields after its final ')' begin at field 3. */
++export function parseProcStartTicks(raw: string, pid: number): number | null {
++  if (raw.length > 16384 || !Number.isSafeInteger(pid) || pid <= 0) return null;
++  const end = raw.lastIndexOf(")");
++  if (!raw.startsWith(`${pid} (`) || end < 0) return null;
++  const fields = raw.slice(end + 1).trim().split(/\s+/);
++  const ticks = fields[19];
++  if (!/^[A-Za-z]$/.test(fields[0] ?? "") || !ticks || !/^(0|[1-9]\d*)$/.test(ticks)) return null;
++  const value = Number(ticks);
++  return Number.isSafeInteger(value) && value >= 0 ? value : null;
++}
++export function probePidLiveness(pid: number, signal: (pid: number, signal: 0) => unknown): "alive" | "dead" | "unknown" {
++  if (!Number.isSafeInteger(pid) || pid <= 0 || pid > 2147483647) return "unknown";
++  try { signal(pid, 0); return "alive"; }
++  catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH" ? "dead" : "unknown"; }
+ }
+diff --git a/setup/src/core/engine.ts b/setup/src/core/engine.ts
+index 23dcd7c..71f3afa 100644
+--- a/setup/src/core/engine.ts
++++ b/setup/src/core/engine.ts
+@@ -32,7 +32,7 @@ import { acquireLock, consumeCancelRequest, recoverLockOnly, requestCancel, type
+ import { assertPlanTime, buildStageClosure, createPlanFile, createRegistry, loadPlan, persistPlanFile, validatePlanConsistency, type StageRegistry } from "./plan";
+ import { readHistoricalStage } from "./plan-history";
+ import { canonicalHash } from "./plan-format";
+-import { capturePlanContext, captureContextEvidence, revalidateContextEvidence, witnessFile, assertFileWitnesses, type FileWitness, type StaticPlanContext, assertReview, publishReview } from "./plan-context";
++import { capturePlanContext, captureContextEvidence, revalidateContextEvidence, witnessFile, assertFileWitnesses, type FileWitness, type StaticPlanContext, assertReview, publishReview, REVIEW_KEY } from "./plan-context";
+ import { carryOperationProgress, restoreOperationProgress } from "./progress";
+ import { assertCompletionPolicy, assertContinuingPolicy, assertProducerPolicy, policyFingerprint, projectedObservationHash, readPolicyBasis, withPolicyBasis, type PolicyBasis } from "./policy";
+ import {
+@@ -1060,7 +1060,7 @@ export class SetupEngine {
+   }
+ 
+   /** One final gate for approvals/effects: probes first, checked context, bounded reseal, TTL. */
+-  private async finalPlanAdmission(options: CommandOptions, configBytes: string, planBytes: string, config: SetupConfig, state: SetupState, plan: ExecutionPlan): Promise<void> {
++  private async finalPlanAdmission(options: CommandOptions, configBytes: string, planBytes: string, config: SetupConfig, state: SetupState, plan: ExecutionPlan, owner?: LockOwner): Promise<void> {
+     this.assertOrdinaryOwner(config, "S00");
+     this.validateApplyPlanAdmission(config, plan);
+     await this.admitPlanPolicies(config, state, plan);
+@@ -1069,16 +1069,17 @@ export class SetupEngine {
+     // Re-observe the frontier after expensive archive hashing. Any input changed
+     // during these probes is caught by the bounded reseal and metadata fence.
+     await this.admitPlanPolicies(config, state, plan);
+-    await this.sealAdmissionInputs(options, configBytes, planBytes, config, capture);
++    await this.sealAdmissionInputs(options, configBytes, planBytes, config, capture, owner);
+     assertPlanTime(plan, this.deps.clock);
+   }
+ 
+   /** All potentially long reads finish before the final file-identity fence. */
+-  private async sealAdmissionInputs(options: CommandOptions, configBytes: string, planBytes: string | undefined, config: SetupConfig, capture: Awaited<ReturnType<typeof captureContextEvidence>>): Promise<void> {
++  private async sealAdmissionInputs(options: CommandOptions, configBytes: string, planBytes: string | undefined, config: SetupConfig, capture: Awaited<ReturnType<typeof captureContextEvidence>>, owner?: LockOwner): Promise<void> {
+     await revalidateContextEvidence(this.deps.fsAdapter, this.deps.processAdapter, config, capture);
+     const requestFiles: FileWitness[] = [await witnessFile(this.deps.fsAdapter, options.configPath)];
+     if (planBytes !== undefined && options.planPath !== undefined) requestFiles.push(await witnessFile(this.deps.fsAdapter, options.planPath));
+     await this.assertRequestUnchanged(options, configBytes, planBytes);
++    if (owner) await this.consumeCancelOrThrow(config, owner);
+     await assertFileWitnesses(this.deps.fsAdapter, [...capture.files, ...requestFiles]);
+   }
+ 
+@@ -1327,7 +1328,7 @@ export class SetupEngine {
+             for (const gateId of stagePlan.required_gates) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, `stage:${stagePlan.stage_id}`);
+             for (const gateId of operation.gate_ids) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, operation.id);
+             persistFailure = false;
+-            await this.finalPlanAdmission(options, configBytes, planBytes, config, state, plan);
++            await this.finalPlanAdmission(options, configBytes, planBytes, config, state, plan, lock.owner);
+             for (const gateId of stagePlan.required_gates) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, `stage:${stagePlan.stage_id}`);
+             for (const gateId of operation.gate_ids) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, operation.id);
+             const attemptId = randomUUID();
+@@ -1553,7 +1554,9 @@ export class SetupEngine {
+       }
+       throw setup;
+     } finally {
+-      await lock.release();
++      try { await lock.release(); }
++      catch { throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "cleanup_unconfirmed",
++        publicMessage: "Run cleanup/release could not be confirmed.", nextAction: "Preserve lock and operation evidence; reconcile before resume.", evidenceRef: config.paths.setup_state_dir }); }
+     }
+   }
+ 
+@@ -1749,6 +1752,7 @@ export class SetupEngine {
+ 
+   private async runCancel(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
+     const config = await loadConfig(this.deps.fsAdapter, options.configPath);
++    this.assertOrdinaryOwner(config, "S11");
+     let state: SetupState | null = null;
+     try {
+       state = await this.loadStateWithOptions(config, {
+@@ -1762,7 +1766,8 @@ export class SetupEngine {
+     if (options.emergency === true) {
+       const result = await emergencyCancel(
+         {
+-          processAdapter: this.deps.processAdapter
++          processAdapter: this.deps.processAdapter,
++          fsAdapter: this.deps.fsAdapter
+         },
+         config
+       );
+@@ -1776,54 +1781,50 @@ export class SetupEngine {
+       };
+       return { envelope, exitCode: ExitCode.Success };
+     }
+-    const cancelPath = await requestCancel(this.deps.fsAdapter, config);
++    const cancelPath = await requestCancel(this.deps.fsAdapter, config, this.deps.processAdapter);
+     const envelope = envelopeBase("cancel", config, state, null);
+     envelope.overall_status = "ok";
+     envelope.data = { cancel_request: cancelPath };
+     return { envelope, exitCode: ExitCode.Success };
+   }
+ 
++  private recoveryReviewOutcome(envelope: JsonEnvelope, state: SetupState | null): { envelope: JsonEnvelope; exitCode: number } {
++    const raw = state?.stages.find(stage => stage.id === "S00")?.versions[REVIEW_KEY];
++    // No review ever existed on a fresh installation: there is no restored approval claim.
++    if (raw !== undefined) {
++      let committed = false;
++      try {
++        const review = JSON.parse(raw) as Record<string, unknown>;
++        committed = Object.keys(review).sort().join(",") === "context_hash,phase,plan_hash,version"
++          && review.version === 1 && review.phase === "committed"
++          && /^[0-9a-f]{64}$/.test(String(review.plan_hash)) && /^[0-9a-f]{64}$/.test(String(review.context_hash));
++      } catch { /* unknown review remains unauthorized */ }
++      if (!committed) {
++        const next = "State bytes are consistent; explicitly generate/review a fresh plan and approve its gates before resume. Completed effects must not be replayed.";
++        envelope.overall_status = "blocked";
++        envelope.data = { ...envelope.data, bytes_recovered: true, resume_authorized: false, review_required: true };
++        envelope.manual_actions.push(next);
++        envelope.error = { code: "context_review_unproven", stage: null, operation_id: "n/a", retryable: false,
++          public_message: "Recovery did not recover committed review authorization.", next_action: next, evidence_ref: "state.json:setup_plan_review_v1" };
++        return { envelope, exitCode: ExitCode.DriftOrRecoveryRequired };
++      }
++    }
++    envelope.data = { ...envelope.data, resume_authorized: false, admission_required: true };
++    return { envelope, exitCode: ExitCode.Success };
++  }
++
+   private async runRecover(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
+     const config = await loadConfig(this.deps.fsAdapter, options.configPath);
+     const paths = buildStatePaths(config);
++    this.assertOrdinaryOwner(config, "S00");
+     const previousPath = `${paths.stateFile}.previous`;
+     const unresolvedNextAction = "Preserve state/marker/journal evidence, run manual reconciliation, then rerun recover. Do not delete recovery artifacts.";
+ 
+     if (options.lockOnly === true) {
+       const recovered = await recoverLockOnly(this.deps.fsAdapter, this.deps.processAdapter, config);
+-      const evidence = await inspectStateEvidence(this.deps.fsAdapter, config);
+-      let state: SetupState | null = null;
+-      const blockers: string[] = [];
+-      if (evidence.marker !== null) {
+-        blockers.push(`recovery marker present (${evidence.marker.reason})`);
+-      }
+-      if (evidence.journal.hasRecords) {
+-        blockers.push("event journal contains historical or unresolved entries");
+-      }
+-      if (evidence.commitManifest !== null) {
+-        blockers.push("state commit manifest is present and requires full recovery admission");
+-      }
+-      if (evidence.stateExists && evidence.marker === null) {
+-        try {
+-          state = await this.loadStateWithOptions(config, {
+-            initializeIfMissing: false,
+-            persistConfigDrift: false,
+-            readOnly: true
+-          });
+-          if (state.in_flight_operation !== null) {
+-            blockers.push(`in-flight operation present (${state.in_flight_operation.id})`);
+-          }
+-        } catch (error) {
+-          blockers.push(`state diagnostic failed: ${toSetupError(error).code}`);
+-          state = null;
+-        }
+-      }
+-      const envelope = envelopeBase("recover", config, state, null);
++      const envelope = envelopeBase("recover", config, null, null);
+       envelope.overall_status = "ok";
+-      envelope.data = {
+-        ...recovered,
+-        recovery_blockers: blockers
+-      };
++      envelope.data = { ...recovered, scope: "lock_protocol_only", resume_authorized: false };
+       return { envelope, exitCode: ExitCode.Success };
+     }
+ 
+@@ -1856,7 +1857,7 @@ export class SetupEngine {
+           outcome: "recovery_not_required",
+           scope: "state_consistent"
+         };
+-        return { envelope, exitCode: ExitCode.Success };
++        return this.recoveryReviewOutcome(envelope, state);
+       }
+ 
+       if (
+@@ -1873,7 +1874,7 @@ export class SetupEngine {
+           outcome: "recovery_not_required",
+           scope: "fresh_installation_without_state"
+         };
+-        return { envelope, exitCode: ExitCode.Success };
++        return this.recoveryReviewOutcome(envelope, state);
+       }
+ 
+       const markerReason = evidence.marker?.reason ?? "marker_missing";
+@@ -1913,7 +1914,7 @@ export class SetupEngine {
+           marker_reason: markerReason,
+           resumed_cleanup: true
+         };
+-        return { envelope, exitCode: ExitCode.Success };
++        return this.recoveryReviewOutcome(envelope, state);
+       }
+ 
+       if (!evidence.previousExists) {
+@@ -2084,7 +2085,7 @@ export class SetupEngine {
+         marker_reason: markerReason,
+         resumed_cleanup: markerCommit?.phase === "prepared" || markerCommit?.phase === "primary_restored"
+       };
+-      return { envelope, exitCode: ExitCode.Success };
++      return this.recoveryReviewOutcome(envelope, state);
+     } catch (error) {
+       const setup = toSetupError(error);
+       const envelope = envelopeBase("recover", config, state, null);
+diff --git a/setup/src/core/lock.ts b/setup/src/core/lock.ts
+index bf6708f..89f51ee 100644
+--- a/setup/src/core/lock.ts
++++ b/setup/src/core/lock.ts
+@@ -3,7 +3,8 @@ import path from "node:path";
+ import { type FilesystemAdapter } from "../adapters/filesystem";
+ import { type ProcessAdapter } from "../adapters/process";
+ import { ExitCode, type SetupConfig } from "./types";
+-import { setupError } from "./errors";
++import { controlDirectory, controlError, controlJson, ensureControlDirectory, publishControl, ordinaryOwner } from "./control-files";
++import { inspectStateEvidence, assertEvidenceAdmission } from "./state";
+ 
+ export interface LockOwner {
+   boot_id: string;
+@@ -13,204 +14,162 @@ export interface LockOwner {
+   installation_id: string;
+   created_at: string;
+ }
+-
+-export interface LockHandle {
+-  owner: LockOwner;
+-  release(): Promise<void>;
+-}
+-
+-export interface LockPaths {
+-  lockDir: string;
+-  ownerFile: string;
+-}
+-
++export interface LockHandle { owner: LockOwner; release(): Promise<void> }
++export interface LockPaths { lockDir: string; ownerFile: string }
+ export function buildLockPaths(config: SetupConfig): LockPaths {
+   const lockDir = path.join(config.paths.setup_state_dir, "lock");
+-  return {
+-    lockDir,
+-    ownerFile: path.join(lockDir, "owner.json")
+-  };
++  return { lockDir, ownerFile: path.join(lockDir, "owner.json") };
+ }
+-
+-async function readExistingOwner(fsAdapter: FilesystemAdapter, ownerFile: string): Promise<LockOwner | null> {
++const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
++function validOwner(value: unknown, installation: string): value is LockOwner {
++  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
++  const o = value as Record<string, unknown>;
++  return Object.keys(o).sort().join(",") === "boot_id,created_at,installation_id,nonce,pid,process_start_ticks"
++    && typeof o.boot_id === "string" && UUID.test(o.boot_id)
++    && typeof o.nonce === "string" && UUID.test(o.nonce)
++    && o.installation_id === installation && UUID.test(installation)
++    && Number.isSafeInteger(o.pid) && Number(o.pid) > 0 && Number(o.pid) <= 2147483647
++    && Number.isSafeInteger(o.process_start_ticks) && Number(o.process_start_ticks) >= 0
++    && typeof o.created_at === "string" && o.created_at.length <= 32
++    && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(o.created_at) && Number.isFinite(Date.parse(o.created_at));
++}
++async function readOwner(fs: FilesystemAdapter, config: SetupConfig): Promise<LockOwner> {
++  const p = buildLockPaths(config);
+   try {
+-    const raw = await fsAdapter.readText(ownerFile);
+-    return JSON.parse(raw) as LockOwner;
++    await controlDirectory(fs, p.lockDir);
++    const owner = await controlJson(fs, p.ownerFile);
++    if (!validOwner(owner, config.installation_id)) throw Error("schema");
++    return owner;
+   } catch {
+-    return null;
++    controlError("lock_owner_incomplete", p.ownerFile, "Unknown/unsafe lock owner; automatic takeover is forbidden.", ExitCode.LockOwnedByAnotherInstaller);
+   }
+ }
+-
+-function ownerIdentityMatches(left: LockOwner, right: LockOwner): boolean {
+-  return left.nonce === right.nonce
+-    && left.pid === right.pid
+-    && left.boot_id === right.boot_id
+-    && left.installation_id === right.installation_id;
++function sameOwner(a: LockOwner, b: LockOwner): boolean {
++  return a.installation_id === b.installation_id && a.boot_id === b.boot_id && a.pid === b.pid
++    && a.process_start_ticks === b.process_start_ticks && a.nonce === b.nonce && a.created_at === b.created_at;
++}
++export async function lockLiveness(proc: ProcessAdapter, owner: LockOwner): Promise<"alive" | "dead" | "unknown" | "reused" | "boot_changed"> {
++  try {
++    const boot = await proc.bootId();
++    if (!UUID.test(boot)) return "unknown";
++    if (boot !== owner.boot_id) return "boot_changed";
++    const live = proc.pidLiveness ? proc.pidLiveness(owner.pid) : proc.isPidAlive(owner.pid) ? "alive" : "dead";
++    if (live !== "alive") return live;
++    const ticks = await proc.processStartTicks(owner.pid);
++    if (!Number.isSafeInteger(ticks) || ticks === null || ticks < 0) return "unknown";
++    return ticks === owner.process_start_ticks ? "alive" : "reused";
++  } catch { return "unknown"; }
+ }
+ 
+-async function isStaleOwner(
+-  processAdapter: ProcessAdapter,
+-  currentBootId: string,
+-  owner: LockOwner
+-): Promise<boolean> {
+-  if (owner.boot_id !== currentBootId) {
+-    return true;
++/** All cooperating mutable-path participants hold this non-reclaiming mutex.
++ * Atomic mkdir selects one participant; rename/remove occur ONLY while it is held.
++ * A crash leaves it blocked for manual inspection, never guessed stale. */
++async function protocol<T>(fs: FilesystemAdapter, config: SetupConfig, action: () => Promise<T>): Promise<T> {
++  const root = config.paths.setup_state_dir;
++  await ensureControlDirectory(fs, root);
++  if (!fs.localLockSemantics || !(await fs.localLockSemantics(root))) {
++    controlError("lock_filesystem_unsupported", root, "Known local atomic mkdir/rename semantics are required.");
+   }
+-  if (!processAdapter.isPidAlive(owner.pid)) {
+-    return true;
++  const guard = path.join(root, "lock-protocol");
++  try { await fs.mkdir(guard, { mode: 0o700 }); }
++  catch { controlError("lock_protocol_busy", guard, "Lock protocol is busy or interrupted; preserve its evidence.", ExitCode.LockOwnedByAnotherInstaller); }
++  // Failures before the durable guard publication deliberately leave it for manual recovery.
++  await fs.writeText(path.join(guard, "participant.json"), JSON.stringify({ nonce: randomUUID(), pid: process.pid }), 0o600);
++  await fs.fsyncFile(path.join(guard, "participant.json"));
++  await fs.fsyncDir(guard);
++  await fs.fsyncDir(root);
++  try { return await action(); }
++  finally {
++    try { await fs.remove(guard, { recursive: true }); await fs.fsyncDir(root); }
++    catch { controlError("lock_protocol_cleanup_unconfirmed", guard, "Protocol cleanup is unconfirmed."); }
+   }
+-  const observedStartTicks = await processAdapter.processStartTicks(owner.pid);
+-  return observedStartTicks !== owner.process_start_ticks;
+ }
+-
+-export async function acquireLock(
+-  fsAdapter: FilesystemAdapter,
+-  processAdapter: ProcessAdapter,
+-  config: SetupConfig
+-): Promise<LockHandle> {
+-  const paths = buildLockPaths(config);
+-  await fsAdapter.mkdir(path.dirname(paths.lockDir), { recursive: true, mode: 0o700 });
+-  try {
+-    await fsAdapter.mkdir(paths.lockDir, { recursive: false, mode: 0o700 });
+-  } catch {
+-    const existingOwner = await readExistingOwner(fsAdapter, paths.ownerFile);
+-    if (existingOwner === null) {
+-      throw setupError({
+-        exitCode: ExitCode.LockOwnedByAnotherInstaller,
+-        code: "lock_owner_missing",
+-        publicMessage: "Lock directory exists without valid owner metadata.",
+-        nextAction: "Run 'factory-setup recover --config PATH --lock-only' before retrying.",
+-        evidenceRef: paths.lockDir
+-      });
+-    }
+-    const currentBootId = await processAdapter.bootId();
+-    if (await isStaleOwner(processAdapter, currentBootId, existingOwner)) {
+-      throw setupError({
+-        exitCode: ExitCode.LockOwnedByAnotherInstaller,
+-        code: "stale_lock_detected",
+-        publicMessage: "Lock owner appears stale; recover is required before apply/resume.",
+-        nextAction: "Run 'factory-setup recover --config PATH --lock-only'.",
+-        evidenceRef: paths.ownerFile
+-      });
++export async function acquireLock(fs: FilesystemAdapter, proc: ProcessAdapter, config: SetupConfig): Promise<LockHandle> {
++  return protocol(fs, config, async () => {
++    const p = buildLockPaths(config);
++    if (await fs.exists(p.lockDir)) {
++      const owner = await readOwner(fs, config), live = await lockLiveness(proc, owner);
++      controlError(live === "alive" ? "duplicate_invocation" : "stale_lock_detected", p.ownerFile,
++        `Installation lock is ${live}; explicit resource-aware recovery is required.`, ExitCode.LockOwnedByAnotherInstaller);
+     }
+-
+-    throw setupError({
+-      exitCode: ExitCode.LockOwnedByAnotherInstaller,
+-      code: "duplicate_invocation",
+-      publicMessage: "Another installer process currently owns the installation lock.",
+-      nextAction: "Wait for the other process to finish or run cancel/recover if needed.",
+-      evidenceRef: paths.ownerFile
+-    });
+-  }
+-
+-  const owner: LockOwner = {
+-    boot_id: await processAdapter.bootId(),
+-    pid: processAdapter.pid(),
+-    process_start_ticks: await processAdapter.processStartTicks(processAdapter.pid()),
+-    nonce: randomUUID(),
+-    installation_id: config.installation_id,
+-    created_at: new Date().toISOString()
+-  };
+-  await fsAdapter.writeText(paths.ownerFile, `${JSON.stringify(owner, null, 2)}\n`, 0o600);
+-  await fsAdapter.fsyncFile(paths.ownerFile);
+-  await fsAdapter.fsyncDir(paths.lockDir);
+-
+-  return {
+-    owner,
+-    release: async () => {
+-      const currentOwner = await readExistingOwner(fsAdapter, paths.ownerFile);
+-      if (currentOwner === null || !ownerIdentityMatches(currentOwner, owner)) {
+-        throw setupError({
+-          exitCode: ExitCode.DriftOrRecoveryRequired,
+-          code: "lock_owner_changed",
+-          publicMessage: "Lock ownership changed unexpectedly; refusing to release foreign lock.",
+-          nextAction: "Run lock-only recovery and inspect lock quarantine.",
+-          evidenceRef: paths.ownerFile
+-        });
+-      }
+-      await fsAdapter.remove(paths.lockDir, { recursive: true, force: true });
+-    }
+-  };
++    const owner: LockOwner = { boot_id: await proc.bootId(), pid: proc.pid(),
++      process_start_ticks: await proc.processStartTicks(proc.pid()), nonce: randomUUID(),
++      installation_id: config.installation_id, created_at: new Date().toISOString() };
++    if (!validOwner(owner, config.installation_id)) controlError("lock_identity_unknown", p.lockDir, "Own process identity cannot authorize a usable lock.");
++    await fs.mkdir(p.lockDir, { mode: 0o700 });
++    // An incomplete owner publication remains diagnostic; never auto-delete on failure.
++    await fs.writeText(p.ownerFile, `${JSON.stringify(owner, null, 2)}\n`, 0o600);
++    await fs.fsyncFile(p.ownerFile);
++    await fs.fsyncDir(p.lockDir);
++    await fs.fsyncDir(config.paths.setup_state_dir);
++    return { owner, release: () => protocol(fs, config, async () => {
++      const current = await readOwner(fs, config);
++      if (!sameOwner(current, owner)) controlError("lock_owner_changed", p.ownerFile, "Refusing to release a different lock generation.");
++      await fs.remove(p.lockDir, { recursive: true });
++      await fs.fsyncDir(config.paths.setup_state_dir);
++    }) };
++  });
+ }
+ 
+-export async function requestCancel(fsAdapter: FilesystemAdapter, config: SetupConfig): Promise<string> {
+-  const cancelPath = path.join(config.paths.setup_state_dir, "cancel-request.json");
+-  const owner = await readExistingOwner(fsAdapter, buildLockPaths(config).ownerFile);
+-  const payload = {
+-    requested_at: new Date().toISOString(),
+-    installation_id: config.installation_id,
+-    target_lock_nonce: owner?.nonce ?? null,
+-    target_lock_pid: owner?.pid ?? null,
+-    target_lock_boot_id: owner?.boot_id ?? null
+-  };
+-  await fsAdapter.writeText(cancelPath, `${JSON.stringify(payload, null, 2)}\n`, 0o600);
+-  await fsAdapter.fsyncFile(cancelPath);
+-  await fsAdapter.fsyncDir(path.dirname(cancelPath));
+-  return cancelPath;
++/** Separate protocol mutex, never the installation lock: cancel remains available during apply. */
++export async function requestCancel(fs: FilesystemAdapter, config: SetupConfig, proc?: ProcessAdapter): Promise<string> {
++  if (proc) ordinaryOwner(proc, config);
++  else {
++    // Internal stage/test callers already execute as the configured owner; production CLI always supplies proc.
++    if ((process.getuid?.() ?? 0) === 0) controlError("owner_identity_invalid", config.paths.setup_state_dir, "Root cancel requires an explicit ordinary-owner adapter.", ExitCode.UnsupportedHostOrMissingPrivileges);
++  }
++  return protocol(fs, config, async () => {
++    const owner = await readOwner(fs, config);
++    const cancel = path.join(config.paths.setup_state_dir, "cancel-request.json");
++    await publishControl(fs, cancel, `${JSON.stringify({ schema_version: 2, owner })}\n`);
++    return cancel;
++  });
+ }
+ 
+-export async function consumeCancelRequest(
+-  fsAdapter: FilesystemAdapter,
+-  config: SetupConfig,
+-  owner: LockOwner
+-): Promise<boolean> {
+-  const cancelPath = path.join(config.paths.setup_state_dir, "cancel-request.json");
+-  if (!(await fsAdapter.exists(cancelPath))) {
+-    return false;
+-  }
++/** Observation is durable and non-destructive. Legacy unbound requests never authorize cancellation. */
++export async function consumeCancelRequest(fs: FilesystemAdapter, config: SetupConfig, owner: LockOwner): Promise<boolean> {
++  const file = path.join(config.paths.setup_state_dir, "cancel-request.json");
++  if (!(await fs.exists(file))) return false;
+   try {
+-    const payload = JSON.parse(await fsAdapter.readText(cancelPath)) as {
+-      installation_id?: unknown;
+-      target_lock_nonce?: unknown;
+-      target_lock_pid?: unknown;
+-      target_lock_boot_id?: unknown;
+-    };
+-    const matchesInstallation = payload.installation_id === config.installation_id;
+-    const matchesNonce = payload.target_lock_nonce === owner.nonce;
+-    const matchesPid = payload.target_lock_pid === owner.pid;
+-    const matchesBoot = payload.target_lock_boot_id === owner.boot_id;
+-    if (matchesInstallation && matchesNonce && matchesPid && matchesBoot) {
+-      await fsAdapter.remove(cancelPath, { force: true });
+-      return true;
+-    }
++    const raw = await controlJson(fs, file) as { schema_version?: unknown; owner?: unknown };
++    return raw.schema_version === 2 && Object.keys(raw).sort().join(",") === "owner,schema_version"
++      && validOwner(raw.owner, config.installation_id) && sameOwner(raw.owner, owner);
+   } catch {
+-    // stale/corrupt cancel requests are ignored by new runs.
++    // Unsafe/malformed cancellation cannot safely authorize continuation either.
++    controlError("cancel_evidence_unknown", file, "Cancellation evidence is malformed or unsafe; continuation requires reconciliation.");
+   }
+-  return false;
+ }
+ 
+-export async function recoverLockOnly(
+-  fsAdapter: FilesystemAdapter,
+-  processAdapter: ProcessAdapter,
+-  config: SetupConfig
+-): Promise<{ quarantined: boolean; reason: string }> {
+-  const paths = buildLockPaths(config);
+-  if (!(await fsAdapter.exists(paths.lockDir))) {
+-    return { quarantined: false, reason: "no_lock_present" };
+-  }
+-
+-  const owner = await readExistingOwner(fsAdapter, paths.ownerFile);
+-  if (owner === null) {
+-    throw setupError({
+-      exitCode: ExitCode.LockOwnedByAnotherInstaller,
+-      code: "lock_owner_incomplete",
+-      publicMessage: "Lock owner metadata is incomplete; refusing automatic quarantine.",
+-      nextAction: "Wait for active writer to finish or inspect lock owner file manually.",
+-      evidenceRef: paths.ownerFile
+-    });
++async function noLiveEvidence(fs: FilesystemAdapter, config: SetupConfig): Promise<void> {
++  const e = await inspectStateEvidence(fs, config);
++  await assertEvidenceAdmission(fs, config, e);
++  if (e.marker || e.quarantineEntries.length || e.journal.oversized || e.journal.parseError || e.journal.unknownOrder
++    || e.journal.legacyFormat || e.journal.unresolvedOperationIds.length) controlError("lock_resources_unproven", config.paths.setup_state_dir, "Unresolved recovery/operation evidence blocks takeover.");
++  if (e.stateExists) {
++    const state = await controlJson(fs, path.join(config.paths.setup_state_dir, "state.json"), 1024 * 1024) as Record<string, unknown>;
++    if (state.installation_id !== config.installation_id || state.in_flight_operation !== null) controlError("lock_resources_unproven", config.paths.setup_state_dir, "In-flight or foreign state blocks takeover.");
++    // Resource-bearing deployments need an external reconciler, absent in this pass.
++    const stages = state.stages;
++    if (!Array.isArray(stages) || stages.some(s => s && ["S03", "S04", "S05", "S08", "S09", "S10", "S12", "S13"].includes(s.id)
++      && !["pending", "planned", "skipped"].includes(s.status))) controlError("lock_resource_reconciliation_required", config.paths.setup_state_dir, "Deployment resources need explicit reconciliation before takeover.");
++  } else if (e.previousExists || e.commitManifest || e.journal.hasRecords) {
++    controlError("lock_resources_unproven", config.paths.setup_state_dir, "State absence does not prove absence of live resources.");
+   }
+-  const currentBootId = await processAdapter.bootId();
+-  if (!(await isStaleOwner(processAdapter, currentBootId, owner))) {
+-    throw setupError({
+-      exitCode: ExitCode.LockOwnedByAnotherInstaller,
+-      code: "lock_owner_active",
+-      publicMessage: "Lock owner is still active; lock-only recover refused.",
+-      nextAction: "Use cancel and wait for the process to finish.",
+-      evidenceRef: paths.ownerFile
+-    });
+-  }
+-
+-  const quarantine = `${paths.lockDir}.quarantine-${Date.now()}`;
+-  await fsAdapter.rename(paths.lockDir, quarantine);
+-  return { quarantined: true, reason: quarantine };
++}
++export async function recoverLockOnly(fs: FilesystemAdapter, proc: ProcessAdapter, config: SetupConfig): Promise<{ quarantined: boolean; reason: string }> {
++  ordinaryOwner(proc, config);
++  return protocol(fs, config, async () => {
++    const p = buildLockPaths(config);
++    await noLiveEvidence(fs, config);
++    if (!(await fs.exists(p.lockDir))) return { quarantined: false, reason: "no_lock_present" };
++    const owner = await readOwner(fs, config), live = await lockLiveness(proc, owner);
++    if (live !== "dead") controlError(live === "alive" ? "lock_owner_active" : "lock_owner_unknown", p.ownerFile,
++      `Owner is ${live}; descendant/container reconciliation is required.`, ExitCode.LockOwnedByAnotherInstaller);
++    const quarantine = `${p.lockDir}.quarantine-${randomUUID()}`;
++    // UUID identity plus guard prevents collision by any cooperating participant.
++    if (await fs.exists(quarantine)) controlError("lock_quarantine_collision", quarantine, "Quarantine identity already exists.");
++    await fs.rename(p.lockDir, quarantine);
++    await fs.fsyncDir(config.paths.setup_state_dir);
++    return { quarantined: true, reason: quarantine };
++  });
+ }
+diff --git a/setup/src/operations/emergency.ts b/setup/src/operations/emergency.ts
+index 7cae755..b6315a2 100644
+--- a/setup/src/operations/emergency.ts
++++ b/setup/src/operations/emergency.ts
+@@ -1,209 +1,135 @@
+ import path from "node:path";
+-import { promises as fs } from "node:fs";
++import { createHash } from "node:crypto";
++import { NodeFilesystemAdapter, type FilesystemAdapter } from "../adapters/filesystem";
+ import { type ProcessAdapter } from "../adapters/process";
+-import { setupError } from "../core/errors";
++import { prepareOfflineCommands, type ApplicationManifestData } from "../adapters/git";
+ import { ExitCode, type SetupConfig } from "../core/types";
++import { validateContractSchema } from "../core/validators";
++import { hashConfig, stableStringify } from "../core/config";
++import { checkedFile, witnessFile, assertFileWitnesses, checkedJson, type FileWitness } from "../core/plan-context";
++import { parseStrictJson } from "../core/strict-json";
++import { inspectStateEvidence, assertEvidenceAdmission, readStateCommitManifest } from "../core/state";
++import { controlDirectory, controlError, controlJson, ensureControlDirectory, ordinaryOwner, publishControl } from "../core/control-files";
+ 
+-export interface EmergencyDeps {
+-  processAdapter: ProcessAdapter;
+-}
+-
+-interface EmergencyInventory {
+-  schema_version: 1;
+-  installation_id: string;
+-  owned_container_labels: string[];
+-  service_unit: string | null;
+-}
+-
+-export interface EmergencyResult {
+-  pausedMarkerPath: string;
+-  stoppedContainers: string[];
+-  skippedForeignContainers: string[];
+-}
+-
+-function inventoryPath(config: SetupConfig): string {
+-  return path.join(config.paths.setup_state_dir, "s11-emergency-inventory.json");
+-}
+-
+-async function loadInventory(config: SetupConfig): Promise<EmergencyInventory | null> {
+-  try {
+-    const parsed = JSON.parse(await fs.readFile(inventoryPath(config), "utf8"));
+-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+-      return null;
+-    }
+-    const candidate = parsed as Partial<EmergencyInventory>;
+-    if (candidate.schema_version !== 1 || candidate.installation_id !== config.installation_id) {
+-      return null;
+-    }
+-    return {
+-      schema_version: 1,
+-      installation_id: config.installation_id,
+-      owned_container_labels: Array.isArray(candidate.owned_container_labels)
+-        ? candidate.owned_container_labels.filter((entry) => typeof entry === "string")
+-        : [],
+-      service_unit: typeof candidate.service_unit === "string" ? candidate.service_unit : null
+-    };
+-  } catch {
+-    return null;
+-  }
+-}
+-
+-async function readManifest(config: SetupConfig): Promise<Record<string, unknown> | null> {
+-  const target = path.join(config.paths.application_dir, "deployment-manifest.json");
+-  try {
+-    const parsed = JSON.parse(await fs.readFile(target, "utf8"));
+-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+-      return null;
+-    }
+-    return parsed as Record<string, unknown>;
+-  } catch {
+-    return null;
+-  }
+-}
++export interface EmergencyDeps { processAdapter: ProcessAdapter; fsAdapter?: FilesystemAdapter }
++export interface EmergencyResult { pausedMarkerPath: string; stoppedContainers: string[]; skippedForeignContainers: string[] }
++const hash = (value: string) => createHash("sha256").update(value).digest("hex");
+ 
+-function stopCommandFromManifest(manifest: Record<string, unknown> | null): string[] | null {
+-  if (manifest === null) {
+-    return null;
+-  }
+-  const commands = manifest.commands;
+-  if (typeof commands !== "object" || commands === null || Array.isArray(commands)) {
+-    return null;
+-  }
+-  const record = commands as Record<string, unknown>;
+-  const candidates = [
+-    record.app_stop,
+-    record.app_stop_all,
+-    record.runner_stop
+-  ];
+-  for (const candidate of candidates) {
+-    if (Array.isArray(candidate) && candidate.length > 0 && candidate.every((entry) => typeof entry === "string")) {
+-      return candidate as string[];
+-    }
+-  }
+-  return null;
++async function trustedJson(fs: FilesystemAdapter, file: string, witnesses: FileWitness[]): Promise<unknown> {
++  await checkedFile(fs, file);
++  const witness = await witnessFile(fs, file);
++  const raw = await fs.readTextBounded(file, 1024 * 1024);
++  if (raw.truncated || raw.text.includes("\0") || raw.text.includes("\ufffd")) controlError("emergency_input_invalid", file, "Emergency input is oversized or invalid.");
++  witnesses.push(witness);
++  await assertFileWitnesses(fs, [witness]);
++  return parseStrictJson(raw.text);
+ }
+ 
+-async function runCommand(
+-  processAdapter: ProcessAdapter,
+-  binary: string,
+-  args: string[],
+-  code: string,
+-  message: string
+-): Promise<{ stdout: string; stderr: string }> {
+-  const result = await processAdapter.runCommand({
+-    binary,
+-    args,
+-    timeoutMs: 20_000,
+-    maxOutputBytes: 128 * 1024
+-  });
+-  if (result.exitCode !== 0 || result.timedOut) {
+-    throw setupError({
+-      exitCode: ExitCode.DriftOrRecoveryRequired,
+-      code,
+-      publicMessage: message,
+-      nextAction: "Use provider console/manual stop runbook and keep application paused.",
+-      stage: "S11",
+-      evidenceRef: result.stderr.slice(0, 256)
+-    });
++export async function emergencyCancel(deps: EmergencyDeps, config: SetupConfig): Promise<EmergencyResult> {
++  const proc = deps.processAdapter, fs = deps.fsAdapter ?? new NodeFilesystemAdapter();
++  ordinaryOwner(proc, config);
++  const root = config.paths.application_dir, manifestPath = path.join(root, "deployment-manifest.json");
++  if (!(await fs.exists(manifestPath))) controlError("capability_missing", manifestPath, "Trusted stop capability is missing.", ExitCode.BlockedByMissingCapabilityOrEvidence);
++  if (config.profile !== "supervised") controlError("emergency_service_unsupported", manifestPath, "A trusted service stop adapter is not implemented.", ExitCode.BlockedByMissingCapabilityOrEvidence);
++  await controlDirectory(fs, root);
++  const witnesses: FileWitness[] = [];
++  const value = await trustedJson(fs, manifestPath, witnesses);
++  if (!validateContractSchema("application-manifest", value).ok) controlError("emergency_manifest_invalid", manifestPath, "Raw/invalid manifest is not a trusted stop capability.", ExitCode.BlockedByMissingCapabilityOrEvidence);
++  const manifest = value as ApplicationManifestData;
++  if (manifest.source_commit !== config.release.source_commit || !manifest.capabilities.includes("runner-readonly")) controlError("emergency_release_identity", manifestPath, "Deployment release identity/capability does not match.");
++  const stateEvidence = await inspectStateEvidence(fs, config);
++  await assertEvidenceAdmission(fs, config, stateEvidence);
++  const commit = await readStateCommitManifest(fs, config);
++  const proof = commit?.completed_operations?.some(entry => entry.config_hash === hashConfig(config)
++    && entry.receipt.stageId === "S05" && ["application-checkout", "application-release"].includes(entry.receipt.resourceId)
++    && entry.receipt.versions.archive_sha256 === config.release.sha256
++    && entry.receipt.versions.source_commit === config.release.source_commit
++    && entry.receipt.versions.release_manifest_hash === hash(stableStringify(manifest)));
++  if (!proof) controlError("emergency_deployment_unproven", manifestPath, "No journal-bound reviewed deployment receipt proves the current stop capability.", ExitCode.BlockedByMissingCapabilityOrEvidence);
++  // Bound current archive and all deployed content to that exact receipt. No probe receipt substitutes for bytes.
++  witnesses.push(await witnessFile(fs, config.release.archive_path));
++  if (!fs.hashFile || await fs.hashFile(config.release.archive_path, 1024 * 1024 * 1024, 120_000) !== config.release.sha256) controlError("emergency_archive_drift", config.release.archive_path, "Reviewed release artifact changed.");
++  if (Object.keys(manifest.content_hashes).length > 4096) controlError("emergency_content_bound", root, "Content inventory exceeds bound.");
++  for (const [relative, digest] of Object.entries(manifest.content_hashes)) {
++    if (!relative || path.isAbsolute(relative) || relative.includes("\\") || relative.split("/").some(p => !p || p === "." || p === "..")) controlError("emergency_content_path", root, "Content inventory path escapes the release.", ExitCode.SecurityBoundaryViolation);
++    const file = path.join(root, relative);
++    witnesses.push(await witnessFile(fs, file));
++    if (await fs.hashFile(file, 128 * 1024 * 1024, 30_000) !== digest) controlError("emergency_content_drift", file, "Deployed content differs from reviewed bytes.", ExitCode.SecurityBoundaryViolation);
+   }
+-  return { stdout: result.stdout, stderr: result.stderr };
+-}
+-
+-async function isOwnedContainer(
+-  processAdapter: ProcessAdapter,
+-  containerId: string,
+-  installationId: string
+-): Promise<boolean> {
+-  const result = await processAdapter.runCommand({
+-    binary: "/usr/bin/docker",
+-    args: ["inspect", "--format", "{{index .Config.Labels \"agent-factory.installation_id\"}}", containerId],
+-    timeoutMs: 10_000,
+-    maxOutputBytes: 64 * 1024
+-  });
+-  if (result.exitCode !== 0 || result.timedOut) {
+-    return false;
++  const stop = prepareOfflineCommands(root, manifest, config).runner_stop;
++  // Emergency deliberately accepts only the installed Node adapter, never direct shell/interpreter executables.
++  if (stop.kind !== "node" || stop.args.slice(1, -1).some(arg => arg.length > 4096 || path.isAbsolute(arg) || arg.split(/[\\/]/).includes(".."))
++    || stop.args.length > 128) controlError("emergency_command_unsafe", manifestPath, "Stop argv is outside the confined Node adapter.", ExitCode.SecurityBoundaryViolation);
++  const runtime = proc.nodeRuntime?.() ?? { executable: process.execPath, version: process.versions.node };
++  await checkedJson(fs, config.version_lock_path, "installer-release");
++  const lock = await trustedJson(fs, config.version_lock_path, witnesses) as { node: { version: string; sha256: string } };
++  const bootstrapFile = path.join(config.paths.setup_state_dir, "bootstrap-receipt.json");
++  const bootstrap = await controlJson(fs, bootstrapFile) as Record<string, unknown>;
++  witnesses.push(await witnessFile(fs, bootstrapFile), await witnessFile(fs, stop.executable));
++  if (runtime.executable !== stop.executable || runtime.version !== lock.node.version
++    || bootstrap.node_prefix !== config.paths.setup_node_dir || bootstrap.node_version !== lock.node.version
++    || bootstrap.node_sha256 !== lock.node.sha256 || bootstrap.contract_version !== "1.0.0" || bootstrap.stage_id !== "S00") {
++    controlError("emergency_node_pin_unproven", stop.executable, "Stop runtime is not the current installed Node pin.", ExitCode.BlockedByMissingCapabilityOrEvidence);
+   }
+-  return result.stdout.trim() === installationId;
+-}
+-
+-export async function emergencyCancel(
+-  deps: EmergencyDeps,
+-  config: SetupConfig
+-): Promise<EmergencyResult> {
+-  const manifest = await readManifest(config);
+-  const stopArgv = stopCommandFromManifest(manifest);
+-  if (stopArgv === null) {
+-    throw setupError({
+-      exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
+-      code: "capability_missing",
+-      publicMessage: "Emergency cancellation is blocked: app stop capability is missing.",
+-      nextAction: "Run manual emergency stop from SSH/provider console and create PAUSED marker manually.",
+-      stage: "S11",
+-      evidenceRef: path.join(config.paths.application_dir, "deployment-manifest.json")
+-    });
++  let status = null;
++  if (manifest.capabilities.includes("app-status") && manifest.commands.app_status) {
++    status = prepareOfflineCommands(root, { ...manifest, commands: { ...manifest.commands, runner_stop: manifest.commands.app_status } }, config).runner_stop;
++    if (status.kind !== "node") controlError("emergency_status_unsafe", manifestPath, "Status capability must use the confined Node adapter.");
+   }
+-
+-  const pausedPath = path.join(config.paths.application_state_dir, "PAUSED");
+-  await fs.mkdir(path.dirname(pausedPath), { recursive: true, mode: 0o700 });
+-  await fs.writeFile(pausedPath, `${new Date().toISOString()}\n`, { encoding: "utf8", mode: 0o600 });
+-
+-  const [binaryRaw, ...argsRaw] = stopArgv;
+-  const binary = binaryRaw === "node"
+-    ? path.join(config.paths.setup_node_dir, "bin", "node")
+-    : binaryRaw?.startsWith("/") ? binaryRaw : path.join(config.paths.application_dir, binaryRaw ?? "");
+-  if (binary === undefined || binary.length === 0) {
+-    throw setupError({
+-      exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
+-      code: "capability_missing",
+-      publicMessage: "Emergency cancellation is blocked: stop command is malformed.",
+-      nextAction: "Fix manifest stop command and rerun cancel --emergency.",
+-      stage: "S11"
+-    });
++  // Inventory is advisory only: the live query always uses the exact installation label.
++  const inventoryFile = path.join(config.paths.setup_state_dir, "s11-emergency-inventory.json");
++  let docker = false;
++  if (await fs.exists(inventoryFile)) {
++    const inv = await controlJson(fs, inventoryFile) as Record<string, unknown>;
++    if (!inv || Object.keys(inv).sort().join(",") !== "installation_id,owned_container_labels,schema_version,service_unit"
++      || inv.schema_version !== 1 || inv.installation_id !== config.installation_id || inv.service_unit !== null
++      || !Array.isArray(inv.owned_container_labels) || inv.owned_container_labels.length > 1
++      || inv.owned_container_labels.some(label => label !== `agent-factory.installation_id=${config.installation_id}`)) controlError("emergency_inventory_unknown", inventoryFile, "Inventory is foreign, malformed or requires an unsupported service adapter.");
++    docker = inv.owned_container_labels.length > 0;
++    witnesses.push(await witnessFile(fs, inventoryFile));
+   }
+-  await runCommand(
+-    deps.processAdapter,
+-    binary,
+-    argsRaw,
+-    "s11_emergency_stop_failed",
+-    "Emergency stop command failed."
+-  );
+-
+-  const inventory = await loadInventory(config);
+-  const stoppedContainers: string[] = [];
+-  const skippedForeignContainers: string[] = [];
+-  if (inventory !== null && inventory.owned_container_labels.length > 0) {
+-    for (const label of inventory.owned_container_labels) {
+-      const list = await runCommand(
+-        deps.processAdapter,
+-        "/usr/bin/docker",
+-        ["ps", "-a", "--filter", `label=${label}`, "--format", "{{.ID}}"],
+-        "s11_emergency_docker_list_failed",
+-        "Docker was unreachable during emergency cancellation."
+-      );
+-      const ids = list.stdout
+-        .split("\n")
+-        .map((entry) => entry.trim())
+-        .filter((entry) => entry.length > 0);
+-      for (const id of ids) {
+-        if (!(await isOwnedContainer(deps.processAdapter, id, config.installation_id))) {
+-          skippedForeignContainers.push(id);
+-          continue;
+-        }
+-        await runCommand(
+-          deps.processAdapter,
+-          "/usr/bin/docker",
+-          ["stop", id],
+-          "s11_emergency_docker_stop_failed",
+-          "Failed to stop owned docker resource during emergency cancellation."
+-        );
+-        stoppedContainers.push(id);
+-      }
++  await ensureControlDirectory(fs, config.paths.application_state_dir);
++  const paused = path.join(config.paths.application_state_dir, "PAUSED");
++  if (await fs.exists(paused)) await checkedFile(fs, paused);
++  await assertFileWitnesses(fs, witnesses);
++  await publishControl(fs, paused, `${new Date().toISOString()}\n`);
++  const stoppedContainers: string[] = [], skippedForeignContainers: string[] = [];
++  const run = async (binary: string, args: string[], cwd?: string): Promise<string> => {
++    await assertFileWitnesses(fs, witnesses);
++    const r = await proc.runCommand({ binary, args, ...(cwd ? { cwd } : {}), timeoutMs: 20_000, maxOutputBytes: 128 * 1024 });
++    if (r.exitCode !== 0 || r.timedOut || r.outputLimitExceeded) controlError("emergency_stop_unconfirmed", paused,
++      `Emergency boundary failed/unknown; PAUSED retained; confirmed containers=${stoppedContainers.join(",")}.`);
++    return r.stdout;
++  };
++  await run(stop.executable, [...stop.args.slice(0, -1)], root);
++  if (status === null) controlError("emergency_postcondition_missing", paused, "Stop attempted; no reviewed status postcondition capability exists. PAUSED retained.");
++  const post = await run(status.executable, [...status.args.slice(0, -1)], root);
++  // Closed adapter postcondition; exit0 alone does not mean stopped.
++  let stopped = false;
++  try { const result = parseStrictJson(post) as Record<string, unknown>; stopped = result.status === "stopped" && result.installation_id === config.installation_id; } catch { /* unknown */ }
++  if (!stopped) controlError("emergency_postcondition_unknown", paused, "Application stop postcondition is not confirmed. PAUSED retained.");
++  if (docker) {
++    const text = await run("/usr/bin/docker", ["ps", "-a", "--filter", `label=agent-factory.installation_id=${config.installation_id}`, "--format", "{{.ID}}"]);
++    const ids = text.trim() ? text.trim().split("\n") : [];
++    if (ids.length > 1024 || new Set(ids).size !== ids.length || ids.some(id => !/^[0-9a-f]{12,64}$/.test(id))) controlError("emergency_inventory_unknown", paused, "Docker returned an invalid bounded ID inventory.");
++    for (const id of ids) {
++      const inspect = async () => {
++        const raw = await run("/usr/bin/docker", ["inspect", "--format", "{{json .}}", id]);
++        try {
++          const v = parseStrictJson(raw) as { Id?: string; Config?: { Labels?: Record<string, unknown> }; State?: { Running?: unknown } };
++          const label = v.Config?.Labels?.["agent-factory.installation_id"];
++          if (v.Id?.startsWith(id) && /^[0-9a-f]{64}$/.test(v.Id) && typeof label === "string"
++            && /^[0-9a-f-]{36}$/.test(label) && typeof v.State?.Running === "boolean") return { label, running: v.State.Running };
++        } catch { /* unknown inspection never becomes foreign */ }
++        controlError("emergency_inspection_unknown", paused, "Docker ownership/status inspection is unknown.");
++      };
++      const before = await inspect();
++      if (before.label !== config.installation_id) { skippedForeignContainers.push(id); continue; }
++      await run("/usr/bin/docker", ["stop", id]);
++      const after = await inspect();
++      if (after.label !== config.installation_id || after.running) controlError("emergency_container_stop_unknown", paused, "Owned container stop was not confirmed.");
++      stoppedContainers.push(id);
+     }
+   }
+-
+-  return {
+-    pausedMarkerPath: pausedPath,
+-    stoppedContainers,
+-    skippedForeignContainers
+-  };
++  return { pausedMarkerPath: paused, stoppedContainers, skippedForeignContainers };
+ }

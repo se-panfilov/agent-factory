@@ -1,0 +1,912 @@
+TAP version 13
+# Subtest: R1-01 status/gate-list read-only path is mutation-free even with held writer lock
+ok 1 - R1-01 status/gate-list read-only path is mutation-free even with held writer lock
+  ---
+  duration_ms: 44.19325
+  type: 'test'
+  ...
+# Subtest: R1-02 read-only diagnostics never mutate damaged state paths
+ok 2 - R1-02 read-only diagnostics never mutate damaged state paths
+  ---
+  duration_ms: 4.750542
+  type: 'test'
+  ...
+# Subtest: R1-03 marker/quarantine failure windows preserve uncertainty and never reset to fresh state
+ok 3 - R1-03 marker/quarantine failure windows preserve uncertainty and never reset to fresh state
+  ---
+  duration_ms: 193.189208
+  type: 'test'
+  ...
+# Subtest: R1-04 save/journal fault boundaries keep deterministic old/new or recovery outcome
+ok 4 - R1-04 save/journal fault boundaries keep deterministic old/new or recovery outcome
+  ---
+  duration_ms: 249.087709
+  type: 'test'
+  ...
+# Subtest: R1-05 journal-only/torn/oversized evidence blocks initialization without hidden writes
+ok 5 - R1-05 journal-only/torn/oversized evidence blocks initialization without hidden writes
+  ---
+  duration_ms: 7.064667
+  type: 'test'
+  ...
+# Subtest: R1-06 unresolved intent keeps recovery required across status/resume/recover
+ok 6 - R1-06 unresolved intent keeps recovery required across status/resume/recover
+  ---
+  duration_ms: 52.091083
+  type: 'test'
+  ...
+# Subtest: R1-07 unreconciled marker/in-flight returns exit 8 and preserves evidence
+ok 7 - R1-07 unreconciled marker/in-flight returns exit 8 and preserves evidence
+  ---
+  duration_ms: 36.480875
+  type: 'test'
+  ...
+# Subtest: R1-08 supported recovery restores previous snapshot and is idempotent
+ok 8 - R1-08 supported recovery restores previous snapshot and is idempotent
+  ---
+  duration_ms: 152.843292
+  type: 'test'
+  ...
+# Subtest: R1-09 foreign candidate and invalid host identity are refused before overwrite
+ok 9 - R1-09 foreign candidate and invalid host identity are refused before overwrite
+  ---
+  duration_ms: 70.995875
+  type: 'test'
+  ...
+# Subtest: R1-10 ordinary effect routes are blocked before adapters when in-flight operation exists
+ok 10 - R1-10 ordinary effect routes are blocked before adapters when in-flight operation exists
+  ---
+  duration_ms: 101.120041
+  type: 'test'
+  ...
+# Subtest: R1-11 writer/readers/recover interleaving keeps reader non-mutating and lock-only recover safe
+ok 11 - R1-11 writer/readers/recover interleaving keeps reader non-mutating and lock-only recover safe
+  ---
+  duration_ms: 134.723958
+  type: 'test'
+  ...
+# Subtest: R1-12 positive controls: fresh state init, cancel request, and lock-only stale cleanup keep working
+ok 12 - R1-12 positive controls: fresh state init, cancel request, and lock-only stale cleanup keep working
+  ---
+  duration_ms: 139.947334
+  type: 'test'
+  ...
+# Subtest: J01 real S00->S01 lifecycle plan/apply/status/resume stays journal-compatible
+ok 13 - J01 real S00->S01 lifecycle plan/apply/status/resume stays journal-compatible
+  ---
+  duration_ms: 426.140958
+  type: 'test'
+  ...
+# Subtest: J02 real S02 install/refresh/no-op repeat preserves operation evidence and status/resume
+ok 14 - J02 real S02 install/refresh/no-op repeat preserves operation evidence and status/resume
+  ---
+  duration_ms: 1119.329792
+  type: 'test'
+  ...
+# Subtest: J03 new attempt, duplicate/gap/reorder/stage mismatch and receipt-before-intent require journal recovery
+ok 15 - J03 new attempt, duplicate/gap/reorder/stage mismatch and receipt-before-intent require journal recovery
+  ---
+  duration_ms: 91.561958
+  type: 'test'
+  ...
+# Subtest: J04 effect evidence without verify/checkpoint stays unknown and blocks plan/recover replay
+ok 16 - J04 effect evidence without verify/checkpoint stays unknown and blocks plan/recover replay
+  ---
+  duration_ms: 90.833625
+  type: 'test'
+  ...
+# Subtest: J05 corrupt newer in-flight with old previous and empty journal remains unresolved
+ok 17 - J05 corrupt newer in-flight with old previous and empty journal remains unresolved
+  ---
+  duration_ms: 114.68225
+  type: 'test'
+  ...
+# Subtest: J06 interrupted recovery boundaries keep candidate durable and resume safely
+ok 18 - J06 interrupted recovery boundaries keep candidate durable and resume safely
+  ---
+  duration_ms: 1074.195084
+  type: 'test'
+  ...
+# Subtest: J07 committed recovery with marker cleanup failure resumes idempotently
+ok 19 - J07 committed recovery with marker cleanup failure resumes idempotently
+  ---
+  duration_ms: 180.281042
+  type: 'test'
+  ...
+# Subtest: J08 malformed marker, oversized/growing journal and EACCES return typed bounded diagnostics
+ok 20 - J08 malformed marker, oversized/growing journal and EACCES return typed bounded diagnostics
+  ---
+  duration_ms: 14.725875
+  type: 'test'
+  ...
+# Subtest: J09 fault injections assert exact hit and fail when disabled on fresh fixture
+ok 21 - J09 fault injections assert exact hit and fail when disabled on fresh fixture
+  ---
+  duration_ms: 220.537083
+  type: 'test'
+  ...
+# Subtest: J10 pending evidence blocks ordinary effects while cancel and read-only diagnostics remain available
+ok 22 - J10 pending evidence blocks ordinary effects while cancel and read-only diagnostics remain available
+  ---
+  duration_ms: 160.422333
+  type: 'test'
+  ...
+# Subtest: J11 child writer lock barrier blocks recover and keeps reader non-mutating
+ok 23 - J11 child writer lock barrier blocks recover and keeps reader non-mutating
+  ---
+  duration_ms: 146.183083
+  type: 'test'
+  ...
+# Subtest: K10 cross-process interrupted writer keeps reader non-mutating and blocks unsafe recovery
+ok 24 - K10 cross-process interrupted writer keeps reader non-mutating and blocks unsafe recovery
+  ---
+  duration_ms: 274.9165
+  type: 'test'
+  ...
+# Subtest: K01 stale primary plus completed journal checkpoint remains recovery-blocked
+ok 25 - K01 stale primary plus completed journal checkpoint remains recovery-blocked
+  ---
+  duration_ms: 279.115292
+  type: 'test'
+  ...
+# Subtest: K04 prepared recovery decision is immutable across previous/current substitution
+ok 26 - K04 prepared recovery decision is immutable across previous/current substitution
+  ---
+  duration_ms: 160.935125
+  type: 'test'
+  ...
+# Subtest: K05 missing primary with old previous and empty journal remains unresolved without generation proof
+ok 27 - K05 missing primary with old previous and empty journal remains unresolved without generation proof
+  ---
+  duration_ms: 101.873
+  type: 'test'
+  ...
+# Subtest: T04 newer manifest generation blocks old checkpoint recovery candidate
+ok 28 - T04 newer manifest generation blocks old checkpoint recovery candidate
+  ---
+  duration_ms: 118.246958
+  type: 'test'
+  ...
+# Subtest: T05 manifest-only evidence never reinitializes fresh state and malformed/foreign manifests stay blocked
+ok 29 - T05 manifest-only evidence never reinitializes fresh state and malformed/foreign manifests stay blocked
+  ---
+  duration_ms: 153.597542
+  type: 'test'
+  ...
+# Subtest: T06 primary_restored cleanup admission blocks conflicting quarantine evidence before marker removal
+ok 30 - T06 primary_restored cleanup admission blocks conflicting quarantine evidence before marker removal
+  ---
+  duration_ms: 140.529875
+  type: 'test'
+  ...
+# Subtest: T07 proven recovery works directly and after marker written by plan, while ambiguous case stays blocked
+ok 31 - T07 proven recovery works directly and after marker written by plan, while ambiguous case stays blocked
+  ---
+  duration_ms: 412.938375
+  type: 'test'
+  ...
+# Subtest: K07 receipts must match planned operation/stage/resource and cannot be foreign
+ok 32 - K07 receipts must match planned operation/stage/resource and cannot be foreign
+  ---
+  duration_ms: 240.595375
+  type: 'test'
+  ...
+# Subtest: K09 empty or verify-only plan does not call stage.apply (trap stage)
+ok 33 - K09 empty or verify-only plan does not call stage.apply (trap stage)
+  ---
+  duration_ms: 198.321625
+  type: 'test'
+  ...
+# Subtest: U03 C01 engine-generated plan-apply-plan recovery direct retains final proof without replay
+ok 34 - U03 C01 engine-generated plan-apply-plan recovery direct retains final proof without replay
+  ---
+  duration_ms: 672.552541
+  type: 'test'
+  ...
+# Subtest: U03 C01 engine-generated plan-apply-plan recovery plan-first retains final proof without replay
+ok 35 - U03 C01 engine-generated plan-apply-plan recovery plan-first retains final proof without replay
+  ---
+  duration_ms: 736.82675
+  type: 'test'
+  ...
+# Subtest: U05 admission current/quarantine refuses before state-evidence writes
+ok 36 - U05 admission current/quarantine refuses before state-evidence writes
+  ---
+  duration_ms: 452.700292
+  type: 'test'
+  ...
+# Subtest: U05 admission current/attempt refuses before state-evidence writes
+ok 37 - U05 admission current/attempt refuses before state-evidence writes
+  ---
+  duration_ms: 472.834458
+  type: 'test'
+  ...
+# Subtest: U05 admission current/operation refuses before state-evidence writes
+ok 38 - U05 admission current/operation refuses before state-evidence writes
+  ---
+  duration_ms: 480.013875
+  type: 'test'
+  ...
+# Subtest: U05 admission current/stage refuses before state-evidence writes
+ok 39 - U05 admission current/stage refuses before state-evidence writes
+  ---
+  duration_ms: 481.816166
+  type: 'test'
+  ...
+# Subtest: U05 admission current/sequence refuses before state-evidence writes
+ok 40 - U05 admission current/sequence refuses before state-evidence writes
+  ---
+  duration_ms: 463.249
+  type: 'test'
+  ...
+# Subtest: U05 admission current/hash refuses before state-evidence writes
+ok 41 - U05 admission current/hash refuses before state-evidence writes
+  ---
+  duration_ms: 441.191083
+  type: 'test'
+  ...
+# Subtest: U05 admission current/previous refuses before state-evidence writes
+ok 42 - U05 admission current/previous refuses before state-evidence writes
+  ---
+  duration_ms: 478.18625
+  type: 'test'
+  ...
+# Subtest: U05 admission current/journal refuses before state-evidence writes
+ok 43 - U05 admission current/journal refuses before state-evidence writes
+  ---
+  duration_ms: 461.709375
+  type: 'test'
+  ...
+# Subtest: U05 admission current/generation refuses before state-evidence writes
+ok 44 - U05 admission current/generation refuses before state-evidence writes
+  ---
+  duration_ms: 496.825083
+  type: 'test'
+  ...
+# Subtest: U05 admission current/manifest-missing refuses before state-evidence writes
+ok 45 - U05 admission current/manifest-missing refuses before state-evidence writes
+  ---
+  duration_ms: 480.587458
+  type: 'test'
+  ...
+# Subtest: U05 admission current/manifest-malformed refuses before state-evidence writes
+ok 46 - U05 admission current/manifest-malformed refuses before state-evidence writes
+  ---
+  duration_ms: 484.758417
+  type: 'test'
+  ...
+# Subtest: U05 admission current/manifest-foreign refuses before state-evidence writes
+ok 47 - U05 admission current/manifest-foreign refuses before state-evidence writes
+  ---
+  duration_ms: 498.530833
+  type: 'test'
+  ...
+# Subtest: U05 admission current/manifest-unsupported refuses before state-evidence writes
+ok 48 - U05 admission current/manifest-unsupported refuses before state-evidence writes
+  ---
+  duration_ms: 485.874209
+  type: 'test'
+  ...
+# Subtest: U05 admission current/decision refuses before state-evidence writes
+ok 49 - U05 admission current/decision refuses before state-evidence writes
+  ---
+  duration_ms: 483.685542
+  type: 'test'
+  ...
+# Subtest: U05 admission missing/quarantine refuses before state-evidence writes
+ok 50 - U05 admission missing/quarantine refuses before state-evidence writes
+  ---
+  duration_ms: 413.289709
+  type: 'test'
+  ...
+# Subtest: U05 admission missing/attempt refuses before state-evidence writes
+ok 51 - U05 admission missing/attempt refuses before state-evidence writes
+  ---
+  duration_ms: 387.336708
+  type: 'test'
+  ...
+# Subtest: U05 admission missing/operation refuses before state-evidence writes
+ok 52 - U05 admission missing/operation refuses before state-evidence writes
+  ---
+  duration_ms: 389.269791
+  type: 'test'
+  ...
+# Subtest: U05 admission missing/stage refuses before state-evidence writes
+ok 53 - U05 admission missing/stage refuses before state-evidence writes
+  ---
+  duration_ms: 293.808333
+  type: 'test'
+  ...
+# Subtest: U05 admission missing/sequence refuses before state-evidence writes
+ok 54 - U05 admission missing/sequence refuses before state-evidence writes
+  ---
+  duration_ms: 381.64075
+  type: 'test'
+  ...
+# Subtest: U05 admission missing/hash refuses before state-evidence writes
+ok 55 - U05 admission missing/hash refuses before state-evidence writes
+  ---
+  duration_ms: 399.801417
+  type: 'test'
+  ...
+# Subtest: U05 admission missing/previous refuses before state-evidence writes
+ok 56 - U05 admission missing/previous refuses before state-evidence writes
+  ---
+  duration_ms: 461.241083
+  type: 'test'
+  ...
+# Subtest: U05 admission missing/journal refuses before state-evidence writes
+ok 57 - U05 admission missing/journal refuses before state-evidence writes
+  ---
+  duration_ms: 421.608208
+  type: 'test'
+  ...
+# Subtest: U05 admission missing/generation refuses before state-evidence writes
+ok 58 - U05 admission missing/generation refuses before state-evidence writes
+  ---
+  duration_ms: 425.906375
+  type: 'test'
+  ...
+# Subtest: U05 admission missing/manifest-missing refuses before state-evidence writes
+ok 59 - U05 admission missing/manifest-missing refuses before state-evidence writes
+  ---
+  duration_ms: 403.875125
+  type: 'test'
+  ...
+# Subtest: U05 admission missing/manifest-malformed refuses before state-evidence writes
+ok 60 - U05 admission missing/manifest-malformed refuses before state-evidence writes
+  ---
+  duration_ms: 379.886041
+  type: 'test'
+  ...
+# Subtest: U05 admission missing/manifest-foreign refuses before state-evidence writes
+ok 61 - U05 admission missing/manifest-foreign refuses before state-evidence writes
+  ---
+  duration_ms: 375.854708
+  type: 'test'
+  ...
+# Subtest: U05 admission missing/manifest-unsupported refuses before state-evidence writes
+ok 62 - U05 admission missing/manifest-unsupported refuses before state-evidence writes
+  ---
+  duration_ms: 387.927125
+  type: 'test'
+  ...
+# Subtest: U05 admission missing/decision refuses before state-evidence writes
+ok 63 - U05 admission missing/decision refuses before state-evidence writes
+  ---
+  duration_ms: 382.173
+  type: 'test'
+  ...
+# Subtest: U05 admission prepared/quarantine refuses before state-evidence writes
+ok 64 - U05 admission prepared/quarantine refuses before state-evidence writes
+  ---
+  duration_ms: 426.340542
+  type: 'test'
+  ...
+# Subtest: U05 admission prepared/attempt refuses before state-evidence writes
+ok 65 - U05 admission prepared/attempt refuses before state-evidence writes
+  ---
+  duration_ms: 429.569917
+  type: 'test'
+  ...
+# Subtest: U05 admission prepared/operation refuses before state-evidence writes
+ok 66 - U05 admission prepared/operation refuses before state-evidence writes
+  ---
+  duration_ms: 428.65375
+  type: 'test'
+  ...
+# Subtest: U05 admission prepared/stage refuses before state-evidence writes
+ok 67 - U05 admission prepared/stage refuses before state-evidence writes
+  ---
+  duration_ms: 405.076166
+  type: 'test'
+  ...
+# Subtest: U05 admission prepared/sequence refuses before state-evidence writes
+ok 68 - U05 admission prepared/sequence refuses before state-evidence writes
+  ---
+  duration_ms: 399.16875
+  type: 'test'
+  ...
+# Subtest: U05 admission prepared/hash refuses before state-evidence writes
+ok 69 - U05 admission prepared/hash refuses before state-evidence writes
+  ---
+  duration_ms: 418.167916
+  type: 'test'
+  ...
+# Subtest: U05 admission prepared/previous refuses before state-evidence writes
+ok 70 - U05 admission prepared/previous refuses before state-evidence writes
+  ---
+  duration_ms: 400.243084
+  type: 'test'
+  ...
+# Subtest: U05 admission prepared/journal refuses before state-evidence writes
+ok 71 - U05 admission prepared/journal refuses before state-evidence writes
+  ---
+  duration_ms: 385.098583
+  type: 'test'
+  ...
+# Subtest: U05 admission prepared/generation refuses before state-evidence writes
+ok 72 - U05 admission prepared/generation refuses before state-evidence writes
+  ---
+  duration_ms: 399.754
+  type: 'test'
+  ...
+# Subtest: U05 admission prepared/manifest-missing refuses before state-evidence writes
+ok 73 - U05 admission prepared/manifest-missing refuses before state-evidence writes
+  ---
+  duration_ms: 392.286833
+  type: 'test'
+  ...
+# Subtest: U05 admission prepared/manifest-malformed refuses before state-evidence writes
+ok 74 - U05 admission prepared/manifest-malformed refuses before state-evidence writes
+  ---
+  duration_ms: 409.001584
+  type: 'test'
+  ...
+# Subtest: U05 admission prepared/manifest-foreign refuses before state-evidence writes
+ok 75 - U05 admission prepared/manifest-foreign refuses before state-evidence writes
+  ---
+  duration_ms: 400.470917
+  type: 'test'
+  ...
+# Subtest: U05 admission prepared/manifest-unsupported refuses before state-evidence writes
+ok 76 - U05 admission prepared/manifest-unsupported refuses before state-evidence writes
+  ---
+  duration_ms: 402.053833
+  type: 'test'
+  ...
+# Subtest: U05 admission prepared/decision refuses before state-evidence writes
+ok 77 - U05 admission prepared/decision refuses before state-evidence writes
+  ---
+  duration_ms: 394.414041
+  type: 'test'
+  ...
+# Subtest: U05 admission primary_restored/quarantine refuses before state-evidence writes
+ok 78 - U05 admission primary_restored/quarantine refuses before state-evidence writes
+  ---
+  duration_ms: 404.35
+  type: 'test'
+  ...
+# Subtest: U05 admission primary_restored/attempt refuses before state-evidence writes
+ok 79 - U05 admission primary_restored/attempt refuses before state-evidence writes
+  ---
+  duration_ms: 451.751291
+  type: 'test'
+  ...
+# Subtest: U05 admission primary_restored/operation refuses before state-evidence writes
+ok 80 - U05 admission primary_restored/operation refuses before state-evidence writes
+  ---
+  duration_ms: 442.839166
+  type: 'test'
+  ...
+# Subtest: U05 admission primary_restored/stage refuses before state-evidence writes
+ok 81 - U05 admission primary_restored/stage refuses before state-evidence writes
+  ---
+  duration_ms: 417.007792
+  type: 'test'
+  ...
+# Subtest: U05 admission primary_restored/sequence refuses before state-evidence writes
+ok 82 - U05 admission primary_restored/sequence refuses before state-evidence writes
+  ---
+  duration_ms: 403.818084
+  type: 'test'
+  ...
+# Subtest: U05 admission primary_restored/hash refuses before state-evidence writes
+ok 83 - U05 admission primary_restored/hash refuses before state-evidence writes
+  ---
+  duration_ms: 436.926583
+  type: 'test'
+  ...
+# Subtest: U05 admission primary_restored/previous refuses before state-evidence writes
+ok 84 - U05 admission primary_restored/previous refuses before state-evidence writes
+  ---
+  duration_ms: 421.178291
+  type: 'test'
+  ...
+# Subtest: U05 admission primary_restored/journal refuses before state-evidence writes
+ok 85 - U05 admission primary_restored/journal refuses before state-evidence writes
+  ---
+  duration_ms: 451.070208
+  type: 'test'
+  ...
+# Subtest: U05 admission primary_restored/generation refuses before state-evidence writes
+ok 86 - U05 admission primary_restored/generation refuses before state-evidence writes
+  ---
+  duration_ms: 442.583583
+  type: 'test'
+  ...
+# Subtest: U05 admission primary_restored/manifest-missing refuses before state-evidence writes
+ok 87 - U05 admission primary_restored/manifest-missing refuses before state-evidence writes
+  ---
+  duration_ms: 409.668667
+  type: 'test'
+  ...
+# Subtest: U05 admission primary_restored/manifest-malformed refuses before state-evidence writes
+ok 88 - U05 admission primary_restored/manifest-malformed refuses before state-evidence writes
+  ---
+  duration_ms: 427.922333
+  type: 'test'
+  ...
+# Subtest: U05 admission primary_restored/manifest-foreign refuses before state-evidence writes
+ok 89 - U05 admission primary_restored/manifest-foreign refuses before state-evidence writes
+  ---
+  duration_ms: 419.956417
+  type: 'test'
+  ...
+# Subtest: U05 admission primary_restored/manifest-unsupported refuses before state-evidence writes
+ok 90 - U05 admission primary_restored/manifest-unsupported refuses before state-evidence writes
+  ---
+  duration_ms: 422.147166
+  type: 'test'
+  ...
+# Subtest: U05 admission primary_restored/decision refuses before state-evidence writes
+ok 91 - U05 admission primary_restored/decision refuses before state-evidence writes
+  ---
+  duration_ms: 451.424208
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"initial","boundary":"writeText","timing":"before","path":"/private/tmp/q1a-r14-core-AAmw6a/state/state-commit.json.tmp-2b90d15a-2bc7-4ba0-b971-2ab2ac5aecf4","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"9241f1c053f62e0fa91324e0d9aaea9739fc324425aa00efd96a33775c887378","state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"effects_at_failure":0,"effects":1,"result":8,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest initial/writeText/before: fresh fixture and fault-off control
+ok 92 - U07 manifest initial/writeText/before: fresh fixture and fault-off control
+  ---
+  duration_ms: 299.866458
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"initial","boundary":"writeText","timing":"after","path":"/private/tmp/q1a-r14-core-8yNAFW/state/state-commit.json.tmp-eed1565e-e88a-4741-975d-31c2a43de164","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"c4c1eb9514f954047ecbe8d2bd5088d06ca7216f87090b0bcabf73d0d85cb0d6","state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"effects_at_failure":0,"effects":1,"result":8,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest initial/writeText/after: fresh fixture and fault-off control
+ok 93 - U07 manifest initial/writeText/after: fresh fixture and fault-off control
+  ---
+  duration_ms: 339.460167
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"initial","boundary":"writeText","timing":"control","path":"","hits":0,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"ad9659c6aba1ff1bb9c21a24b60bd98b34f784389ec9441a745838a778d9f4b1","state.json.previous":"9b9f0a6bc1aea33892dfceb82bc526133face5b914ed2a3760903e0d1d638b1f","state-commit.json":"138c7c1e9698699ed372b9399f83a4d680819f7bf2800992b9f4cba8023e7826","events.jsonl":"53d118ac49201e43376cfaf6ffcd97fe49949df38731112ec060c05e2232c8d1","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":0,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest initial/writeText/control: fresh fixture and fault-off control
+ok 94 - U07 manifest initial/writeText/control: fresh fixture and fault-off control
+  ---
+  duration_ms: 461.747
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"initial","boundary":"fsyncFile","timing":"before","path":"/private/tmp/q1a-r14-core-wOaDTy/state/state-commit.json.tmp-63236a77-47f4-4cc2-bb13-1c6893b05f59","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"178e6efbe4ec9e8263049433c10c89291359c3407ca1b776550c40db003da494","state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"effects_at_failure":0,"effects":1,"result":8,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest initial/fsyncFile/before: fresh fixture and fault-off control
+ok 95 - U07 manifest initial/fsyncFile/before: fresh fixture and fault-off control
+  ---
+  duration_ms: 291.80175
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"initial","boundary":"fsyncFile","timing":"after","path":"/private/tmp/q1a-r14-core-CyKAEh/state/state-commit.json.tmp-8b4a124b-7139-4df1-804a-1072faa0a888","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"b807e884fbeebc5d2fa1576591f72cc96ed43772a8931735adbf49a66666c593","state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"effects_at_failure":0,"effects":1,"result":8,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest initial/fsyncFile/after: fresh fixture and fault-off control
+ok 96 - U07 manifest initial/fsyncFile/after: fresh fixture and fault-off control
+  ---
+  duration_ms: 299.843375
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"initial","boundary":"fsyncFile","timing":"control","path":"","hits":0,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"b2b45cdc64036d8b0d031d4b0f773378daebcefcf44a4329650e8f7646336497","state.json.previous":"c09ab6a639265fca343dbcd7b28d3843e09496a0ad1e60050e97dc7c8c049a88","state-commit.json":"ffec51ac6f3459615413e3371831f47df20a3036ae416ac7682d9527364c6248","events.jsonl":"89d62f1bea59f8cb14f13f584cc8c4fd4642c061a6a5c19ee5919ca9bd633799","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":0,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest initial/fsyncFile/control: fresh fixture and fault-off control
+ok 97 - U07 manifest initial/fsyncFile/control: fresh fixture and fault-off control
+  ---
+  duration_ms: 438.866417
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"initial","boundary":"rename","timing":"before","path":"/private/tmp/q1a-r14-core-f3m3it/state/state-commit.json.tmp-8648d38c-ce21-47f2-8192-83d8921ec5c9->/private/tmp/q1a-r14-core-f3m3it/state/state-commit.json","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"6d4086a9d34587e76d6e69cfb4fcc72f52c9b38cd9be0df642f516d5c33bd7bd","state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"effects_at_failure":0,"effects":1,"result":8,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest initial/rename/before: fresh fixture and fault-off control
+ok 98 - U07 manifest initial/rename/before: fresh fixture and fault-off control
+  ---
+  duration_ms: 308.417333
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"initial","boundary":"rename","timing":"after","path":"/private/tmp/q1a-r14-core-PFe75u/state/state-commit.json.tmp-1fc0b170-3dc8-4e75-a1ed-d0c000935da4->/private/tmp/q1a-r14-core-PFe75u/state/state-commit.json","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"f9bd7a59b82f0921c956cb2671fbfd204b19a2c5abfc257acb23f053205301a7","state.json.previous":null,"state-commit.json":"1f814a6160813e269df708e8b05d8792cc4850b63e943cfaa12be0e7acc09f04","events.jsonl":null,"recovery-required.json":null},"effects_at_failure":0,"effects":1,"result":8,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest initial/rename/after: fresh fixture and fault-off control
+ok 99 - U07 manifest initial/rename/after: fresh fixture and fault-off control
+  ---
+  duration_ms: 295.513417
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"initial","boundary":"rename","timing":"control","path":"","hits":0,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"0449c9185fc7bb401f8ef37dd412e52bbda15b4b37e65296bb799a6b70c042cd","state.json.previous":"aa23ee49a28ba34f257f75c1fad23dfb7721e194c8e3b89fe5213665265549b7","state-commit.json":"663e9ef36135e0a72c89d902f938301cf66e803b4e12de64bae4d3a17fed3700","events.jsonl":"83a93756d12bd4564979f3bdc92351790edf8d1d3d3eb356322c753d4da0b355","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":0,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest initial/rename/control: fresh fixture and fault-off control
+ok 100 - U07 manifest initial/rename/control: fresh fixture and fault-off control
+  ---
+  duration_ms: 460.000584
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"initial","boundary":"fsyncDir","timing":"before","path":"/private/tmp/q1a-r14-core-wrdVbn/state/state-commit.json:parent:/private/tmp/q1a-r14-core-wrdVbn/state","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"b173d763f926a771bf949c5e0a8d08244d28d714d5ec2a3e7f013c8877b99ba9","state.json.previous":null,"state-commit.json":"581bd25141cde113703cafdcb682d8b0cf486bf0606cf895ac60886a84ffc049","events.jsonl":null,"recovery-required.json":null},"effects_at_failure":0,"effects":1,"result":8,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest initial/fsyncDir/before: fresh fixture and fault-off control
+ok 101 - U07 manifest initial/fsyncDir/before: fresh fixture and fault-off control
+  ---
+  duration_ms: 296.854417
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"initial","boundary":"fsyncDir","timing":"after","path":"/private/tmp/q1a-r14-core-C5W31E/state/state-commit.json:parent:/private/tmp/q1a-r14-core-C5W31E/state","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"644c3e9523ba1fbafba11f588e38844331ac85b606237bdb450bc7b9fedccdb0","state.json.previous":null,"state-commit.json":"491526d11a1107d8fb77b0d65ccf0ef6dbb2ad84b8d0ee8a2f820e665148e1ff","events.jsonl":null,"recovery-required.json":null},"effects_at_failure":0,"effects":1,"result":8,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest initial/fsyncDir/after: fresh fixture and fault-off control
+ok 102 - U07 manifest initial/fsyncDir/after: fresh fixture and fault-off control
+  ---
+  duration_ms: 322.120666
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"initial","boundary":"fsyncDir","timing":"control","path":"","hits":0,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"3b364823574799d679be57b337015310b79a8374986b0ec2d4aec458b455b18c","state.json.previous":"6d5476b2f2f45ea6777a1bc6a2cc1e2731d9a16032d21b24da6f5f0df9f2a696","state-commit.json":"f1c9cf6523e9420653a7d844fbf6a59b01fc771d43a0041fb9bfe69d4b13043d","events.jsonl":"e534e4268a265ccf8661305c3eca642bc009dbcb118528987d943e3553c44c07","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":0,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest initial/fsyncDir/control: fresh fixture and fault-off control
+ok 103 - U07 manifest initial/fsyncDir/control: fresh fixture and fault-off control
+  ---
+  duration_ms: 445.400709
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"operation-binding","boundary":"writeText","timing":"before","path":"/private/tmp/q1a-r14-core-lTNAPn/state/state-commit.json.tmp-272d5c73-81dd-40fc-82c1-ff7bea292aaf","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"6c690a18167a5bfac854dc748dd60b645a4fb484098c179e2fdec09dda60c551","state.json.previous":"ca00c763ee09ce6a71bbb69ec5f767f373a422607e6e669bcb432b6381e366dd","state-commit.json":"3908e5031f8c58aadb57ed401cc8a69202cd32a100de79c0cddd267ebf018daa","events.jsonl":"d1761a7ce17d11a61b6d580bda06aad78e80b7c7a4166c1a73596c1fed510b60","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":8,"next_recover":8,"next_apply":8}
+# Subtest: U07 manifest operation-binding/writeText/before: fresh fixture and fault-off control
+ok 104 - U07 manifest operation-binding/writeText/before: fresh fixture and fault-off control
+  ---
+  duration_ms: 291.194458
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"operation-binding","boundary":"writeText","timing":"after","path":"/private/tmp/q1a-r14-core-RMlYkx/state/state-commit.json.tmp-4d5add66-a674-413b-b991-b27d8a3bf584","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"5663283dc2777e8b3bbe93983f81558bd07fc0196c1669db1b31e465884997e0","state.json.previous":"193a66c79929629a7d395857dd5c6113de53358f29f7e8469002f5f3eb7bdec0","state-commit.json":"93dea519960f4025398ea95613609ceb5bbc741a8aa5c06ed56b9b3105f8aa9f","events.jsonl":"4d76bfaca1ff4faa0c1362190a8fb7c3adb9ad97f864f3aaefbcc31413c6c020","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":8,"next_recover":8,"next_apply":8}
+# Subtest: U07 manifest operation-binding/writeText/after: fresh fixture and fault-off control
+ok 105 - U07 manifest operation-binding/writeText/after: fresh fixture and fault-off control
+  ---
+  duration_ms: 324.244375
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"operation-binding","boundary":"writeText","timing":"control","path":"","hits":0,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"5fb9cd04fd98bc785659903c65884c47d239f3ca2a1ea06aa415360cf7a79605","state.json.previous":"d1899384cfc82ea82c39bf3c8bdfc91b758d5c3832118751f22637b1177b2831","state-commit.json":"82841c7d184d30ee16f9965bc101fab9cbdd069497968c9ad999574b3e944aa2","events.jsonl":"de6d363b436f517998494bf58aaf07e8500e54aacaaa3f41c2cf2a83339f569f","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":0,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest operation-binding/writeText/control: fresh fixture and fault-off control
+ok 106 - U07 manifest operation-binding/writeText/control: fresh fixture and fault-off control
+  ---
+  duration_ms: 456.466333
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"operation-binding","boundary":"fsyncFile","timing":"before","path":"/private/tmp/q1a-r14-core-2JrbUD/state/state-commit.json.tmp-d2d95735-db4c-4f2e-9cdf-4f49273e43af","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"67f9494483b74369b381861753e0464c16625789b103099ec43dc773cc21c463","state.json.previous":"421d81e6c388bb3961839ffd86b2a3483bd435b850f897298897e9c24cab22b0","state-commit.json":"436d178d0f14df764f13c2f49f4b71569eb3d2f3eb31eaaf635e0af366882fec","events.jsonl":"e43244943bfb1600505897d17b48dcb641b130c8aa26b539f057a77c96422d32","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":8,"next_recover":8,"next_apply":8}
+# Subtest: U07 manifest operation-binding/fsyncFile/before: fresh fixture and fault-off control
+ok 107 - U07 manifest operation-binding/fsyncFile/before: fresh fixture and fault-off control
+  ---
+  duration_ms: 302.379791
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"operation-binding","boundary":"fsyncFile","timing":"after","path":"/private/tmp/q1a-r14-core-oAm7KZ/state/state-commit.json.tmp-c8c4b248-1a17-42a3-8c1e-9070adc9a8c5","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"b00963d1617ee9028b819e70150146870eaaafdb92cd754023f37129a692c363","state.json.previous":"2e1ff004e9d0fb6c28440e0c2409a8e450b982276465c46c499fa7a8761996a0","state-commit.json":"79332f7ba5a2311eb3649f37f2e2b6f62cfb5788e5d2f536e1901701fe7275ab","events.jsonl":"a602fceef555c958f8659139b9d541b5640f22001ac4a515a8f0807ced137810","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":8,"next_recover":8,"next_apply":8}
+# Subtest: U07 manifest operation-binding/fsyncFile/after: fresh fixture and fault-off control
+ok 108 - U07 manifest operation-binding/fsyncFile/after: fresh fixture and fault-off control
+  ---
+  duration_ms: 315.510084
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"operation-binding","boundary":"fsyncFile","timing":"control","path":"","hits":0,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"2c4c5732f29b8ae3f00d39b3ce69c34222b85f3e8fddab982c191e980485c8ff","state.json.previous":"b2f964e2785570d88977f865a086cb320e310f513a4fd40d1a449a1a0d0a93a3","state-commit.json":"4838825b09d02f149e1b12f0bff9768d17a3a2c441f66c338ef84f68b04cbbca","events.jsonl":"f0ee5545e6e079fef73abb80bbd6cbc5fadb9b3da7d2d966294e584e85bf722b","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":0,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest operation-binding/fsyncFile/control: fresh fixture and fault-off control
+ok 109 - U07 manifest operation-binding/fsyncFile/control: fresh fixture and fault-off control
+  ---
+  duration_ms: 451.251708
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"operation-binding","boundary":"rename","timing":"before","path":"/private/tmp/q1a-r14-core-GWBXjo/state/state-commit.json.tmp-79f35c63-e6f5-42a9-9ad8-42c2ea47d2cb->/private/tmp/q1a-r14-core-GWBXjo/state/state-commit.json","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"37c23071be88133a65bdd39782cffff0559b07646aaa0118d9d4140baefe4765","state.json.previous":"0acf8934287e05eccde62cbf856d363c02b32f6a3627c00d58e06898652cdcc6","state-commit.json":"c66509a68541ad7d49a19b2079d1b2496f9948b4d51a71ecfdd84ba206892f35","events.jsonl":"9f192870c84f48a707339dce706603741089488993d0367841644c5d4d1d8736","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":8,"next_recover":8,"next_apply":8}
+# Subtest: U07 manifest operation-binding/rename/before: fresh fixture and fault-off control
+ok 110 - U07 manifest operation-binding/rename/before: fresh fixture and fault-off control
+  ---
+  duration_ms: 307.869042
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"operation-binding","boundary":"rename","timing":"after","path":"/private/tmp/q1a-r14-core-DxQngx/state/state-commit.json.tmp-1adae27e-5b2a-41fe-a795-1238f4d8bddf->/private/tmp/q1a-r14-core-DxQngx/state/state-commit.json","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"d710e0c7bf758ba56719fa38365914eae2c96385b8abc0f047ea65fb40874281","state.json.previous":"c9cd49bf2daacc9c4f8778f1678a386bc9e39d435691bdcdc416478f074343d2","state-commit.json":"b533a61656ea065bf393a05506973472a5e9259afe623377c44f861e1fa884e9","events.jsonl":"347849746eb03d891e23638bf54a015a0b6ef37e977e4a7080b110d740179afd","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":8,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest operation-binding/rename/after: fresh fixture and fault-off control
+ok 111 - U07 manifest operation-binding/rename/after: fresh fixture and fault-off control
+  ---
+  duration_ms: 446.367042
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"operation-binding","boundary":"rename","timing":"control","path":"","hits":0,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"616b11f981efcef9dd5c26c3a2b3c2b35cb7b9d634e2b30eeca25f7d1e626d34","state.json.previous":"ad05c6f2dad1a5c2b07a4c25ec78bb2938df89febc18056d4cb330335f6fcf4a","state-commit.json":"1daf5e5864193a35bcbe8bcc5a1f90aa381f3fdd8a651f4e2c08f6ef3a6897a4","events.jsonl":"03d1944a5663c037bd6165a43f7e1a34cedc612784e19a9cd5817a77fadad757","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":0,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest operation-binding/rename/control: fresh fixture and fault-off control
+ok 112 - U07 manifest operation-binding/rename/control: fresh fixture and fault-off control
+  ---
+  duration_ms: 431.615625
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"operation-binding","boundary":"fsyncDir","timing":"before","path":"/private/tmp/q1a-r14-core-6MmWEj/state/state-commit.json:parent:/private/tmp/q1a-r14-core-6MmWEj/state","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"c0b8f667e948c929f37e946808a26dd0b74e47df69f85b3313a2ddaa675abda6","state.json.previous":"7f8ce9d3fcbef5a13b6ac68b7a1949f34231425ec9445b2d8dff55763f6875d7","state-commit.json":"67bee98d915e9bc8f1b5dc9c4a2b3f51e172a675b85a63c054265c2e30c725bc","events.jsonl":"0659100d368fc79942264e1388e5f0fca671b483f3b1f6ad300f1718bcbdbf82","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":8,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest operation-binding/fsyncDir/before: fresh fixture and fault-off control
+ok 113 - U07 manifest operation-binding/fsyncDir/before: fresh fixture and fault-off control
+  ---
+  duration_ms: 343.857125
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"operation-binding","boundary":"fsyncDir","timing":"after","path":"/private/tmp/q1a-r14-core-QDr43z/state/state-commit.json:parent:/private/tmp/q1a-r14-core-QDr43z/state","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"4ca11c18c2a9b7d1010b3620e34c6ad250b362e18a612245e0a6c089b67cb2b8","state.json.previous":"1b957bcc3ff299a3c5642c068ba57848df44ce03a06a394a8242db4eeee93cdd","state-commit.json":"e15174cc00c7663d88d5563dd621a796b8b417415ed71ca2e0fb39f1d50e918e","events.jsonl":"e7c4c9fc92abff34f07188738f865962ec10c4f92d9f0b87dfe8618668e54200","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":8,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest operation-binding/fsyncDir/after: fresh fixture and fault-off control
+ok 114 - U07 manifest operation-binding/fsyncDir/after: fresh fixture and fault-off control
+  ---
+  duration_ms: 379.313458
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"operation-binding","boundary":"fsyncDir","timing":"control","path":"","hits":0,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"048a466323b078037404d10cbc47cef1aaf0ca2d1be82679dcf983f4e936ff40","state.json.previous":"e866dda86d7b2b3bc85f72b252f0f68e071c4fd1fa590718fc3bd2963a858be0","state-commit.json":"90d1a3fa4527a8ac1646e287c992610d313e08db67c33bc8ff6d652be2d3111b","events.jsonl":"78c7a1e16471bc8374872dd2a9b6d71ada437f445974ae5058b8baefbd259a28","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":0,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest operation-binding/fsyncDir/control: fresh fixture and fault-off control
+ok 115 - U07 manifest operation-binding/fsyncDir/control: fresh fixture and fault-off control
+  ---
+  duration_ms: 446.912125
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"final-commit","boundary":"writeText","timing":"before","path":"/private/tmp/q1a-r14-core-0MRiR3/state/state-commit.json.tmp-6e783d2a-63c3-4130-9c72-5ed0563cc501","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"c3fa5730fc77d05e96a9af7a3eb0a893590294499b17acec0932b30098dfd24a","state.json.previous":"28851a7e39f768fcaafef9843de098e1cd6f6684e8dada9fc69b946ba22f87b7","state-commit.json":"c73cbd295da6c81ac79185c0375e5f77d446d6a8fd75dded1ae12558e905abcd","events.jsonl":"25514cae1219bc2f7b9c46848835ea8fd7000bb7b275d59d56fdd77cfacee3a5","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":8,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest final-commit/writeText/before: fresh fixture and fault-off control
+ok 116 - U07 manifest final-commit/writeText/before: fresh fixture and fault-off control
+  ---
+  duration_ms: 443.921667
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"final-commit","boundary":"writeText","timing":"after","path":"/private/tmp/q1a-r14-core-uJvC2h/state/state-commit.json.tmp-d30bd2fb-df91-48aa-9a2b-86f381275cf4","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"24c376d704337dda36950d3c6dd77e32347bf1d2df31dd728fc55a51219bdfdb","state.json.previous":"d0b608638eaf6daeba9411fbe5323f5e7f3b0fb688d6ef24a21397c041b0797b","state-commit.json":"d0a92b34138784cda08015126eed28879254abd2fbe27fd7b0028545dcb5c3e3","events.jsonl":"c1aa59a73c811dba2550ed29044cdf1d9c4e6d6a0042e5aa0407b887416b9b1a","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":8,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest final-commit/writeText/after: fresh fixture and fault-off control
+ok 117 - U07 manifest final-commit/writeText/after: fresh fixture and fault-off control
+  ---
+  duration_ms: 422.80975
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"final-commit","boundary":"writeText","timing":"control","path":"","hits":0,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"6f9a64ef8acf8239316220b0da98f7d06664dffbb840ade3ccabd0b683053620","state.json.previous":"36281c216867bb0a8ac581e78710e3e9b9901ddb731562226b84c738aa563013","state-commit.json":"4701ee61f05d8dd063eaf164327bbd9dfe97b5f8295cfd5a332f0bdfa41fc379","events.jsonl":"3a6e2df6bcc3db21f85ee5861747bf0760e617d1a035447b8f24b7559870b822","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":0,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest final-commit/writeText/control: fresh fixture and fault-off control
+ok 118 - U07 manifest final-commit/writeText/control: fresh fixture and fault-off control
+  ---
+  duration_ms: 466.451875
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"final-commit","boundary":"fsyncFile","timing":"before","path":"/private/tmp/q1a-r14-core-ftJ62J/state/state-commit.json.tmp-71886a61-3727-4fac-bd46-813ef317c173","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"a7f8aecaa0b9b1bdc0c4311d767c3f006672eb25b7d6719ba0944adda9bb6141","state.json.previous":"74eb5296fd33097b84b31c6b640332dc464f4b14b0dd9c3bda20f8212a0042aa","state-commit.json":"78d61372c9efbb629667fd2370c17a8968ed06c6fc45cc71d51a862ee4703ce5","events.jsonl":"6c65c51b2c1d8327622ccb03cfc829a892f4bc08fceae1c4176490626a40af03","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":8,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest final-commit/fsyncFile/before: fresh fixture and fault-off control
+ok 119 - U07 manifest final-commit/fsyncFile/before: fresh fixture and fault-off control
+  ---
+  duration_ms: 455.351458
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"final-commit","boundary":"fsyncFile","timing":"after","path":"/private/tmp/q1a-r14-core-CuCGB7/state/state-commit.json.tmp-3e1bf090-0d5e-4e85-9fe1-6d02042adfd3","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"2348526b38d7ddbcfe3fffeed95e1b333ea6257276769b636a2ac36188536605","state.json.previous":"03002135cc7c954057135bff9c20a3d9a81682b0539cbb82e5b94d93a1670a7e","state-commit.json":"9c29fca836cefbc691553a7ec4d7145d3c2cdf8f38dbc29010dfecd8fd6e1f85","events.jsonl":"d91c6acd96b0dbd8f127c000c0112f3b786ecd922bdb7844111d3e1c140753dc","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":8,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest final-commit/fsyncFile/after: fresh fixture and fault-off control
+ok 120 - U07 manifest final-commit/fsyncFile/after: fresh fixture and fault-off control
+  ---
+  duration_ms: 464.458
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"final-commit","boundary":"fsyncFile","timing":"control","path":"","hits":0,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"a8fc48a15b2353586c3f16508802409ba47a86189e78910516e18d7f9d2e4dd0","state.json.previous":"9479477e5e869d441663cd0dcdc63ec76107100296e1d1753c89151edbba2eaa","state-commit.json":"f22123ebf3e4e8f437e97c3decf082c83c759cd28b44dade34808967bb3bf4c8","events.jsonl":"b62720f442cb6436aa6533d04c0d1e4345320206a0ed0054c5f9b815dd9a8a2c","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":0,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest final-commit/fsyncFile/control: fresh fixture and fault-off control
+ok 121 - U07 manifest final-commit/fsyncFile/control: fresh fixture and fault-off control
+  ---
+  duration_ms: 361.639042
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"final-commit","boundary":"rename","timing":"before","path":"/private/tmp/q1a-r14-core-9jpPJK/state/state-commit.json.tmp-43792c72-2462-449c-ad09-43439bd72fe1->/private/tmp/q1a-r14-core-9jpPJK/state/state-commit.json","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"5402ec2abe9f42eb63f87a1f9f81a756ab5700ce06285a6ba3a585a30930ff9c","state.json.previous":"aaabb288295b8b730f2d0f66f4301947e0115d5a854aa5e4c5d923e6f9673f32","state-commit.json":"81aceb2dd192ba718c072ddcc306a52a57f6f91157f9b35a9c4ba1d943c0339d","events.jsonl":"002b6a19adbeac4880d32193be8b8222e34d9fe8ce3dba6125e8a9b5fe13fe4c","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":8,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest final-commit/rename/before: fresh fixture and fault-off control
+ok 122 - U07 manifest final-commit/rename/before: fresh fixture and fault-off control
+  ---
+  duration_ms: 456.2665
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"final-commit","boundary":"rename","timing":"after","path":"/private/tmp/q1a-r14-core-T13IjB/state/state-commit.json.tmp-8f12870c-edb0-4900-8611-4f7b147561f6->/private/tmp/q1a-r14-core-T13IjB/state/state-commit.json","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"a85053378e3a59e380d1609abe7962b079eab6d146f8abc50781f16ce863057e","state.json.previous":"1cb153ae94edd30be4863c72663b56e15e66e01788c912dbe2a156c15009fe5b","state-commit.json":"1a0287b7f99e1f71c87c1b429bce02bc2bcfb2fc93529fca0169a3c06930aa89","events.jsonl":"cab292086e8fc34a4c68144cefbb0cce960c2abc27d6ecdc6005a5aef15cbec4","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":8,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest final-commit/rename/after: fresh fixture and fault-off control
+ok 123 - U07 manifest final-commit/rename/after: fresh fixture and fault-off control
+  ---
+  duration_ms: 487.694625
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"final-commit","boundary":"rename","timing":"control","path":"","hits":0,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"eb27f07acb249956b1ee8083504ceac1dd11137364e2e174238584c8ceafa004","state.json.previous":"3fe65125bbaf1a0e031b12a422a94c061bf0dcc3fbb887c93182e0218b8bb90d","state-commit.json":"de75690e4bdc4949beb6fd1e306074ad97161511b059240124f38991f08580a6","events.jsonl":"1c09b780407dc48e8873ce638ad2675145f7c60310fb91658d56f8b45d17c2cd","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":0,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest final-commit/rename/control: fresh fixture and fault-off control
+ok 124 - U07 manifest final-commit/rename/control: fresh fixture and fault-off control
+  ---
+  duration_ms: 480.138292
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"final-commit","boundary":"fsyncDir","timing":"before","path":"/private/tmp/q1a-r14-core-YR2qAb/state/state-commit.json:parent:/private/tmp/q1a-r14-core-YR2qAb/state","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"7766d3c587175e180b1e7dcf58292ce4de183e8e0e2b523cbe66319d87b8c603","state.json.previous":"63582445b4ad54a58628d78f5c8baed4f8517a9c040dd4ee5d5a1a96d8438df8","state-commit.json":"3d811475fd293e1be6fc9eb3f4fb11ffa2cdef673c216850f9e697787882f7da","events.jsonl":"63058f1760765c94c5a36281f5ee6957bccbd0e4a105106d07358f84e5cc17de","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":8,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest final-commit/fsyncDir/before: fresh fixture and fault-off control
+ok 125 - U07 manifest final-commit/fsyncDir/before: fresh fixture and fault-off control
+  ---
+  duration_ms: 462.8915
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"final-commit","boundary":"fsyncDir","timing":"after","path":"/private/tmp/q1a-r14-core-WgkNvU/state/state-commit.json:parent:/private/tmp/q1a-r14-core-WgkNvU/state","hits":1,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"839abfdb4108d2224502b2e6506a0a12a7d709530d718ff8f2e1c31dce03b4f8","state.json.previous":"94e7f4b398de79d433086d3c8c6a82d441170658c65b7adf7d8a9bd5e0320613","state-commit.json":"12a25072c96db013e52cc04fdead223cf416f0bc57d170a7d7f63b922c0ae97f","events.jsonl":"a244dc624da5e50a5857680b2c445b32fe1249b60ddc0a22e1b0b87f1a071b7b","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":8,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest final-commit/fsyncDir/after: fresh fixture and fault-off control
+ok 126 - U07 manifest final-commit/fsyncDir/after: fresh fixture and fault-off control
+  ---
+  duration_ms: 475.88025
+  type: 'test'
+  ...
+# R14_FAULT {"phase":"final-commit","boundary":"fsyncDir","timing":"control","path":"","hits":0,"before":{"state.json":null,"state.json.previous":null,"state-commit.json":null,"events.jsonl":null,"recovery-required.json":null},"after":{"state.json":"6c03b553ebc414514e1d8e6605c304ac1ce7820fadc3e3b2811bc92f170fdf0b","state.json.previous":"beacba7bd54bb0c235fd3e2788a92195ef61b978a68f97d9009ab1c188230017","state-commit.json":"e1f072e4be6f95daf6164fcc0c819d7b7b3ab4400fb9d8c79248dc9632490394","events.jsonl":"ec234e4c7ed016e3061c4614fee5b8931384e16eb5af7c31f2c1735c36d49fa4","recovery-required.json":null},"effects_at_failure":1,"effects":1,"result":0,"next_recover":0,"next_apply":0}
+# Subtest: U07 manifest final-commit/fsyncDir/control: fresh fixture and fault-off control
+ok 127 - U07 manifest final-commit/fsyncDir/control: fresh fixture and fault-off control
+  ---
+  duration_ms: 452.097542
+  type: 'test'
+  ...
+# R14_CRASH {"phase":"between-operations","path":"/private/tmp/af-r14-Tt0t08/state/state-commit.json","effects":["refresh"],"resumed_effects":["refresh","simulate","install"],"restart_plan_exit":0,"before":{"state.json":"950bf15ab3d2ad883733d11f1d7c3836b8a51227b612f18ee2324ebc2d52093c","state.json.previous":"ecc3cbe632146efc84ed493b8a01a54d183f55422f114367e8cdb1a3575c7140","state-commit.json":"af42276a31873302a2e65fd94c844d6bce17d04ed2ecc484994f3a5f9331176b","events.jsonl":"d52d8a25b2ed8ba037dec6dcb74a1df99282391d47043855ed27773df6c2d46f","recovery-required.json":null},"after":{"state.json":"829b2fd2521960f7e00050888601354b9a08e21da4ecabcb3659063ade1b0148","state.json.previous":"9392a4a729edf377812120929ce58d0c19e0dc51b0963c6c1c4b4ff3a134255b","state-commit.json":"6c43387ce42abd2c6552c48d6aeec8d9d9f4d9b58a4258730c48f37ac8892668","events.jsonl":"09c4c0059ea961f80e8617999db083658cc5f84ebb74c88de62a7ea4081a5ae2","recovery-required.json":null},"reader_unchanged":true,"foreign_lock_exit":7,"recover_exit":0,"child_signal":"SIGKILL"}
+# Subtest: U04 U08 separate S02 child writer between-operations: IPC barrier, reader, foreign lock, SIGKILL and restart
+ok 128 - U04 U08 separate S02 child writer between-operations: IPC barrier, reader, foreign lock, SIGKILL and restart
+  ---
+  duration_ms: 816.740125
+  type: 'test'
+  ...
+# R14_CRASH {"phase":"checkpoint-before-binding","path":"/private/tmp/af-r14-rjkcLO/state/events.jsonl","effects":["refresh"],"resumed_effects":["refresh"],"restart_plan_exit":8,"before":{"state.json":"d213c9c47d11feb9a0c6ec27c7e6ad7730118990a91be51eb2b6999b760cf85c","state.json.previous":"ba298f2bd086e530aa61477322e5fba1ee46fe97b7d6af2393798977253266c4","state-commit.json":"86105eb22682acdd1e4fecbd97de3721dbb9b0e34968a10e3ff736bfdc500d62","events.jsonl":"01938e18138de829a9198b51368a8d755e3c358d8045c4a9a51149a3532f8bef","recovery-required.json":null},"after":{"state.json":"d213c9c47d11feb9a0c6ec27c7e6ad7730118990a91be51eb2b6999b760cf85c","state.json.previous":"ba298f2bd086e530aa61477322e5fba1ee46fe97b7d6af2393798977253266c4","state-commit.json":"86105eb22682acdd1e4fecbd97de3721dbb9b0e34968a10e3ff736bfdc500d62","events.jsonl":"01938e18138de829a9198b51368a8d755e3c358d8045c4a9a51149a3532f8bef","recovery-required.json":null},"reader_unchanged":true,"foreign_lock_exit":7,"recover_exit":8,"child_signal":"SIGKILL"}
+# Subtest: U04 U08 separate S02 child writer checkpoint-before-binding: IPC barrier, reader, foreign lock, SIGKILL and restart
+ok 129 - U04 U08 separate S02 child writer checkpoint-before-binding: IPC barrier, reader, foreign lock, SIGKILL and restart
+  ---
+  duration_ms: 420.879333
+  type: 'test'
+  ...
+# R14_CRASH {"phase":"before-install","path":"/private/tmp/af-r14-dcxY1t/effects.json","effects":["refresh","simulate"],"resumed_effects":["refresh","simulate"],"restart_plan_exit":8,"before":{"state.json":"6b6128ed662b8982f219f5967651e88dda66ccbb8c3446f14cefca5c1602fe23","state.json.previous":"fc885a79ebfe4fdc4486b4501d86a40b4f8660dec41e41acf874798ad90cb0b5","state-commit.json":"04f83b1a3cd15214dc9144faf8fa308c13c591e0668df6c6fda7bbf8e6ef7158","events.jsonl":"821e6c98abf88de5adab14b303d7ced339e1e61110c9ea713291a9a1ca7d8cc9","recovery-required.json":null},"after":{"state.json":"6b6128ed662b8982f219f5967651e88dda66ccbb8c3446f14cefca5c1602fe23","state.json.previous":"fc885a79ebfe4fdc4486b4501d86a40b4f8660dec41e41acf874798ad90cb0b5","state-commit.json":"04f83b1a3cd15214dc9144faf8fa308c13c591e0668df6c6fda7bbf8e6ef7158","events.jsonl":"821e6c98abf88de5adab14b303d7ced339e1e61110c9ea713291a9a1ca7d8cc9","recovery-required.json":null},"reader_unchanged":true,"foreign_lock_exit":7,"recover_exit":8,"child_signal":"SIGKILL"}
+# Subtest: U04 U08 separate S02 child writer before-install: IPC barrier, reader, foreign lock, SIGKILL and restart
+ok 130 - U04 U08 separate S02 child writer before-install: IPC barrier, reader, foreign lock, SIGKILL and restart
+  ---
+  duration_ms: 492.700667
+  type: 'test'
+  ...
+# R14_CRASH {"phase":"install-after-effect","path":"/private/tmp/af-r14-QY2cJ7/effects.json","effects":["refresh","simulate","install"],"resumed_effects":["refresh","simulate","install"],"restart_plan_exit":8,"before":{"state.json":"7e8638656d8c288248b2bf1a4449ab32ba867305e7a3151226e9d0ce8ef97685","state.json.previous":"489f9c5cd9fd3c07edc65a53da382e4d6f565c6c28a83777a419cad5cb94df6d","state-commit.json":"b802b04568c42c313858dcace5e8eb707533267a4401b4b6482e57453828c7ce","events.jsonl":"44723b1d7d5fd99f5ed14d64d4e700f8a6fd37600d2eac2a543ce59b75101bcd","recovery-required.json":null},"after":{"state.json":"7e8638656d8c288248b2bf1a4449ab32ba867305e7a3151226e9d0ce8ef97685","state.json.previous":"489f9c5cd9fd3c07edc65a53da382e4d6f565c6c28a83777a419cad5cb94df6d","state-commit.json":"b802b04568c42c313858dcace5e8eb707533267a4401b4b6482e57453828c7ce","events.jsonl":"44723b1d7d5fd99f5ed14d64d4e700f8a6fd37600d2eac2a543ce59b75101bcd","recovery-required.json":null},"reader_unchanged":true,"foreign_lock_exit":7,"recover_exit":8,"child_signal":"SIGKILL"}
+# Subtest: U04 U08 separate S02 child writer install-after-effect: IPC barrier, reader, foreign lock, SIGKILL and restart
+ok 131 - U04 U08 separate S02 child writer install-after-effect: IPC barrier, reader, foreign lock, SIGKILL and restart
+  ---
+  duration_ms: 520.772458
+  type: 'test'
+  ...
+# R14_CRASH {"phase":"final-primary","path":"/private/tmp/af-r14-fbIRSU/state/state.json","effects":["refresh","simulate","install"],"resumed_effects":["refresh","simulate","install"],"restart_plan_exit":8,"before":{"state.json":"e565b041b2c24cfbb01c08a017c5139e8333fe88baddeb0fa62f672fb2d775c2","state.json.previous":"172b9e29458467a9541f1a4da33c5672444bb036798cda2269206499ffe92516","state-commit.json":"2feb7164b5ff916a90d19403881be02ca5e5bb35390fb66032963ca02457ff3a","events.jsonl":"a85057a2769194e966751646a4d615a127a7d9fa4afbe1a33d2cc66d9d5efbbb","recovery-required.json":null},"after":{"state.json":"e565b041b2c24cfbb01c08a017c5139e8333fe88baddeb0fa62f672fb2d775c2","state.json.previous":"172b9e29458467a9541f1a4da33c5672444bb036798cda2269206499ffe92516","state-commit.json":"2feb7164b5ff916a90d19403881be02ca5e5bb35390fb66032963ca02457ff3a","events.jsonl":"a85057a2769194e966751646a4d615a127a7d9fa4afbe1a33d2cc66d9d5efbbb","recovery-required.json":null},"reader_unchanged":true,"foreign_lock_exit":7,"recover_exit":8,"child_signal":"SIGKILL"}
+# Subtest: U04 U08 separate S02 child writer final-primary: IPC barrier, reader, foreign lock, SIGKILL and restart
+ok 132 - U04 U08 separate S02 child writer final-primary: IPC barrier, reader, foreign lock, SIGKILL and restart
+  ---
+  duration_ms: 538.508792
+  type: 'test'
+  ...
+# R14_CRASH {"phase":"final-manifest","path":"/private/tmp/af-r14-JslGlQ/state/state-commit.json","effects":["refresh","simulate","install"],"resumed_effects":["refresh","simulate","install"],"restart_plan_exit":0,"before":{"state.json":"c0fa65a7ff9bd9aad6aadad8474be36be01108bf19bb2699215ece9fdbfc64be","state.json.previous":"e4a82af669ff2348304d4e39252d317edb5122f14ed2d31b50bf9ba5e3dd9276","state-commit.json":"af0f2776dfa7ac541b8f6fc36ae0cdef40babfc0d51fdce39dc16e252f5b9580","events.jsonl":"ab8db27bc3702d7c31562f5e378cc979bb664576180f80c8ffb56f5757448d84","recovery-required.json":null},"after":{"state.json":"a948d35fb12d16bdb14b742b88d8fe4dfdeb8bf4a878616576c1bcd6fe288d1f","state.json.previous":"fa29ae49349245d4fee51892117afb9314103292cbb54534af887e7a31bfd552","state-commit.json":"2cd4a9afae3afd39161eec62c5a37393abf8945ee73944a3f2645eec1a6a797c","events.jsonl":"ab8db27bc3702d7c31562f5e378cc979bb664576180f80c8ffb56f5757448d84","recovery-required.json":null},"reader_unchanged":true,"foreign_lock_exit":7,"recover_exit":0,"child_signal":"SIGKILL"}
+# Subtest: U04 U08 separate S02 child writer final-manifest: IPC barrier, reader, foreign lock, SIGKILL and restart
+ok 133 - U04 U08 separate S02 child writer final-manifest: IPC barrier, reader, foreign lock, SIGKILL and restart
+  ---
+  duration_ms: 714.353458
+  type: 'test'
+  ...
+# R14_CRASH {"phase":"recovery-prepared","path":"/private/tmp/af-r14-yeWvUk/state/recovery-required.json","effects":["refresh","simulate","install"],"resumed_effects":["refresh","simulate","install"],"restart_plan_exit":0,"before":{"state.json":null,"state.json.previous":"739e834f7b0cc4bd84f5f2cb92751becc63205c4d54d22771a58f2939bf8cb34","state-commit.json":"05a8697be410bb811d3968dc71f838ef941e04a9e6438ac4d3f0e8216c18ae95","events.jsonl":"e30b94c28ab53ac65c0371da70e92d050815d238386a62500bcf72ed0f1c527f","recovery-required.json":"feeb7a63ac735d5395984bd1453c7b5dfacdd554ec1a0874fa8fd37750c13e01"},"after":{"state.json":"2117e38a07866c67a9ef4e235cf76edb95a88f7f34bfd395b6cc7b67d3eb27d1","state.json.previous":"90acaa94485f5ff6dd9d812174cd8d0a33378c5400106e7f3d418e2db019d063","state-commit.json":"d13d3340539854062664c2ba07478fa43bb1b5156988ff65db9fc08e480615f7","events.jsonl":"e30b94c28ab53ac65c0371da70e92d050815d238386a62500bcf72ed0f1c527f","recovery-required.json":null},"reader_unchanged":true,"foreign_lock_exit":7,"recover_exit":8,"child_signal":"SIGKILL"}
+# Subtest: U04 U08 separate S02 child writer recovery-prepared: IPC barrier, reader, foreign lock, SIGKILL and restart
+ok 134 - U04 U08 separate S02 child writer recovery-prepared: IPC barrier, reader, foreign lock, SIGKILL and restart
+  ---
+  duration_ms: 865.835709
+  type: 'test'
+  ...
+# R14_CRASH {"phase":"recovery-restored","path":"/private/tmp/af-r14-intAqG/state/recovery-required.json","effects":["refresh","simulate","install"],"resumed_effects":["refresh","simulate","install"],"restart_plan_exit":0,"before":{"state.json":"fbc607d2a25d88b4790a3b0eac1e2148bca35995559a32eccd759f0f74140d0a","state.json.previous":"fbc607d2a25d88b4790a3b0eac1e2148bca35995559a32eccd759f0f74140d0a","state-commit.json":"6576d3812f7813411d527318470ab97fae7b139f8520a783bb25a43694c285aa","events.jsonl":"16f2d534552dc7f546d1403afaf6eb14fa8fb1fe4e6a4d414bff34472b994730","recovery-required.json":"832c44989f9b27deed5c67d10a47fae026c899198783e2410ae3cf7317481b0a"},"after":{"state.json":"c67dfc994edaf70fabad8e342557c98bce4a19f54297ec6e2a4f67309bf8b6af","state.json.previous":"c7f9a531ef9b70ab498b151af416556ec1b059f9950a6d23158dd40b6f98630b","state-commit.json":"8cf85eaee7dfff7b98455ce8a1d7017013d90c333590737dada0f23ec15bf3de","events.jsonl":"16f2d534552dc7f546d1403afaf6eb14fa8fb1fe4e6a4d414bff34472b994730","recovery-required.json":null},"reader_unchanged":true,"foreign_lock_exit":7,"recover_exit":8,"child_signal":"SIGKILL"}
+# Subtest: U04 U08 separate S02 child writer recovery-restored: IPC barrier, reader, foreign lock, SIGKILL and restart
+ok 135 - U04 U08 separate S02 child writer recovery-restored: IPC barrier, reader, foreign lock, SIGKILL and restart
+  ---
+  duration_ms: 909.687958
+  type: 'test'
+  ...
+# R14_CRASH {"phase":"cleanup-before-remove","path":"/private/tmp/af-r14-k8iPn8/state/recovery-required.json","effects":["refresh","simulate","install"],"resumed_effects":["refresh","simulate","install"],"restart_plan_exit":0,"before":{"state.json":"f62f9c7ddb1cd3b1c2a4ea79b5cafba408b7c09705b63f3b1bb91aec1c975e15","state.json.previous":"f62f9c7ddb1cd3b1c2a4ea79b5cafba408b7c09705b63f3b1bb91aec1c975e15","state-commit.json":"f3f72a23db52772d24771727a3a762ad627b37dc374b05df7224ec149bbc634b","events.jsonl":"34184427a0e937940d4f8cca2fa5e4c3b39283606f17eb9453e1d1e50e4d5517","recovery-required.json":"7c67ea57d4aaca3ae42d910764bca569042c4ae2670937f829d2a0a9ecd9d952"},"after":{"state.json":"14bfbf7b9eafb004ae1e34c4b0c20bec8741e28e0c5008ba3b8822a55e72a9c6","state.json.previous":"7679361214bc815c9eb48432e0ad489bddf4148dfc4edd3f7273674735a874f9","state-commit.json":"de6f59fac56c7f6322158d595fb8f19e40914029ad3fb66ae36387fc3015adb6","events.jsonl":"34184427a0e937940d4f8cca2fa5e4c3b39283606f17eb9453e1d1e50e4d5517","recovery-required.json":null},"reader_unchanged":true,"foreign_lock_exit":7,"recover_exit":8,"child_signal":"SIGKILL"}
+# Subtest: U04 U08 separate S02 child writer cleanup-before-remove: IPC barrier, reader, foreign lock, SIGKILL and restart
+ok 136 - U04 U08 separate S02 child writer cleanup-before-remove: IPC barrier, reader, foreign lock, SIGKILL and restart
+  ---
+  duration_ms: 896.00125
+  type: 'test'
+  ...
+# R14_CRASH {"phase":"cleanup-after-remove","path":"/private/tmp/af-r14-HqqFI3/state/recovery-required.json","effects":["refresh","simulate","install"],"resumed_effects":["refresh","simulate","install"],"restart_plan_exit":0,"before":{"state.json":"6ad48b4538b983ba2c521e474e2bfe6a03bb4b4b52e641e167faf6c45a1bd761","state.json.previous":"6ad48b4538b983ba2c521e474e2bfe6a03bb4b4b52e641e167faf6c45a1bd761","state-commit.json":"36405d7969920c0f3ba595f2e35d8814e9460f26a36854aeb3cd81763b4bc527","events.jsonl":"c7aa8ce3b209c43e791c4d0f8f4242945c44a8fed242d98f67bd78ed159bdf90","recovery-required.json":null},"after":{"state.json":"d8caf6bcf204a4f2948bc4a59b80c033c5031e3f482798a306b6f870dc459d6a","state.json.previous":"16a5d1ad3a65c0631efeb888f8ae2cd87149050bf083046e7813b5c383f405ee","state-commit.json":"925e68b8ad77d1670f4bd6d2664f5bb1b74583735c1239fe339e2306cc89067e","events.jsonl":"c7aa8ce3b209c43e791c4d0f8f4242945c44a8fed242d98f67bd78ed159bdf90","recovery-required.json":null},"reader_unchanged":true,"foreign_lock_exit":7,"recover_exit":8,"child_signal":"SIGKILL"}
+# Subtest: U04 U08 separate S02 child writer cleanup-after-remove: IPC barrier, reader, foreign lock, SIGKILL and restart
+ok 137 - U04 U08 separate S02 child writer cleanup-after-remove: IPC barrier, reader, foreign lock, SIGKILL and restart
+  ---
+  duration_ms: 898.107292
+  type: 'test'
+  ...
+# Subtest: U04 S02 late exception preserves real refresh/simulate checkpoints and unknown install
+ok 138 - U04 S02 late exception preserves real refresh/simulate checkpoints and unknown install
+  ---
+  duration_ms: 629.135875
+  type: 'test'
+  ...
+# R14_RECOVERY_FAULT {"fault":"restore-manifest-write","before":{"state.json":null,"state.json.previous":"4af56825b1feb7f9bbe4c6cab403810dfb1df5a1761f335bd515fdf07dad0b5b","state-commit.json":"35d52169638257c1e4e1e7e8ea2547b00df919f940cb4159868fb12cdef55042","events.jsonl":"79d4c08cacb2352bc75ebda83f1d46aa460acfc59556da7935f73af70292ce2b","recovery-required.json":null},"after_fault":{"state.json":"4af56825b1feb7f9bbe4c6cab403810dfb1df5a1761f335bd515fdf07dad0b5b","state.json.previous":"4af56825b1feb7f9bbe4c6cab403810dfb1df5a1761f335bd515fdf07dad0b5b","state-commit.json":"35d52169638257c1e4e1e7e8ea2547b00df919f940cb4159868fb12cdef55042","events.jsonl":"79d4c08cacb2352bc75ebda83f1d46aa460acfc59556da7935f73af70292ce2b","recovery-required.json":"71509800c75027a32f777725a389e858aeec44e98000c2aa0e7f912ae01c3974"},"after_retry":{"state.json":"4af56825b1feb7f9bbe4c6cab403810dfb1df5a1761f335bd515fdf07dad0b5b","state.json.previous":"4af56825b1feb7f9bbe4c6cab403810dfb1df5a1761f335bd515fdf07dad0b5b","state-commit.json":"fb914a77f27fd587562185e8c1989b027316d8971c89192042c4460e2a2a6be3","events.jsonl":"79d4c08cacb2352bc75ebda83f1d46aa460acfc59556da7935f73af70292ce2b","recovery-required.json":null},"hits":1,"first_exit":8,"next_recover":0,"effects":1}
+# Subtest: U08 engine clean proof survives metadata-only generation and recovery restore-manifest-write
+ok 139 - U08 engine clean proof survives metadata-only generation and recovery restore-manifest-write
+  ---
+  duration_ms: 500.785291
+  type: 'test'
+  ...
+# R14_RECOVERY_FAULT {"fault":"restore-manifest-rename","before":{"state.json":null,"state.json.previous":"c27a5536034502696d6aff669c49db6037f699d4cbc4b71f320b7b1f6eaafaa6","state-commit.json":"4067f2883989bd40b8538e00d21b9cb3518c4217f3bd0cbfa51c974bf99c5071","events.jsonl":"1046ac600d68a2e416ba9c65b423bb67fa809d0b6a298fc511fde83cda634da0","recovery-required.json":null},"after_fault":{"state.json":"c27a5536034502696d6aff669c49db6037f699d4cbc4b71f320b7b1f6eaafaa6","state.json.previous":"c27a5536034502696d6aff669c49db6037f699d4cbc4b71f320b7b1f6eaafaa6","state-commit.json":"4067f2883989bd40b8538e00d21b9cb3518c4217f3bd0cbfa51c974bf99c5071","events.jsonl":"1046ac600d68a2e416ba9c65b423bb67fa809d0b6a298fc511fde83cda634da0","recovery-required.json":"7546968535ea2b3b37e0f27937395eb9594d6da6f1de04655ae6821ef30f1d2a"},"after_retry":{"state.json":"c27a5536034502696d6aff669c49db6037f699d4cbc4b71f320b7b1f6eaafaa6","state.json.previous":"c27a5536034502696d6aff669c49db6037f699d4cbc4b71f320b7b1f6eaafaa6","state-commit.json":"a3989c13863fc72365687d27aaa50fe6e1ed0d7b25b3993651db22f54e25a886","events.jsonl":"1046ac600d68a2e416ba9c65b423bb67fa809d0b6a298fc511fde83cda634da0","recovery-required.json":null},"hits":1,"first_exit":8,"next_recover":0,"effects":1}
+# Subtest: U08 engine clean proof survives metadata-only generation and recovery restore-manifest-rename
+ok 140 - U08 engine clean proof survives metadata-only generation and recovery restore-manifest-rename
+  ---
+  duration_ms: 515.919833
+  type: 'test'
+  ...
+# R14_RECOVERY_FAULT {"fault":"cleanup-remove","before":{"state.json":null,"state.json.previous":"d36375bd73e3fedc139282a7238b6bdbf84aec09096d0a359eb23ba932e0c15b","state-commit.json":"fe3f83b396e6856ee0368e3d51d74d2bd2c557b9cacebcbc87a1f6285988c702","events.jsonl":"cde0e1bede51d36aab5e8863fed1817008d1b341536c1888d7e6360c67aa2057","recovery-required.json":null},"after_fault":{"state.json":"d36375bd73e3fedc139282a7238b6bdbf84aec09096d0a359eb23ba932e0c15b","state.json.previous":"d36375bd73e3fedc139282a7238b6bdbf84aec09096d0a359eb23ba932e0c15b","state-commit.json":"e4d355f080e976ba5f238d700b692c7784308e2ed8bd92c277bf44d4391c0812","events.jsonl":"cde0e1bede51d36aab5e8863fed1817008d1b341536c1888d7e6360c67aa2057","recovery-required.json":"dc8071e97aa7654ef2479d33c1a413d882401bce802ee628a8e408e290376023"},"after_retry":{"state.json":"d36375bd73e3fedc139282a7238b6bdbf84aec09096d0a359eb23ba932e0c15b","state.json.previous":"d36375bd73e3fedc139282a7238b6bdbf84aec09096d0a359eb23ba932e0c15b","state-commit.json":"e4d355f080e976ba5f238d700b692c7784308e2ed8bd92c277bf44d4391c0812","events.jsonl":"cde0e1bede51d36aab5e8863fed1817008d1b341536c1888d7e6360c67aa2057","recovery-required.json":null},"hits":1,"first_exit":8,"next_recover":0,"effects":1}
+# Subtest: U08 engine clean proof survives metadata-only generation and recovery cleanup-remove
+ok 141 - U08 engine clean proof survives metadata-only generation and recovery cleanup-remove
+  ---
+  duration_ms: 464.192708
+  type: 'test'
+  ...
+# R14_RECOVERY_FAULT {"fault":"control","before":{"state.json":null,"state.json.previous":"a89000f32040f2453cd504902ec6fe15c1f0b2d472fff0f5a6c7b0aa77b5980d","state-commit.json":"005d36936fea1d94c4be81f44201036ea622618bb39f095929cdc0b9aa76f8e2","events.jsonl":"fa1d969c8255e0ef5a89c3bb4226cda026eb075474aa098bf9cec4bd5e0d4c3b","recovery-required.json":null},"after_fault":{"state.json":"a89000f32040f2453cd504902ec6fe15c1f0b2d472fff0f5a6c7b0aa77b5980d","state.json.previous":"a89000f32040f2453cd504902ec6fe15c1f0b2d472fff0f5a6c7b0aa77b5980d","state-commit.json":"83a1bb26dcf28fbd389353472bd8bc23fe72f04b508822fb34f76cd4b5f8a622","events.jsonl":"fa1d969c8255e0ef5a89c3bb4226cda026eb075474aa098bf9cec4bd5e0d4c3b","recovery-required.json":null},"after_retry":{"state.json":"a89000f32040f2453cd504902ec6fe15c1f0b2d472fff0f5a6c7b0aa77b5980d","state.json.previous":"a89000f32040f2453cd504902ec6fe15c1f0b2d472fff0f5a6c7b0aa77b5980d","state-commit.json":"83a1bb26dcf28fbd389353472bd8bc23fe72f04b508822fb34f76cd4b5f8a622","events.jsonl":"fa1d969c8255e0ef5a89c3bb4226cda026eb075474aa098bf9cec4bd5e0d4c3b","recovery-required.json":null},"hits":0,"first_exit":0,"next_recover":0,"effects":1}
+# Subtest: U08 engine clean proof survives metadata-only generation and recovery control
+ok 142 - U08 engine clean proof survives metadata-only generation and recovery control
+  ---
+  duration_ms: 510.987209
+  type: 'test'
+  ...
+1..142
+# tests 142
+# suites 0
+# pass 142
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 56197.540583

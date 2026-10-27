@@ -1,0 +1,37 @@
+{
+  "head": "134ecd884ab77f537f1890b3dd456cc6592090ad",
+  "tree": "58a212fa5a30df32437db021f536338507890c47",
+  "branch": "master",
+  "index_sha256": "7d93f9b3ffb62ae9eb7864ebfb363eb1a38503720369fd25f396e4a8fdf26ef8",
+  "status": [
+    {
+      "status": "AM",
+      "path": "audit/R3-copilot-prompt.md",
+      "staged_blob": "2d4b341d67ed950194c79231599508ab7b87bc08",
+      "available": true,
+      "staged_sha256": "73ac505e7e63ba2851d1e19040d57b8c59fbf670e3e2a8407c76d4de1cfc2567"
+    },
+    {
+      "status": "A.",
+      "path": "audit/evidence/R221-all-files.zip",
+      "staged_blob": "7b38fe2c47c7754466d3042085af92bb2c528c7d",
+      "available": true,
+      "staged_sha256": "4b50f489fed88124919a4c0fcbc8af73fdfef9b44100fd929a1783d3752807e2"
+    },
+    {
+      "status": "A.",
+      "path": "audit/evidence/q1a-r2-2-1-2026-10-27-local/runners/__pycache__/completion.cpython-313.pyc",
+      "staged_blob": "e07c32d46575636140060a80377262c04e019f99",
+      "available": true,
+      "staged_sha256": "24e46c942f1766e1e79e81f6b3f264cde7c51c57aa606b43f595e6b67826af0b"
+    },
+    {
+      "status": "AM",
+      "path": "audit/reviews/R221-audit.md",
+      "staged_blob": "bad5958ee3b82166421bee9db5950b1422fa70b3",
+      "available": true,
+      "staged_sha256": "42d091c7814be07f4b29e63957bf5d707cdaba6d3772072948f15ab1ccfe5fd4"
+    }
+  ],
+  "limitation": "Full index bytes and initial unstaged working bytes were not captured before the external audit-only HEAD/index transition. First complete capture predates agent source edits but already records b92e833/e322277. Attribution unknown."
+}

@@ -11,6 +11,7 @@ import {
   rename,
   rm,
   stat,
+  statfs,
   writeFile
 } from "node:fs/promises";
 import path from "node:path";
@@ -18,6 +19,7 @@ import { createHash } from "node:crypto";
 import { performance } from "node:perf_hooks";
 
 export interface FilesystemAdapter {
+  localLockSemantics?(dirPath: string): Promise<boolean>;
   readText(filePath: string): Promise<string>;
   hashFile?(filePath: string, maxBytes: number, deadlineMs: number): Promise<string>;
   readTextBounded(filePath: string, maxBytes: number): Promise<{
@@ -41,6 +43,12 @@ export interface FilesystemAdapter {
 }
 
 export class NodeFilesystemAdapter implements FilesystemAdapter {
+  async localLockSemantics(dirPath: string): Promise<boolean> {
+    const info = await statfs(dirPath);
+    // ext, tmpfs, overlay (local test containers), APFS/HFS (development only).
+    return [0xef53, 0x01021994, 0x794c7630, 0x1a, 0x11].includes(Number(info.type));
+  }
+
   async hashFile(filePath: string, maxBytes: number, deadlineMs: number): Promise<string> {
     const started = performance.now();
     const handle = await open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);

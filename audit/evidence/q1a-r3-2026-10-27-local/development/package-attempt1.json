@@ -1,0 +1,8 @@
+{
+  "stage": "git apply --check",
+  "exit": 128,
+  "patch_sha256": "8f4eb0f9f69ebf6851fefd2f2c17e121beea802a8df8bc2a39b28f2e2d60cace",
+  "cause": "no-index addition diff header retained a/new/ prefix; path header only, no source/runtime defect",
+  "applies": 0,
+  "index_mutations": 0
+}

@@ -1,0 +1,37 @@
+[
+  {
+    "name": "boundaries/context-boundary-probes",
+    "contract": "boundary-context",
+    "status": "COMPLETE",
+    "row_count": 11,
+    "source_stdout": "logs/boundaries/context-boundary-probes.stdout"
+  },
+  {
+    "name": "boundaries/release-boundary-probes",
+    "contract": "boundary-release",
+    "status": "COMPLETE",
+    "row_count": 5,
+    "source_stdout": "logs/boundaries/release-boundary-probes.stdout"
+  },
+  {
+    "name": "context",
+    "contract": "context",
+    "status": "COMPLETE",
+    "row_count": 6,
+    "source_stdout": "logs/context.stdout"
+  },
+  {
+    "name": "s03",
+    "contract": "s03",
+    "status": "COMPLETE",
+    "row_count": 14,
+    "source_stdout": "logs/s03.stdout"
+  },
+  {
+    "name": "v1",
+    "contract": "s03-legacy",
+    "status": "INCOMPLETE",
+    "row_count": 0,
+    "source_stdout": "logs/v1.stdout"
+  }
+]

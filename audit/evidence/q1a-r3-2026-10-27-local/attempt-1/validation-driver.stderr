@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/inherited/runners/validate-r3-inherited.py", line 28, in <module>
+    for name,argv in [('node',['node','--version']),('npm',['npm','--version']),('ci',['npm','--prefix','setup','ci','--ignore-scripts','--no-audit','--no-fund']),('typecheck',['npm','--prefix','setup','run','typecheck','--silent']),('test',['npm','--prefix','setup','run','test','--silent'])]:run(name,argv)
+                                                                                                                                                                                                                                                                                                      ~~~^^^^^^^^^^^
+  File "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/inherited/runners/validate-r3-inherited.py", line 20, in run
+    assert code==expect,(name,code,expect)
+           ^^^^^^^^^^^^
+AssertionError: ('test', 1, 0)

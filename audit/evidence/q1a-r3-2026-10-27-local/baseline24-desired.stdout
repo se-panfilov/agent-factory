@@ -1,0 +1,68 @@
+[
+  {
+    "file": "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/baseline24.jsonl",
+    "mode": "desired",
+    "cases_complete": 14,
+    "desired_pass": 7,
+    "desired_fail": 7,
+    "results": [
+      {
+        "id": "L-active",
+        "desired_pass": true
+      },
+      {
+        "id": "L-known-dead",
+        "desired_pass": true
+      },
+      {
+        "id": "L-unknown-start",
+        "desired_pass": false
+      },
+      {
+        "id": "L-invalid-json",
+        "desired_pass": true
+      },
+      {
+        "id": "L-invalid-shape",
+        "desired_pass": false
+      },
+      {
+        "id": "L-recovery-race",
+        "desired_pass": false
+      },
+      {
+        "id": "C-none",
+        "desired_pass": true
+      },
+      {
+        "id": "C-early",
+        "desired_pass": true
+      },
+      {
+        "id": "C-late",
+        "desired_pass": false
+      },
+      {
+        "id": "C-atomic-control",
+        "desired_pass": true
+      },
+      {
+        "id": "C-atomic-fault",
+        "desired_pass": false
+      },
+      {
+        "id": "E-missing",
+        "desired_pass": true
+      },
+      {
+        "id": "E-sudo",
+        "desired_pass": false
+      },
+      {
+        "id": "E-root",
+        "desired_pass": false
+      }
+    ],
+    "verdict": "FAIL"
+  }
+]

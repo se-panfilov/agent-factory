@@ -1,0 +1,10 @@
+{
+  "named_base": "b92e833c3d743d2f15975ee6433b453f07f173b8",
+  "owner_binary_path": "audit/evidence/q1a-r2-2-1-2026-10-27-local/runners/__pycache__/completion.cpython-313.pyc",
+  "owner_binary_sha256": "24e46c942f1766e1e79e81f6b3f264cde7c51c57aa606b43f595e6b67826af0b",
+  "owner_original_audit_layer": "already in named base; exact pre-event staged blobs in initial/first-observation.json",
+  "index_after_complete_capture_unchanged": true,
+  "index_sha256": "e322277c93daf8b8fbaab665357b15778e4b27ed725b6548407be4248743d190",
+  "earlier_index_bytes_unavailable": true,
+  "agent_mutated_index": false
+}

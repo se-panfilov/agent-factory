@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/package-r3.py", line 67, in <module>
+    run('reconstruction-check',['git','apply','--check',O/'full-local.patch'],restored)
+    ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/package-r3.py", line 14, in run
+    assert p.returncode==expected,(row,p.stderr[:500]);return p.stdout
+           ^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ({'name': 'reconstruction-check', 'argv': ['git', 'apply', '--check', '/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-2026-10-27-local/full-local.patch'], 'cwd': '/private/tmp/q1a-r3-reconstructed-pizze9fu', 'exit': 128, 'signal': None, 'duration': 0.007534667034633458}, b'error: git diff header lacks filename information when removing 1 leading pathname component (line 4)\n')

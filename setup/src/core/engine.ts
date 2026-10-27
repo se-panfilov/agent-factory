@@ -32,7 +32,7 @@ import { acquireLock, consumeCancelRequest, recoverLockOnly, requestCancel, type
 import { assertPlanTime, buildStageClosure, createPlanFile, createRegistry, loadPlan, persistPlanFile, validatePlanConsistency, type StageRegistry } from "./plan";
 import { readHistoricalStage } from "./plan-history";
 import { canonicalHash } from "./plan-format";
-import { capturePlanContext, captureContextEvidence, revalidateContextEvidence, witnessFile, assertFileWitnesses, type FileWitness, type StaticPlanContext, assertReview, publishReview } from "./plan-context";
+import { capturePlanContext, captureContextEvidence, revalidateContextEvidence, witnessFile, assertFileWitnesses, type FileWitness, type StaticPlanContext, assertReview, publishReview, REVIEW_KEY } from "./plan-context";
 import { carryOperationProgress, restoreOperationProgress } from "./progress";
 import { assertCompletionPolicy, assertContinuingPolicy, assertProducerPolicy, policyFingerprint, projectedObservationHash, readPolicyBasis, withPolicyBasis, type PolicyBasis } from "./policy";
 import {
@@ -1060,7 +1060,15 @@ export class SetupEngine {
   }
 
   /** One final gate for approvals/effects: probes first, checked context, bounded reseal, TTL. */
-  private async finalPlanAdmission(options: CommandOptions, configBytes: string, planBytes: string, config: SetupConfig, state: SetupState, plan: ExecutionPlan): Promise<void> {
+  private async finalPlanAdmission(
+    options: CommandOptions,
+    configBytes: string,
+    planBytes: string,
+    config: SetupConfig,
+    state: SetupState,
+    plan: ExecutionPlan,
+    owner?: LockOwner
+  ): Promise<void> {
     this.assertOrdinaryOwner(config, "S00");
     this.validateApplyPlanAdmission(config, plan);
     await this.admitPlanPolicies(config, state, plan);
@@ -1069,16 +1077,24 @@ export class SetupEngine {
     // Re-observe the frontier after expensive archive hashing. Any input changed
     // during these probes is caught by the bounded reseal and metadata fence.
     await this.admitPlanPolicies(config, state, plan);
-    await this.sealAdmissionInputs(options, configBytes, planBytes, config, capture);
+    await this.sealAdmissionInputs(options, configBytes, planBytes, config, capture, owner);
     assertPlanTime(plan, this.deps.clock);
   }
 
   /** All potentially long reads finish before the final file-identity fence. */
-  private async sealAdmissionInputs(options: CommandOptions, configBytes: string, planBytes: string | undefined, config: SetupConfig, capture: Awaited<ReturnType<typeof captureContextEvidence>>): Promise<void> {
+  private async sealAdmissionInputs(
+    options: CommandOptions,
+    configBytes: string,
+    planBytes: string | undefined,
+    config: SetupConfig,
+    capture: Awaited<ReturnType<typeof captureContextEvidence>>,
+    owner?: LockOwner
+  ): Promise<void> {
     await revalidateContextEvidence(this.deps.fsAdapter, this.deps.processAdapter, config, capture);
     const requestFiles: FileWitness[] = [await witnessFile(this.deps.fsAdapter, options.configPath)];
     if (planBytes !== undefined && options.planPath !== undefined) requestFiles.push(await witnessFile(this.deps.fsAdapter, options.planPath));
     await this.assertRequestUnchanged(options, configBytes, planBytes);
+    if (owner) await this.consumeCancelOrThrow(config, owner);
     await assertFileWitnesses(this.deps.fsAdapter, [...capture.files, ...requestFiles]);
   }
 
@@ -1327,7 +1343,7 @@ export class SetupEngine {
             for (const gateId of stagePlan.required_gates) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, `stage:${stagePlan.stage_id}`);
             for (const gateId of operation.gate_ids) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, operation.id);
             persistFailure = false;
-            await this.finalPlanAdmission(options, configBytes, planBytes, config, state, plan);
+            await this.finalPlanAdmission(options, configBytes, planBytes, config, state, plan, lock.owner);
             for (const gateId of stagePlan.required_gates) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, `stage:${stagePlan.stage_id}`);
             for (const gateId of operation.gate_ids) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, operation.id);
             const attemptId = randomUUID();
@@ -1508,6 +1524,14 @@ export class SetupEngine {
       return { envelope, exitCode: aggregate.exitCode };
     } catch (error) {
       let setup = toSetupError(error);
+      if ((setup.exitCode === ExitCode.SigIntCleanupConfirmed || setup.exitCode === ExitCode.SigTermCleanupConfirmed)
+        && state !== null && state.in_flight_operation !== null) {
+        setup = setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "cleanup_unconfirmed",
+          publicMessage: "Cancellation interrupted an operation without a confirmed durable safe boundary.",
+          nextAction: "Preserve in-flight evidence and reconcile the operation; do not replay it.",
+          stage: state.in_flight_operation.stage_id, evidenceRef: config.paths.setup_state_dir });
+      }
+
       const failedStage = setup.stage ?? activeStage;
       if (setup.stage === null && failedStage !== null) {
         setup = setupError({ exitCode: setup.exitCode, code: setup.code, publicMessage: setup.message,
@@ -1553,7 +1577,9 @@ export class SetupEngine {
       }
       throw setup;
     } finally {
-      await lock.release();
+      try { await lock.release(); }
+      catch { throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "cleanup_unconfirmed",
+        publicMessage: "Run cleanup/release could not be confirmed.", nextAction: "Preserve lock and operation evidence; reconcile before resume.", evidenceRef: config.paths.setup_state_dir }); }
     }
   }
 
@@ -1749,6 +1775,7 @@ export class SetupEngine {
 
   private async runCancel(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
     const config = await loadConfig(this.deps.fsAdapter, options.configPath);
+    this.assertOrdinaryOwner(config, "S11");
     let state: SetupState | null = null;
     try {
       state = await this.loadStateWithOptions(config, {
@@ -1762,7 +1789,8 @@ export class SetupEngine {
     if (options.emergency === true) {
       const result = await emergencyCancel(
         {
-          processAdapter: this.deps.processAdapter
+          processAdapter: this.deps.processAdapter,
+          fsAdapter: this.deps.fsAdapter
         },
         config
       );
@@ -1776,54 +1804,51 @@ export class SetupEngine {
       };
       return { envelope, exitCode: ExitCode.Success };
     }
-    const cancelPath = await requestCancel(this.deps.fsAdapter, config);
+    const cancelPath = await requestCancel(this.deps.fsAdapter, config, this.deps.processAdapter);
     const envelope = envelopeBase("cancel", config, state, null);
     envelope.overall_status = "ok";
     envelope.data = { cancel_request: cancelPath };
     return { envelope, exitCode: ExitCode.Success };
   }
 
+  private recoveryReviewOutcome(envelope: JsonEnvelope, state: SetupState | null): { envelope: JsonEnvelope; exitCode: number } {
+    const raw = state?.stages.find(stage => stage.id === "S00")?.versions[REVIEW_KEY];
+    // No review ever existed on a fresh installation: there is no restored approval claim.
+    const hasReviewedPolicy = state?.stages.some(stage => stage.versions.setup_policy_basis_v1 !== undefined) ?? false;
+    if (raw !== undefined || hasReviewedPolicy) {
+      let committed = false;
+      try {
+        const review = JSON.parse(raw ?? "null") as Record<string, unknown>;
+        committed = Object.keys(review).sort().join(",") === "context_hash,phase,plan_hash,version"
+          && review.version === 1 && review.phase === "committed"
+          && /^[0-9a-f]{64}$/.test(String(review.plan_hash)) && /^[0-9a-f]{64}$/.test(String(review.context_hash));
+      } catch { /* unknown review remains unauthorized */ }
+      if (!committed) {
+        const next = "State bytes are consistent; explicitly generate/review a fresh plan and approve its gates before resume. Completed effects must not be replayed.";
+        envelope.overall_status = "blocked";
+        envelope.data = { ...envelope.data, bytes_recovered: true, resume_authorized: false, review_required: true };
+        envelope.manual_actions.push(next);
+        envelope.error = { code: "context_review_unproven", stage: null, operation_id: "n/a", retryable: false,
+          public_message: "Recovery did not recover committed review authorization.", next_action: next, evidence_ref: "state.json:setup_plan_review_v1" };
+        return { envelope, exitCode: ExitCode.DriftOrRecoveryRequired };
+      }
+    }
+    envelope.data = { ...envelope.data, resume_authorized: false, admission_required: true };
+    return { envelope, exitCode: ExitCode.Success };
+  }
+
   private async runRecover(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
     const config = await loadConfig(this.deps.fsAdapter, options.configPath);
     const paths = buildStatePaths(config);
+    this.assertOrdinaryOwner(config, "S00");
     const previousPath = `${paths.stateFile}.previous`;
     const unresolvedNextAction = "Preserve state/marker/journal evidence, run manual reconciliation, then rerun recover. Do not delete recovery artifacts.";
 
     if (options.lockOnly === true) {
       const recovered = await recoverLockOnly(this.deps.fsAdapter, this.deps.processAdapter, config);
-      const evidence = await inspectStateEvidence(this.deps.fsAdapter, config);
-      let state: SetupState | null = null;
-      const blockers: string[] = [];
-      if (evidence.marker !== null) {
-        blockers.push(`recovery marker present (${evidence.marker.reason})`);
-      }
-      if (evidence.journal.hasRecords) {
-        blockers.push("event journal contains historical or unresolved entries");
-      }
-      if (evidence.commitManifest !== null) {
-        blockers.push("state commit manifest is present and requires full recovery admission");
-      }
-      if (evidence.stateExists && evidence.marker === null) {
-        try {
-          state = await this.loadStateWithOptions(config, {
-            initializeIfMissing: false,
-            persistConfigDrift: false,
-            readOnly: true
-          });
-          if (state.in_flight_operation !== null) {
-            blockers.push(`in-flight operation present (${state.in_flight_operation.id})`);
-          }
-        } catch (error) {
-          blockers.push(`state diagnostic failed: ${toSetupError(error).code}`);
-          state = null;
-        }
-      }
-      const envelope = envelopeBase("recover", config, state, null);
+      const envelope = envelopeBase("recover", config, null, null);
       envelope.overall_status = "ok";
-      envelope.data = {
-        ...recovered,
-        recovery_blockers: blockers
-      };
+      envelope.data = { ...recovered, scope: "lock_protocol_only", resume_authorized: false };
       return { envelope, exitCode: ExitCode.Success };
     }
 
@@ -1856,7 +1881,7 @@ export class SetupEngine {
           outcome: "recovery_not_required",
           scope: "state_consistent"
         };
-        return { envelope, exitCode: ExitCode.Success };
+        return this.recoveryReviewOutcome(envelope, state);
       }
 
       if (
@@ -1873,7 +1898,7 @@ export class SetupEngine {
           outcome: "recovery_not_required",
           scope: "fresh_installation_without_state"
         };
-        return { envelope, exitCode: ExitCode.Success };
+        return this.recoveryReviewOutcome(envelope, state);
       }
 
       const markerReason = evidence.marker?.reason ?? "marker_missing";
@@ -1913,7 +1938,7 @@ export class SetupEngine {
           marker_reason: markerReason,
           resumed_cleanup: true
         };
-        return { envelope, exitCode: ExitCode.Success };
+        return this.recoveryReviewOutcome(envelope, state);
       }
 
       if (!evidence.previousExists) {
@@ -2084,7 +2109,7 @@ export class SetupEngine {
         marker_reason: markerReason,
         resumed_cleanup: markerCommit?.phase === "prepared" || markerCommit?.phase === "primary_restored"
       };
-      return { envelope, exitCode: ExitCode.Success };
+      return this.recoveryReviewOutcome(envelope, state);
     } catch (error) {
       const setup = toSetupError(error);
       const envelope = envelopeBase("recover", config, state, null);

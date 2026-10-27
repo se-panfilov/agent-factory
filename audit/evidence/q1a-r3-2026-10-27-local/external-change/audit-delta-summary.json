@@ -1,0 +1,16 @@
+{
+  "argv": [
+    "git",
+    "diff",
+    "--name-status",
+    "134ecd884ab77f537f1890b3dd456cc6592090ad",
+    "b92e833c3d743d2f15975ee6433b453f07f173b8"
+  ],
+  "exit": 0,
+  "changes": [
+    "A\taudit/R3-copilot-prompt.md",
+    "A\taudit/evidence/R221-all-files.zip",
+    "A\taudit/reviews/R221-audit.md"
+  ],
+  "setup_delta_empty": true
+}

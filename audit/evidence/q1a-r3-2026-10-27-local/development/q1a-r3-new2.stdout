@@ -1,0 +1,438 @@
+TAP version 13
+# R3_EVIDENCE {"id":"metadata-array","actual_uid":501,"injected_uid":1000,"barrier":true,"before":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945","after":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"56679039-7b43-4a5a-a1d1-94fc6b062e4d","installation_id":"da57e23b-9361-40e2-abe8-ae3b603aa9df","created_at":"2026-10-27T13:11:48.260Z"},"code":"lock_owner_incomplete","exit":7,"effects":0}
+# Subtest: R3 lock rejects unsafe metadata array
+ok 1 - R3 lock rejects unsafe metadata array
+  ---
+  duration_ms: 35.447083
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"metadata-empty","actual_uid":501,"injected_uid":1000,"barrier":true,"before":"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","after":"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"49eeb3be-1768-4367-87a4-4f4fcff7aee0","installation_id":"d2f377f0-6c5f-44de-9c19-87512d1fe9a8","created_at":"2026-10-27T13:11:48.291Z"},"code":"lock_owner_incomplete","exit":7,"effects":0}
+# Subtest: R3 lock rejects unsafe metadata empty
+ok 2 - R3 lock rejects unsafe metadata empty
+  ---
+  duration_ms: 24.134292
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"metadata-oversize","actual_uid":501,"injected_uid":1000,"barrier":true,"before":"4f4ead552223cb2905a4828972dfae7740586dabae603924a7810598256dbdd9","after":"4f4ead552223cb2905a4828972dfae7740586dabae603924a7810598256dbdd9","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"4b8a4cfb-d578-429f-b221-773072a207da","installation_id":"c63b6c5b-7ff0-484b-85b0-b02958c36d9f","created_at":"2026-10-27T13:11:48.312Z"},"code":"lock_owner_incomplete","exit":7,"effects":0}
+# Subtest: R3 lock rejects unsafe metadata oversize
+ok 3 - R3 lock rejects unsafe metadata oversize
+  ---
+  duration_ms: 21.941916
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"metadata-unknown-field","actual_uid":501,"injected_uid":1000,"barrier":true,"before":"e73dafa748616528c27be47f1cf8b548aa2218f102a945b21820a6884301a587","after":"e73dafa748616528c27be47f1cf8b548aa2218f102a945b21820a6884301a587","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"7c37babf-8dd0-42d7-88dd-fde469b75009","installation_id":"79089500-e7c6-4c9f-a0d7-662b603f2b4f","created_at":"2026-10-27T13:11:48.336Z"},"code":"lock_owner_incomplete","exit":7,"effects":0}
+# Subtest: R3 lock rejects unsafe metadata unknown-field
+ok 4 - R3 lock rejects unsafe metadata unknown-field
+  ---
+  duration_ms: 22.018208
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"metadata-null-ticks","actual_uid":501,"injected_uid":1000,"barrier":true,"before":"bf3e8c53b845ec346564535675e60510aa3d2a15e099f27323a8f4df78f53ca8","after":"bf3e8c53b845ec346564535675e60510aa3d2a15e099f27323a8f4df78f53ca8","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"7a425b7b-38a7-4b12-915e-7bf343521358","installation_id":"f92deca0-9daf-4bb9-9bb6-5d32882bf617","created_at":"2026-10-27T13:11:48.356Z"},"code":"lock_owner_incomplete","exit":7,"effects":0}
+# Subtest: R3 lock rejects unsafe metadata null-ticks
+ok 5 - R3 lock rejects unsafe metadata null-ticks
+  ---
+  duration_ms: 19.94775
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"metadata-unsafe-mode","actual_uid":501,"injected_uid":1000,"barrier":true,"before":"89abc60b6cfebcd6e4f972d7a961b58808820d1fd6c525545bf721095aec9970","after":"89abc60b6cfebcd6e4f972d7a961b58808820d1fd6c525545bf721095aec9970","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"c2a169b7-1b2f-4fc5-b42a-b49f1739958d","installation_id":"2b004f0e-c6e6-46a7-b0d5-5c44cee46f9d","created_at":"2026-10-27T13:11:48.376Z"},"code":"lock_owner_incomplete","exit":7,"effects":0}
+# Subtest: R3 lock rejects unsafe metadata unsafe-mode
+ok 6 - R3 lock rejects unsafe metadata unsafe-mode
+  ---
+  duration_ms: 21.926834
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"metadata-symlink","actual_uid":501,"injected_uid":1000,"barrier":true,"before":"480286ba2a8a75a02ae40ead69591a1f3927d5f219b22ba98a11d88dc731850d","after":"480286ba2a8a75a02ae40ead69591a1f3927d5f219b22ba98a11d88dc731850d","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"33cc37da-edf9-416c-90a1-b39c2d2a1a05","installation_id":"6051534c-aba1-41c1-8c7f-dba13f8334fb","created_at":"2026-10-27T13:11:48.399Z"},"code":"lock_owner_incomplete","exit":7,"effects":0}
+# Subtest: R3 lock rejects unsafe metadata symlink
+ok 7 - R3 lock rejects unsafe metadata symlink
+  ---
+  duration_ms: 23.029166
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"metadata-foreign-installation","actual_uid":501,"injected_uid":1000,"barrier":true,"before":"fb810ad254ca11389718cc151041d74ffd0419b606cd030f3791670fa4fd5c17","after":"fb810ad254ca11389718cc151041d74ffd0419b606cd030f3791670fa4fd5c17","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"4722439e-ebbd-41c8-a6ba-e7fbab921485","installation_id":"0cb53cb9-7dbd-4c9f-a9bc-ea85bf68916d","created_at":"2026-10-27T13:11:48.423Z"},"code":"lock_owner_incomplete","exit":7,"effects":0}
+# Subtest: R3 lock rejects unsafe metadata foreign-installation
+ok 8 - R3 lock rejects unsafe metadata foreign-installation
+  ---
+  duration_ms: 23.024166
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"liveness-alive","actual_uid":501,"injected_uid":1000,"barrier":true,"before":"d3644bf276c13180fdfc3d8d28da0873595290c8b3c9f0f9ff64797fbdba4a74","after":"d3644bf276c13180fdfc3d8d28da0873595290c8b3c9f0f9ff64797fbdba4a74","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"8f5acc51-4a52-42e2-9510-8e7b5e8d1dcd","installation_id":"39868e5b-0d9b-4b1e-b4fd-9071108486fa","created_at":"2026-10-27T13:11:48.446Z"},"liveness":"alive","effects":0,"exit":7}
+# Subtest: R3 liveness distinguishes alive
+ok 9 - R3 liveness distinguishes alive
+  ---
+  duration_ms: 27.860208
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"liveness-dead","actual_uid":501,"injected_uid":1000,"barrier":true,"before":"77c49695531935b2b6f4a4d8dd9068601a2f16bf038fa0beb48b82df7dd0dceb","after":null,"generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"73a5bac6-8aa7-46b3-a502-04fb266a9c30","installation_id":"4dfc7486-9f94-4b41-baea-bbd91481ded0","created_at":"2026-10-27T13:11:48.474Z"},"liveness":"dead","effects":0,"exit":0}
+# Subtest: R3 liveness distinguishes dead
+ok 10 - R3 liveness distinguishes dead
+  ---
+  duration_ms: 27.194167
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"liveness-EPERM","actual_uid":501,"injected_uid":1000,"barrier":true,"before":"68a533655927fabc0b7230583610e36c2c2ccb1fc364e8403f60208669aa55cf","after":"68a533655927fabc0b7230583610e36c2c2ccb1fc364e8403f60208669aa55cf","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"acf26547-1d92-476d-adec-7a2a5079ac7e","installation_id":"9ce2502f-0aa3-4d77-bdf5-53bb081bb8c1","created_at":"2026-10-27T13:11:48.501Z"},"liveness":"unknown","effects":0,"exit":7}
+# Subtest: R3 liveness distinguishes EPERM
+ok 11 - R3 liveness distinguishes EPERM
+  ---
+  duration_ms: 23.853416
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"liveness-null","actual_uid":501,"injected_uid":1000,"barrier":true,"before":"502812e250a3e35ddab083298b70da62d53bb9783fe6860593df40b3c29f3753","after":"502812e250a3e35ddab083298b70da62d53bb9783fe6860593df40b3c29f3753","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"6971065d-d996-4c98-aaa1-488c1a46d61a","installation_id":"8a0505bf-3994-4688-ac23-49f539141e0e","created_at":"2026-10-27T13:11:48.525Z"},"liveness":"unknown","effects":0,"exit":7}
+# Subtest: R3 liveness distinguishes null
+ok 12 - R3 liveness distinguishes null
+  ---
+  duration_ms: 24.737042
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"liveness-malformed","actual_uid":501,"injected_uid":1000,"barrier":true,"before":"06e367cfb5cf8e12866e5b735355d54251a0abafd6b6574f3c3edac6d3a95c8e","after":"06e367cfb5cf8e12866e5b735355d54251a0abafd6b6574f3c3edac6d3a95c8e","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"c9690aed-f76f-451c-ae22-95563cab1d6e","installation_id":"94c17643-8391-4146-ad18-ff7182516a52","created_at":"2026-10-27T13:11:48.551Z"},"liveness":"unknown","effects":0,"exit":7}
+# Subtest: R3 liveness distinguishes malformed
+ok 13 - R3 liveness distinguishes malformed
+  ---
+  duration_ms: 30.311875
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"liveness-reuse","actual_uid":501,"injected_uid":1000,"barrier":true,"before":"a4358899239699e77c3cf3cea1ace27b8a4c5721178cd536689afe3ea4eac4f4","after":"a4358899239699e77c3cf3cea1ace27b8a4c5721178cd536689afe3ea4eac4f4","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"e6e409a7-565e-4763-868a-9dee265c6e70","installation_id":"7bf3418b-d981-4568-811d-1782f1629917","created_at":"2026-10-27T13:11:48.592Z"},"liveness":"reused","effects":0,"exit":7}
+# Subtest: R3 liveness distinguishes reuse
+ok 14 - R3 liveness distinguishes reuse
+  ---
+  duration_ms: 49.636875
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"liveness-boot","actual_uid":501,"injected_uid":1000,"barrier":true,"before":"a17d9d7f0b23a0205eb487402ffce63d16b4bfbe6c3fcc34fcafed12592c875f","after":"a17d9d7f0b23a0205eb487402ffce63d16b4bfbe6c3fcc34fcafed12592c875f","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"1b97a31f-0d84-48f7-aa6e-b08c3643dee4","installation_id":"38766e19-e638-4c13-8a7a-ca52d2ffb6cc","created_at":"2026-10-27T13:11:48.635Z"},"liveness":"boot_changed","effects":0,"exit":7}
+# Subtest: R3 liveness distinguishes boot
+ok 15 - R3 liveness distinguishes boot
+  ---
+  duration_ms: 27.13375
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"liveness-boot-unavailable","actual_uid":501,"injected_uid":1000,"barrier":true,"before":"cdebba969f620047311b981b29405d13eec077a313a6386e7ca054781c07da6d","after":"cdebba969f620047311b981b29405d13eec077a313a6386e7ca054781c07da6d","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"c5e93dd7-f0c3-43a1-b25c-bfdaa33b94ac","installation_id":"4e4349ee-3063-44b0-994e-95a6ba515314","created_at":"2026-10-27T13:11:48.656Z"},"liveness":"unknown","effects":0,"exit":7}
+# Subtest: R3 liveness distinguishes boot-unavailable
+ok 16 - R3 liveness distinguishes boot-unavailable
+  ---
+  duration_ms: 23.758917
+  type: 'test'
+  ...
+# Subtest: R3 proc stat handles comm parentheses/spaces and numeric bounds; only ESRCH proves absence
+ok 17 - R3 proc stat handles comm parentheses/spaces and numeric bounds; only ESRCH proves absence
+  ---
+  duration_ms: 0.96625
+  type: 'test'
+  ...
+# Subtest: R3 unknown own identity never publishes a usable lock
+ok 18 - R3 unknown own identity never publishes a usable lock
+  ---
+  duration_ms: 11.537125
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"recover-acquire-race","actual_uid":501,"injected_uid":1000,"barrier":1,"old":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"53911b50-68a1-4f22-94fc-ff7c5c74f6f2","installation_id":"49b52d06-1f4a-45e4-867e-1b565e652b0a","created_at":"2026-10-27T13:11:48.693Z"},"fresh":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"868d7798-9c92-4964-b821-6b41cc6864fc","installation_id":"49b52d06-1f4a-45e4-867e-1b565e652b0a","created_at":"2026-10-27T13:11:48.717Z"},"before":"ea1d4213fa31c06aea47581ab2ed87962bbd6d0d92dca03f0da7bb58a37de4a1","after_stale_release":"ea1d4213fa31c06aea47581ab2ed87962bbd6d0d92dca03f0da7bb58a37de4a1","competing_recover":7,"competing_acquire":7,"stale_release":8}
+# Subtest: R3 actual FS competing recover/acquire serialize at rename and stale release cannot remove new generation
+ok 19 - R3 actual FS competing recover/acquire serialize at rename and stale release cannot remove new generation
+  ---
+  duration_ms: 65.06175
+  type: 'test'
+  ...
+# Subtest: R3 actual FS release holds protocol until removal completes
+ok 20 - R3 actual FS release holds protocol until removal completes
+  ---
+  duration_ms: 58.918583
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"crash-mkdir","actual_uid":501,"injected_uid":1000,"barrier":1,"renamed":false,"files":["lock"],"exit":8,"physical_power_loss":"NOT RUN"}
+# Subtest: R3 publication/quarantine failure preserves evidence mkdir
+ok 21 - R3 publication/quarantine failure preserves evidence mkdir
+  ---
+  duration_ms: 28.170458
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"crash-owner-write","actual_uid":501,"injected_uid":1000,"barrier":1,"renamed":false,"files":["lock"],"exit":8,"physical_power_loss":"NOT RUN"}
+# Subtest: R3 publication/quarantine failure preserves evidence owner-write
+ok 22 - R3 publication/quarantine failure preserves evidence owner-write
+  ---
+  duration_ms: 22.686791
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"crash-owner-fsync","actual_uid":501,"injected_uid":1000,"barrier":1,"renamed":false,"files":["lock"],"exit":8,"physical_power_loss":"NOT RUN"}
+# Subtest: R3 publication/quarantine failure preserves evidence owner-fsync
+ok 23 - R3 publication/quarantine failure preserves evidence owner-fsync
+  ---
+  duration_ms: 23.891625
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"crash-directory-fsync","actual_uid":501,"injected_uid":1000,"barrier":1,"renamed":false,"files":["lock"],"exit":8,"physical_power_loss":"NOT RUN"}
+# Subtest: R3 publication/quarantine failure preserves evidence directory-fsync
+ok 24 - R3 publication/quarantine failure preserves evidence directory-fsync
+  ---
+  duration_ms: 30.060625
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"crash-before-rename","actual_uid":501,"injected_uid":1000,"barrier":1,"renamed":false,"files":["lock"],"exit":8,"physical_power_loss":"NOT RUN"}
+# Subtest: R3 publication/quarantine failure preserves evidence before-rename
+ok 25 - R3 publication/quarantine failure preserves evidence before-rename
+  ---
+  duration_ms: 30.880833
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"crash-after-rename","actual_uid":501,"injected_uid":1000,"barrier":1,"renamed":true,"files":["lock.quarantine-6f8d59bf-6c5c-4976-b63b-2f2e5f58dbb5"],"exit":8,"physical_power_loss":"NOT RUN"}
+# Subtest: R3 publication/quarantine failure preserves evidence after-rename
+ok 26 - R3 publication/quarantine failure preserves evidence after-rename
+  ---
+  duration_ms: 31.918709
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"crash-parent-fsync","actual_uid":501,"injected_uid":1000,"barrier":2,"renamed":true,"files":["lock.quarantine-89d58ed0-9c6f-4dfd-bed3-c318c27b796a"],"exit":8,"physical_power_loss":"NOT RUN"}
+# Subtest: R3 publication/quarantine failure preserves evidence parent-fsync
+ok 27 - R3 publication/quarantine failure preserves evidence parent-fsync
+  ---
+  duration_ms: 28.937416
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"crash-guard-write","actual_uid":501,"injected_uid":1000,"barrier":1,"renamed":false,"files":["lock-protocol"],"exit":8,"physical_power_loss":"NOT RUN"}
+# Subtest: R3 publication/quarantine failure preserves evidence guard-write
+ok 28 - R3 publication/quarantine failure preserves evidence guard-write
+  ---
+  duration_ms: 8.473334
+  type: 'test'
+  ...
+# Subtest: R3 unsupported FS and unresolved resources block before quarantine
+ok 29 - R3 unsupported FS and unresolved resources block before quarantine
+  ---
+  duration_ms: 293.962125
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"cancel-fault-write","actual_uid":501,"injected_uid":1000,"barrier":1,"before":"d8f83431067b94ccad590f75f8ceb84ac83af3e621737b7bb3378be9c9cc1109","after":"d8f83431067b94ccad590f75f8ceb84ac83af3e621737b7bb3378be9c9cc1109","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"a390cd75-d418-4d6f-ab4c-6ae7e65376be","installation_id":"a9adfa0b-6c21-4dcb-b2bc-674b7b6cc609","created_at":"2026-10-27T13:11:49.319Z"},"matching":true,"exit":8}
+# Subtest: R3 repeated cancellation preserves accepted request after write failure
+ok 30 - R3 repeated cancellation preserves accepted request after write failure
+  ---
+  duration_ms: 48.11
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"cancel-fault-fsync","actual_uid":501,"injected_uid":1000,"barrier":1,"before":"5b803f7b3b45627ced30b3b8d38650e2098a90e9c7fb0f9c301ce75f936f9201","after":"5b803f7b3b45627ced30b3b8d38650e2098a90e9c7fb0f9c301ce75f936f9201","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"c0d2a9c4-e241-45d1-b5bd-05e1860c836c","installation_id":"5f03a74c-a652-4587-a1eb-214c64a5fe45","created_at":"2026-10-27T13:11:49.373Z"},"matching":true,"exit":8}
+# Subtest: R3 repeated cancellation preserves accepted request after fsync failure
+ok 31 - R3 repeated cancellation preserves accepted request after fsync failure
+  ---
+  duration_ms: 51.824334
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"cancel-fault-rename","actual_uid":501,"injected_uid":1000,"barrier":1,"before":"cea3ee24820e11fd82169e19419b5ee604cc0024fb85ff7638dfdd38e120b70a","after":"cea3ee24820e11fd82169e19419b5ee604cc0024fb85ff7638dfdd38e120b70a","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"077e9b9f-85bc-41e7-88f4-d823d2257080","installation_id":"edaa72af-4b80-46ef-be1b-bb1f029ac277","created_at":"2026-10-27T13:11:49.421Z"},"matching":true,"exit":8}
+# Subtest: R3 repeated cancellation preserves accepted request after rename failure
+ok 32 - R3 repeated cancellation preserves accepted request after rename failure
+  ---
+  duration_ms: 49.107125
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"cancel-fault-parent-fsync","actual_uid":501,"injected_uid":1000,"barrier":1,"before":"278ca5d8944962da4c19b644d2396dece53106632bf5bb9d3a96a29c59e69443","after":"278ca5d8944962da4c19b644d2396dece53106632bf5bb9d3a96a29c59e69443","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"3cebe058-9180-4a5e-8a8d-61e62cd3415c","installation_id":"34670bbc-72db-481f-b3de-b6190ed94b59","created_at":"2026-10-27T13:11:49.469Z"},"matching":true,"exit":8}
+# Subtest: R3 repeated cancellation preserves accepted request after parent-fsync failure
+ok 33 - R3 repeated cancellation preserves accepted request after parent-fsync failure
+  ---
+  duration_ms: 53.064541
+  type: 'test'
+  ...
+# Subtest: R3 cancel consumer never deletes concurrent/new generation request; no active run refuses publication
+ok 34 - R3 cancel consumer never deletes concurrent/new generation request; no active run refuses publication
+  ---
+  duration_ms: 124.206916
+  type: 'test'
+  ...
+# Subtest: R3 concurrent cancellation writer and generation swap obey same protocol
+ok 35 - R3 concurrent cancellation writer and generation swap obey same protocol
+  ---
+  duration_ms: 95.941292
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"admission-none","actual_uid":501,"injected_uid":1000,"barrier":0,"exit":0,"counts":{"refresh":1,"simulate":1,"install":1},"state":{"state.json":"48e4654703e56afd647962f2e9014fffc24af2ac04b679b897bafee13d01068f","state.json.previous":"88c854cac804f5f9dd4070ddf494f05b225ac90f27a4b25f7f51c99d39114cb3","state-commit.json":"a5ef659e98fc4ba70bb14581de365b61a93ae2474f5da74f04aa8f1f20828519","events.jsonl":"e92717c8232da211e583ac086e64e0ea9fd900e5bc9dc7f1516a92790ee8d98f","recovery-required.json":null},"target_events":"completed"}
+# Subtest: R3 final cancellation boundary none
+ok 36 - R3 final cancellation boundary none
+  ---
+  duration_ms: 506.817042
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"admission-early","actual_uid":501,"injected_uid":1000,"barrier":1,"exit":130,"code":"cancel_requested","counts":{"refresh":0,"simulate":0,"install":0},"state":{"state.json":"d7b6adcb6212f11f07b1ccb91680bf4b8e4f741667351d2bf2e771e8cf200125","state.json.previous":"2a4b6a2b70a5da55d4b54b1afbb8dd276cc0a8368de3752bc0970257be180fd2","state-commit.json":"5d15da10802301b760bff3b7e12a9c0e4583b9dd381b5109ec037eddfe23b59d","events.jsonl":null,"recovery-required.json":null},"target_events":0}
+# Subtest: R3 final cancellation boundary early
+ok 37 - R3 final cancellation boundary early
+  ---
+  duration_ms: 257.796541
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"admission-admission","actual_uid":501,"injected_uid":1000,"barrier":1,"exit":130,"code":"cancel_requested","counts":{"refresh":0,"simulate":0,"install":0},"state":{"state.json":"21fbe45da1797b953524d2c028cff2e67e600a147c5d73b3811f0152659c9e61","state.json.previous":"5569609a5f6a85f18273c0f7540c7e2beaadf6d9fa8d4cdc032eab2569af693e","state-commit.json":"ffed0491b63a26a486840f70e7fb8f43987b9ac375997a211604b8cb22c38d7f","events.jsonl":null,"recovery-required.json":null},"target_events":0}
+# Subtest: R3 final cancellation boundary admission
+ok 38 - R3 final cancellation boundary admission
+  ---
+  duration_ms: 293.332958
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"admission-cancel-and-context-drift","actual_uid":501,"injected_uid":1000,"barrier":1,"exit":8,"code":"request_changed_after_read","counts":{"refresh":0,"simulate":0,"install":0},"state":{"state.json":"79e30e020858381c41c9b160100c5f666a41a0d1026a70fee6138854da1d305d","state.json.previous":"1b9d19de7371a5196038b4b5abff4e65b9e7619b4f95590a9c71b1f95a2425f0","state-commit.json":"c717c82e9f99211b33ae522387304d54f536d83a83646cc93dcb4d1159c34502","events.jsonl":null,"recovery-required.json":null},"target_events":0}
+# Subtest: R3 final cancellation boundary cancel-and-context-drift
+ok 39 - R3 final cancellation boundary cancel-and-context-drift
+  ---
+  duration_ms: 247.254917
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"admission-cleanup-failed","actual_uid":501,"injected_uid":1000,"barrier":1,"exit":8,"code":"cleanup_unconfirmed","counts":{"refresh":0,"simulate":0,"install":0},"state":{"state.json":"a084de32a6614a688142e1643068d79223e35da8a84bea52c8ed51b9511c141a","state.json.previous":"28b5752719d3353c37862cc3934bc6949b9134c83c554a8bfcea3b4250022136","state-commit.json":"6a71b0f599fdf036b7dd6decc67034e97726b12d978e2756b6557cff6c037d99","events.jsonl":null,"recovery-required.json":null},"target_events":0}
+# Subtest: R3 final cancellation boundary cleanup-failed
+ok 40 - R3 final cancellation boundary cleanup-failed
+  ---
+  duration_ms: 254.902542
+  type: 'test'
+  ...
+# Subtest: R3 cancel checkpoint prefix resumes without replay and retains exact publication
+ok 41 - R3 cancel checkpoint prefix resumes without replay and retains exact publication
+  ---
+  duration_ms: 397.788208
+  type: 'test'
+  ...
+# Subtest: R3 ordinary owner refusal cancel/root
+ok 42 - R3 ordinary owner refusal cancel/root
+  ---
+  duration_ms: 6.684917
+  type: 'test'
+  ...
+# Subtest: R3 ordinary owner refusal cancel/foreign
+ok 43 - R3 ordinary owner refusal cancel/foreign
+  ---
+  duration_ms: 4.681958
+  type: 'test'
+  ...
+# Subtest: R3 ordinary owner refusal recover/root
+ok 44 - R3 ordinary owner refusal recover/root
+  ---
+  duration_ms: 7.214958
+  type: 'test'
+  ...
+# Subtest: R3 ordinary owner refusal recover/foreign
+ok 45 - R3 ordinary owner refusal recover/foreign
+  ---
+  duration_ms: 6.122417
+  type: 'test'
+  ...
+# Subtest: R3 ordinary owner refusal emergency/root
+ok 46 - R3 ordinary owner refusal emergency/root
+  ---
+  duration_ms: 5.853334
+  type: 'test'
+  ...
+# Subtest: R3 ordinary owner refusal emergency/foreign
+ok 47 - R3 ordinary owner refusal emergency/foreign
+  ---
+  duration_ms: 4.382208
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"emergency-valid","actual_uid":501,"injected_uid":1000,"barrier":"current-bytes-read","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"8a97da4b-6f82-4912-84f6-3ee232a4f2fd","installation_id":"21fc3eae-c833-41e6-be43-463479186d2a","created_at":"2026-10-27T13:11:52.283Z"},"before":{"state.json":"663b4cdab82627937bab585ab97bef67d80117683597efa6cd87b01e796539f8","state.json.previous":"7eb13ee4619117f037ef423dcefeb9fc1dc9af369cba444e42725bf10368cc83","state-commit.json":"52e3e149f008f9ddb06e85fe1b6ced82273ab3bb825017fbc9b3eb0fc63ac3c9","events.jsonl":"0b0e55e535cb037e34d7530ed54962f47f16c012efbd972a24581ed219b63ad7","recovery-required.json":null},"after":{"state.json":"663b4cdab82627937bab585ab97bef67d80117683597efa6cd87b01e796539f8","state.json.previous":"7eb13ee4619117f037ef423dcefeb9fc1dc9af369cba444e42725bf10368cc83","state-commit.json":"52e3e149f008f9ddb06e85fe1b6ced82273ab3bb825017fbc9b3eb0fc63ac3c9","events.jsonl":"0b0e55e535cb037e34d7530ed54962f47f16c012efbd972a24581ed219b63ad7","recovery-required.json":null},"calls":[{"binary":"/private/tmp/af-r14-DAxLEB/node/bin/node","args":["/private/tmp/af-r14-DAxLEB/app/runner.cjs","stop"],"cwd":"/private/tmp/af-r14-DAxLEB/app","timeoutMs":20000,"maxOutputBytes":131072},{"binary":"/private/tmp/af-r14-DAxLEB/node/bin/node","args":["/private/tmp/af-r14-DAxLEB/app/runner.cjs","status"],"cwd":"/private/tmp/af-r14-DAxLEB/app","timeoutMs":20000,"maxOutputBytes":131072},{"binary":"/usr/bin/docker","args":["ps","-a","--filter","label=agent-factory.installation_id=21fc3eae-c833-41e6-be43-463479186d2a","--format","{{.ID}}"],"timeoutMs":20000,"maxOutputBytes":131072},{"binary":"/usr/bin/docker","args":["inspect","--format","{{json .}}","aaaaaaaaaaaa"],"timeoutMs":20000,"maxOutputBytes":131072},{"binary":"/usr/bin/docker","args":["stop","aaaaaaaaaaaa"],"timeoutMs":20000,"maxOutputBytes":131072},{"binary":"/usr/bin/docker","args":["inspect","--format","{{json .}}","aaaaaaaaaaaa"],"timeoutMs":20000,"maxOutputBytes":131072},{"binary":"/usr/bin/docker","args":["inspect","--format","{{json .}}","bbbbbbbbbbbb"],"timeoutMs":20000,"maxOutputBytes":131072}],"paused":true,"stopped":["aaaaaaaaaaaa"]}
+# Subtest: R3 trusted emergency valid
+ok 48 - R3 trusted emergency valid
+  ---
+  duration_ms: 601.16475
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"emergency-tamper","actual_uid":501,"injected_uid":1000,"barrier":"current-bytes-read","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"7149e64d-23b8-4ed6-9e06-6a5c29456afd","installation_id":"84aef5fb-216f-4104-98c0-c1ad6f21f8bd","created_at":"2026-10-27T13:11:52.894Z"},"before":{"state.json":"0125cc020f3a16f642d6eb0acf9235d8532d5145322655578678ff6b0f13805d","state.json.previous":"5e289a6269a687707f3595bc8e6aebdf18b29e9456fb048c3548c5da079e4638","state-commit.json":"ce7f6e5ef02f5b433b782612e82c785885900c073107bd3a9b5b7c415b1c5c69","events.jsonl":"e10d1e839ad3e7cf8e7a3d834e2d7519f37bba98f82d0060163e6ce4db29ceb7","recovery-required.json":null},"after":{"state.json":"0125cc020f3a16f642d6eb0acf9235d8532d5145322655578678ff6b0f13805d","state.json.previous":"5e289a6269a687707f3595bc8e6aebdf18b29e9456fb048c3548c5da079e4638","state-commit.json":"ce7f6e5ef02f5b433b782612e82c785885900c073107bd3a9b5b7c415b1c5c69","events.jsonl":"e10d1e839ad3e7cf8e7a3d834e2d7519f37bba98f82d0060163e6ce4db29ceb7","recovery-required.json":null},"calls":[],"paused":false,"error":{"exitCode":9,"code":"emergency_content_drift","stage":null,"operationId":"n/a","retryable":false,"nextAction":"Preserve control evidence; reconcile ownership/resources manually before retrying.","evidenceRef":"/private/tmp/af-r14-wJrsib/app/runner.cjs","name":"SetupError"},"stopped":[]}
+# Subtest: R3 trusted emergency tamper
+ok 49 - R3 trusted emergency tamper
+  ---
+  duration_ms: 593.153375
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"emergency-traversal","actual_uid":501,"injected_uid":1000,"barrier":"current-bytes-read","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"d8f571e8-d8b5-408e-bab2-06dad71101f0","installation_id":"ba4c131d-54b1-4dc4-9b34-c32daf786ff1","created_at":"2026-10-27T13:11:53.546Z"},"before":{"state.json":"3afe70d7bce070b24539ee491b00adcea58e0b83b417bef30fd4becb84c8fb0a","state.json.previous":"eb0ce52e65e8aba38804648584be26e4ab33484d5e1d58a2f51f37e2f7448235","state-commit.json":"b770ab5dd2ba05d8e18f056fb676d166b23eeb6144576981dcefd3a386d1447d","events.jsonl":"047065ac1cf0b78580a6a7f06ca55c7dd1b5431f6e36d0ac07e09b800721a192","recovery-required.json":null},"after":{"state.json":"3afe70d7bce070b24539ee491b00adcea58e0b83b417bef30fd4becb84c8fb0a","state.json.previous":"eb0ce52e65e8aba38804648584be26e4ab33484d5e1d58a2f51f37e2f7448235","state-commit.json":"b770ab5dd2ba05d8e18f056fb676d166b23eeb6144576981dcefd3a386d1447d","events.jsonl":"047065ac1cf0b78580a6a7f06ca55c7dd1b5431f6e36d0ac07e09b800721a192","recovery-required.json":null},"calls":[],"paused":false,"error":{"exitCode":5,"code":"emergency_deployment_unproven","stage":null,"operationId":"n/a","retryable":false,"nextAction":"Preserve control evidence; reconcile ownership/resources manually before retrying.","evidenceRef":"/private/tmp/af-r14-jzpBU2/app/deployment-manifest.json","name":"SetupError"},"stopped":[]}
+# Subtest: R3 trusted emergency traversal
+ok 50 - R3 trusted emergency traversal
+  ---
+  duration_ms: 643.567542
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"emergency-symlink","actual_uid":501,"injected_uid":1000,"barrier":"current-bytes-read","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"aededcf0-9320-4a0b-8aef-ce7ae9188c69","installation_id":"0075e291-6e88-4043-b63a-00ded7790223","created_at":"2026-10-27T13:11:54.085Z"},"before":{"state.json":"bbcd46c5ff636cc43b367f2adca13a62cdaab005582766704bfe29199044da6d","state.json.previous":"4b94383ed3b14aeb9ed99b2ff64099fbbf3ac526a3871cced85b2a4ab0c6b3b9","state-commit.json":"810ed9ab574b4122bcab0002ae0967d56e229595f55ed1e5141454bc79611769","events.jsonl":"1b8ba47bb02cbe4c2982006a1495d1118d27b69f371f8f53d000a655b8133215","recovery-required.json":null},"after":{"state.json":"bbcd46c5ff636cc43b367f2adca13a62cdaab005582766704bfe29199044da6d","state.json.previous":"4b94383ed3b14aeb9ed99b2ff64099fbbf3ac526a3871cced85b2a4ab0c6b3b9","state-commit.json":"810ed9ab574b4122bcab0002ae0967d56e229595f55ed1e5141454bc79611769","events.jsonl":"1b8ba47bb02cbe4c2982006a1495d1118d27b69f371f8f53d000a655b8133215","recovery-required.json":null},"calls":[],"paused":false,"error":{"exitCode":9,"code":"context_file_unsafe","stage":null,"operationId":"n/a","retryable":false,"nextAction":"Revalidate this host/owner session and artifacts, then explicitly generate, review and approve a fresh plan. Preserve existing progress evidence.","evidenceRef":"state/events.jsonl","name":"SetupError"},"stopped":[]}
+# Subtest: R3 trusted emergency symlink
+ok 51 - R3 trusted emergency symlink
+  ---
+  duration_ms: 548.069292
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"emergency-cwd-symlink","actual_uid":501,"injected_uid":1000,"barrier":"current-bytes-read","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"08306319-0213-4a98-a8f7-117fccbe1903","installation_id":"a44f2459-3f43-4ea3-b967-f29452425c65","created_at":"2026-10-27T13:11:54.662Z"},"before":{"state.json":"56273dae6eeb4e2152506b0d30829439fcc82b64f0cf2b76102554c3a9e0c93d","state.json.previous":"f83c8a2e61e9dcfbaa1ff7793da0496ad947ef369dd00e7ebe7fe73e22730c2d","state-commit.json":"adccb73456cba59f057b21567238db8d14f2a7a66eccb2d4d96bb23e132997d2","events.jsonl":"685f079969a72203188507f1f7e8ff2e6705d1322f69f2c75f189c9bec9ca536","recovery-required.json":null},"after":{"state.json":"56273dae6eeb4e2152506b0d30829439fcc82b64f0cf2b76102554c3a9e0c93d","state.json.previous":"f83c8a2e61e9dcfbaa1ff7793da0496ad947ef369dd00e7ebe7fe73e22730c2d","state-commit.json":"adccb73456cba59f057b21567238db8d14f2a7a66eccb2d4d96bb23e132997d2","events.jsonl":"685f079969a72203188507f1f7e8ff2e6705d1322f69f2c75f189c9bec9ca536","recovery-required.json":null},"calls":[],"paused":false,"error":{"exitCode":8,"code":"control_directory_unsafe","stage":null,"operationId":"n/a","retryable":false,"nextAction":"Preserve control evidence; reconcile ownership/resources manually before retrying.","evidenceRef":"/private/tmp/af-r14-yaizjL/app","name":"SetupError"},"stopped":[]}
+# Subtest: R3 trusted emergency cwd-symlink
+ok 52 - R3 trusted emergency cwd-symlink
+  ---
+  duration_ms: 572.289583
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"emergency-node-pin","actual_uid":501,"injected_uid":1000,"barrier":"current-bytes-read","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"436afa52-c0cb-4f34-a045-7504dcc64204","installation_id":"26960c90-a24f-4ef9-afea-853fef15775d","created_at":"2026-10-27T13:11:55.248Z"},"before":{"state.json":"83ddff77802f49b6a238a0379d3a32865040029abc7b757ddab369403c26ef6a","state.json.previous":"4e7568cc5a650400b869be398bdb9e69e50500430deaff0532871c54714377cc","state-commit.json":"3f1da8728f2129ff48f51e515333fd38b6e7e4a77eae2f588ac25fcdc7fdf1c6","events.jsonl":"54f4b29e3cc0c595f2265a88b6498026e583be8370909200db4b76a03a5d24a3","recovery-required.json":null},"after":{"state.json":"83ddff77802f49b6a238a0379d3a32865040029abc7b757ddab369403c26ef6a","state.json.previous":"4e7568cc5a650400b869be398bdb9e69e50500430deaff0532871c54714377cc","state-commit.json":"3f1da8728f2129ff48f51e515333fd38b6e7e4a77eae2f588ac25fcdc7fdf1c6","events.jsonl":"54f4b29e3cc0c595f2265a88b6498026e583be8370909200db4b76a03a5d24a3","recovery-required.json":null},"calls":[],"paused":false,"error":{"exitCode":5,"code":"emergency_node_pin_unproven","stage":null,"operationId":"n/a","retryable":false,"nextAction":"Preserve control evidence; reconcile ownership/resources manually before retrying.","evidenceRef":"/private/tmp/af-r14-qDcAim/node/bin/node","name":"SetupError"},"stopped":[]}
+# Subtest: R3 trusted emergency node-pin
+ok 53 - R3 trusted emergency node-pin
+  ---
+  duration_ms: 592.140042
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"emergency-node-symlink","actual_uid":501,"injected_uid":1000,"barrier":"current-bytes-read","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"08d0123e-abfb-415c-9940-b8fdc7ceb681","installation_id":"b221b224-ff5a-42da-a9f1-945f9e4fed3d","created_at":"2026-10-27T13:11:55.831Z"},"before":{"state.json":"4dcd7e8efa236f6addd172fc80931729ef662be803e62e8585586869146f0cf7","state.json.previous":"d2be382531b2f601903a600a5358d97b00206685a95941af70faa57e2bca7525","state-commit.json":"a832d4079d2c2bd33a812a7f79223c590f857be28028b19015db71f65c774383","events.jsonl":"046cd3b7cf71be48c9340b7a4cc1888f147b37ccc047039510de0048c1c3ec1b","recovery-required.json":null},"after":{"state.json":"4dcd7e8efa236f6addd172fc80931729ef662be803e62e8585586869146f0cf7","state.json.previous":"d2be382531b2f601903a600a5358d97b00206685a95941af70faa57e2bca7525","state-commit.json":"a832d4079d2c2bd33a812a7f79223c590f857be28028b19015db71f65c774383","events.jsonl":"046cd3b7cf71be48c9340b7a4cc1888f147b37ccc047039510de0048c1c3ec1b","recovery-required.json":null},"calls":[],"paused":false,"error":{"exitCode":9,"code":"context_file_unsafe","stage":null,"operationId":"n/a","retryable":false,"nextAction":"Revalidate this host/owner session and artifacts, then explicitly generate, review and approve a fresh plan. Preserve existing progress evidence.","evidenceRef":"state/events.jsonl","name":"SetupError"},"stopped":[]}
+# Subtest: R3 trusted emergency node-symlink
+ok 54 - R3 trusted emergency node-symlink
+  ---
+  duration_ms: 581.308792
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"emergency-sudo","actual_uid":501,"injected_uid":1000,"barrier":"current-bytes-read","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"f096c40c-18f9-40a5-a4c4-ae5542ec107a","installation_id":"4be7b245-5134-45d8-a4dc-7812b8cd6d35","created_at":"2026-10-27T13:11:56.457Z"},"before":{"state.json":"fdd72ddf696285daa2ec5a25d8cde618abc0980de35a9b34a4e7f22947a7d4b6","state.json.previous":"70d19b49d16555f373f78dd629ac025b89529004691339c225e097d5fd8af61b","state-commit.json":"9292b4024fc14115795fc0c0db3c76464ccc2197c20435b9b784e16b1cde4d06","events.jsonl":"b3d777bdc8892313eb9f3be0c4cee8e988b7f45c47908dc8bb48f08b5270187b","recovery-required.json":null},"after":{"state.json":"fdd72ddf696285daa2ec5a25d8cde618abc0980de35a9b34a4e7f22947a7d4b6","state.json.previous":"70d19b49d16555f373f78dd629ac025b89529004691339c225e097d5fd8af61b","state-commit.json":"9292b4024fc14115795fc0c0db3c76464ccc2197c20435b9b784e16b1cde4d06","events.jsonl":"b3d777bdc8892313eb9f3be0c4cee8e988b7f45c47908dc8bb48f08b5270187b","recovery-required.json":null},"calls":[],"paused":false,"error":{"exitCode":5,"code":"emergency_deployment_unproven","stage":null,"operationId":"n/a","retryable":false,"nextAction":"Preserve control evidence; reconcile ownership/resources manually before retrying.","evidenceRef":"/private/tmp/af-r14-xj7PHa/app/deployment-manifest.json","name":"SetupError"},"stopped":[]}
+# Subtest: R3 trusted emergency sudo
+ok 55 - R3 trusted emergency sudo
+  ---
+  duration_ms: 626.096167
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"emergency-shell","actual_uid":501,"injected_uid":1000,"barrier":"current-bytes-read","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"ede1f997-f95f-4771-982c-2400b5868cb1","installation_id":"ee0ea7ef-d8cf-4153-b85f-8bab5827cac8","created_at":"2026-10-27T13:11:57.054Z"},"before":{"state.json":"ea1d2d0f5b2e2643c9ed11311485426771c6167666eda0e22be2ed019975ec4c","state.json.previous":"526e9e7c9a0fb1e5f11449c76b75b41979997a939633969f8a2c8830684ef47f","state-commit.json":"abdf9a3058133f3206fe19f791d08a7b43e2e66503f0d857feb1200806813a74","events.jsonl":"58db2c4b0bfcdbcc78bab4995b76cfe00785db39f675212cddafde0f43b5faa8","recovery-required.json":null},"after":{"state.json":"ea1d2d0f5b2e2643c9ed11311485426771c6167666eda0e22be2ed019975ec4c","state.json.previous":"526e9e7c9a0fb1e5f11449c76b75b41979997a939633969f8a2c8830684ef47f","state-commit.json":"abdf9a3058133f3206fe19f791d08a7b43e2e66503f0d857feb1200806813a74","events.jsonl":"58db2c4b0bfcdbcc78bab4995b76cfe00785db39f675212cddafde0f43b5faa8","recovery-required.json":null},"calls":[],"paused":false,"error":{"exitCode":5,"code":"emergency_deployment_unproven","stage":null,"operationId":"n/a","retryable":false,"nextAction":"Preserve control evidence; reconcile ownership/resources manually before retrying.","evidenceRef":"/private/tmp/af-r14-MJru3N/app/deployment-manifest.json","name":"SetupError"},"stopped":[]}
+# Subtest: R3 trusted emergency shell
+ok 56 - R3 trusted emergency shell
+  ---
+  duration_ms: 593.611834
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"emergency-unknown-inspect","actual_uid":501,"injected_uid":1000,"barrier":1,"generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"1115adea-00b5-43b4-86b4-845807d67223","installation_id":"b1b7e506-7bbe-4147-9742-e57733d817af","created_at":"2026-10-27T13:11:57.636Z"},"before":{"state.json":"83cbe29bfa6cfaa0fe9429de8ac9996fedcfa3f4cb07b64d762ff98f54aad208","state.json.previous":"9cdac3dc3f8d2fb0164f3c4be35f4aad4b16312abc6edaabe62f9d292c2900b3","state-commit.json":"c0cf2b21d24114107336d7112e9a609f1f323918acee1444d36a5b31509ca814","events.jsonl":"4574460089b6279e45d10eeeeeb7c88261e5f11a46cd7b6f3d8850195bafd4b5","recovery-required.json":null},"after":{"state.json":"83cbe29bfa6cfaa0fe9429de8ac9996fedcfa3f4cb07b64d762ff98f54aad208","state.json.previous":"9cdac3dc3f8d2fb0164f3c4be35f4aad4b16312abc6edaabe62f9d292c2900b3","state-commit.json":"c0cf2b21d24114107336d7112e9a609f1f323918acee1444d36a5b31509ca814","events.jsonl":"4574460089b6279e45d10eeeeeb7c88261e5f11a46cd7b6f3d8850195bafd4b5","recovery-required.json":null},"calls":[{"binary":"/private/tmp/af-r14-ewZgeM/node/bin/node","args":["/private/tmp/af-r14-ewZgeM/app/runner.cjs","stop"],"cwd":"/private/tmp/af-r14-ewZgeM/app","timeoutMs":20000,"maxOutputBytes":131072},{"binary":"/private/tmp/af-r14-ewZgeM/node/bin/node","args":["/private/tmp/af-r14-ewZgeM/app/runner.cjs","status"],"cwd":"/private/tmp/af-r14-ewZgeM/app","timeoutMs":20000,"maxOutputBytes":131072},{"binary":"/usr/bin/docker","args":["ps","-a","--filter","label=agent-factory.installation_id=b1b7e506-7bbe-4147-9742-e57733d817af","--format","{{.ID}}"],"timeoutMs":20000,"maxOutputBytes":131072},{"binary":"/usr/bin/docker","args":["inspect","--format","{{json .}}","aaaaaaaaaaaa"],"timeoutMs":20000,"maxOutputBytes":131072}],"paused":true,"error":{"exitCode":8,"code":"emergency_inspection_unknown","stage":null,"operationId":"n/a","retryable":false,"nextAction":"Preserve control evidence; reconcile ownership/resources manually before retrying.","evidenceRef":"/private/tmp/af-r14-ewZgeM/app/state/PAUSED","name":"SetupError"},"stopped":[]}
+# Subtest: R3 trusted emergency unknown-inspect
+ok 57 - R3 trusted emergency unknown-inspect
+  ---
+  duration_ms: 597.925042
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"emergency-timeout","actual_uid":501,"injected_uid":1000,"barrier":1,"generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"b09614be-06ae-4ee8-ac18-f9237e2d95d0","installation_id":"0274bcca-ae89-4d28-a7aa-3224700d3629","created_at":"2026-10-27T13:11:58.265Z"},"before":{"state.json":"287b608bc5dc9804a7fa53596eda30e901d55a06201a0fc59abea191b68adb36","state.json.previous":"f27e07d4b884bea96c3ea4fdac83fe713803c010aa26f4d83d199f7caf143b8c","state-commit.json":"e91691095f01022f57efac79231072d5b7ad7dd92ae2fae82971a03074d66982","events.jsonl":"ecb046ae657e327c0b07db6e1acd96093fe9cbee8a361399506f74c81b8b19fb","recovery-required.json":null},"after":{"state.json":"287b608bc5dc9804a7fa53596eda30e901d55a06201a0fc59abea191b68adb36","state.json.previous":"f27e07d4b884bea96c3ea4fdac83fe713803c010aa26f4d83d199f7caf143b8c","state-commit.json":"e91691095f01022f57efac79231072d5b7ad7dd92ae2fae82971a03074d66982","events.jsonl":"ecb046ae657e327c0b07db6e1acd96093fe9cbee8a361399506f74c81b8b19fb","recovery-required.json":null},"calls":[{"binary":"/private/tmp/af-r14-viYprr/node/bin/node","args":["/private/tmp/af-r14-viYprr/app/runner.cjs","stop"],"cwd":"/private/tmp/af-r14-viYprr/app","timeoutMs":20000,"maxOutputBytes":131072}],"paused":true,"error":{"exitCode":8,"code":"emergency_stop_unconfirmed","stage":null,"operationId":"n/a","retryable":false,"nextAction":"Preserve control evidence; reconcile ownership/resources manually before retrying.","evidenceRef":"/private/tmp/af-r14-viYprr/app/state/PAUSED","name":"SetupError"},"stopped":[]}
+# Subtest: R3 trusted emergency timeout
+ok 58 - R3 trusted emergency timeout
+  ---
+  duration_ms: 630.978125
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"emergency-output-limit","actual_uid":501,"injected_uid":1000,"barrier":1,"generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"95a5709c-905f-4e73-9811-d269c31b8cc7","installation_id":"2eb757ee-32da-403c-8fc9-2b9492bc0deb","created_at":"2026-10-27T13:11:58.886Z"},"before":{"state.json":"d422bf49df75864d9474eff887e8c9913631302822fa0c2910cbb6c7528b06db","state.json.previous":"02fed5777bd67b9c6d10efe35793419b1bbfd7a18cf558055cc397a5dcb0ea22","state-commit.json":"0c5a8b205db7627d843442f116fbc8add77925ac6c46f59e9c21c4b0e7b3c1d5","events.jsonl":"99d4f4b903ba2cd79e4e0de2e0df4def45f0fe044c9aeebedf71473da0ef3f2f","recovery-required.json":null},"after":{"state.json":"d422bf49df75864d9474eff887e8c9913631302822fa0c2910cbb6c7528b06db","state.json.previous":"02fed5777bd67b9c6d10efe35793419b1bbfd7a18cf558055cc397a5dcb0ea22","state-commit.json":"0c5a8b205db7627d843442f116fbc8add77925ac6c46f59e9c21c4b0e7b3c1d5","events.jsonl":"99d4f4b903ba2cd79e4e0de2e0df4def45f0fe044c9aeebedf71473da0ef3f2f","recovery-required.json":null},"calls":[{"binary":"/private/tmp/af-r14-JJdJ96/node/bin/node","args":["/private/tmp/af-r14-JJdJ96/app/runner.cjs","stop"],"cwd":"/private/tmp/af-r14-JJdJ96/app","timeoutMs":20000,"maxOutputBytes":131072}],"paused":true,"error":{"exitCode":8,"code":"emergency_stop_unconfirmed","stage":null,"operationId":"n/a","retryable":false,"nextAction":"Preserve control evidence; reconcile ownership/resources manually before retrying.","evidenceRef":"/private/tmp/af-r14-JJdJ96/app/state/PAUSED","name":"SetupError"},"stopped":[]}
+# Subtest: R3 trusted emergency output-limit
+ok 59 - R3 trusted emergency output-limit
+  ---
+  duration_ms: 622.941291
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"emergency-failed-stop","actual_uid":501,"injected_uid":1000,"barrier":1,"generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"26d831eb-9146-49cb-bdfb-00580f92c3a3","installation_id":"ead8a078-0c22-4b1f-986f-8c98c46e866e","created_at":"2026-10-27T13:11:59.407Z"},"before":{"state.json":"30b6c0f5bab975cb3834070b8ab7f2fb5d4fda77807609c434b94ca2e8a0a5f2","state.json.previous":"5cd615e97ce63ea8131f537cc1808b980c1bdf01785ff034f3cb5c198d48bebb","state-commit.json":"a1665869a6d01008fdd9d45142dec4866fe2983f693cbb18ef3ef25572b5f65c","events.jsonl":"201cd62cb60e25d9cae29e039ab5fe402609258b511274a514b0294d00fd37d4","recovery-required.json":null},"after":{"state.json":"30b6c0f5bab975cb3834070b8ab7f2fb5d4fda77807609c434b94ca2e8a0a5f2","state.json.previous":"5cd615e97ce63ea8131f537cc1808b980c1bdf01785ff034f3cb5c198d48bebb","state-commit.json":"a1665869a6d01008fdd9d45142dec4866fe2983f693cbb18ef3ef25572b5f65c","events.jsonl":"201cd62cb60e25d9cae29e039ab5fe402609258b511274a514b0294d00fd37d4","recovery-required.json":null},"calls":[{"binary":"/private/tmp/af-r14-AFlYUt/node/bin/node","args":["/private/tmp/af-r14-AFlYUt/app/runner.cjs","stop"],"cwd":"/private/tmp/af-r14-AFlYUt/app","timeoutMs":20000,"maxOutputBytes":131072}],"paused":true,"error":{"exitCode":8,"code":"emergency_stop_unconfirmed","stage":null,"operationId":"n/a","retryable":false,"nextAction":"Preserve control evidence; reconcile ownership/resources manually before retrying.","evidenceRef":"/private/tmp/af-r14-AFlYUt/app/state/PAUSED","name":"SetupError"},"stopped":[]}
+# Subtest: R3 trusted emergency failed-stop
+ok 60 - R3 trusted emergency failed-stop
+  ---
+  duration_ms: 516.8575
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"emergency-partial-stop","actual_uid":501,"injected_uid":1000,"barrier":1,"generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"dfd6b49e-8a17-4ac3-8e6b-4497c8856861","installation_id":"76949995-217c-4dde-a004-bcd12739c55f","created_at":"2026-10-27T13:12:00.007Z"},"before":{"state.json":"2c2f31f51e43c1574b373d7db504f2280c2ef808a3d7ac5abbc2ece37c537bfd","state.json.previous":"f29c9ddf6e26094f52a2086d0622a7458a50309522b3abde2db745795783c132","state-commit.json":"bf4a3cf76eb142013d82a337c0998dde6a04f0195f7f6490212d35425a2d6745","events.jsonl":"ee0c172b54cfe6ef621ca09c6472a680a37d19e6c35b4c63bf38cc79a892b669","recovery-required.json":null},"after":{"state.json":"2c2f31f51e43c1574b373d7db504f2280c2ef808a3d7ac5abbc2ece37c537bfd","state.json.previous":"f29c9ddf6e26094f52a2086d0622a7458a50309522b3abde2db745795783c132","state-commit.json":"bf4a3cf76eb142013d82a337c0998dde6a04f0195f7f6490212d35425a2d6745","events.jsonl":"ee0c172b54cfe6ef621ca09c6472a680a37d19e6c35b4c63bf38cc79a892b669","recovery-required.json":null},"calls":[{"binary":"/private/tmp/af-r14-jqjPwq/node/bin/node","args":["/private/tmp/af-r14-jqjPwq/app/runner.cjs","stop"],"cwd":"/private/tmp/af-r14-jqjPwq/app","timeoutMs":20000,"maxOutputBytes":131072},{"binary":"/private/tmp/af-r14-jqjPwq/node/bin/node","args":["/private/tmp/af-r14-jqjPwq/app/runner.cjs","status"],"cwd":"/private/tmp/af-r14-jqjPwq/app","timeoutMs":20000,"maxOutputBytes":131072},{"binary":"/usr/bin/docker","args":["ps","-a","--filter","label=agent-factory.installation_id=76949995-217c-4dde-a004-bcd12739c55f","--format","{{.ID}}"],"timeoutMs":20000,"maxOutputBytes":131072},{"binary":"/usr/bin/docker","args":["inspect","--format","{{json .}}","aaaaaaaaaaaa"],"timeoutMs":20000,"maxOutputBytes":131072},{"binary":"/usr/bin/docker","args":["stop","aaaaaaaaaaaa"],"timeoutMs":20000,"maxOutputBytes":131072},{"binary":"/usr/bin/docker","args":["inspect","--format","{{json .}}","aaaaaaaaaaaa"],"timeoutMs":20000,"maxOutputBytes":131072}],"paused":true,"error":{"exitCode":8,"code":"emergency_stop_unconfirmed","stage":null,"operationId":"n/a","retryable":false,"nextAction":"Preserve control evidence; reconcile ownership/resources manually before retrying.","evidenceRef":"/private/tmp/af-r14-jqjPwq/app/state/PAUSED","name":"SetupError"},"stopped":["aaaaaaaaaaaa"]}
+# Subtest: R3 trusted emergency partial-stop
+ok 61 - R3 trusted emergency partial-stop
+  ---
+  duration_ms: 606.860209
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"emergency-postcondition","actual_uid":501,"injected_uid":1000,"barrier":1,"generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"484a5d75-be7b-4023-bbe4-c698f2ca0db4","installation_id":"8108ba8e-089a-417a-b35c-59f33ca4e47d","created_at":"2026-10-27T13:12:00.631Z"},"before":{"state.json":"e60b870769951076ca4f698cde43ec0e3ce24786969644a5e6d287ad9b74e3af","state.json.previous":"3268595e080a5e9bef60907b01d366f35ea588bfc5de6c78a4b3f43a31b0bc0a","state-commit.json":"a4d40e7b07d99c4eda4553b6742aa1071ae1b612ab3b9e3092e4530ce22f6af4","events.jsonl":"1da60f78e0cb76fbd67b831ff46ca8e781a6c06cea0dea5629ccec8099bf59cc","recovery-required.json":null},"after":{"state.json":"e60b870769951076ca4f698cde43ec0e3ce24786969644a5e6d287ad9b74e3af","state.json.previous":"3268595e080a5e9bef60907b01d366f35ea588bfc5de6c78a4b3f43a31b0bc0a","state-commit.json":"a4d40e7b07d99c4eda4553b6742aa1071ae1b612ab3b9e3092e4530ce22f6af4","events.jsonl":"1da60f78e0cb76fbd67b831ff46ca8e781a6c06cea0dea5629ccec8099bf59cc","recovery-required.json":null},"calls":[{"binary":"/private/tmp/af-r14-VinsSu/node/bin/node","args":["/private/tmp/af-r14-VinsSu/app/runner.cjs","stop"],"cwd":"/private/tmp/af-r14-VinsSu/app","timeoutMs":20000,"maxOutputBytes":131072},{"binary":"/private/tmp/af-r14-VinsSu/node/bin/node","args":["/private/tmp/af-r14-VinsSu/app/runner.cjs","status"],"cwd":"/private/tmp/af-r14-VinsSu/app","timeoutMs":20000,"maxOutputBytes":131072}],"paused":true,"error":{"exitCode":8,"code":"emergency_postcondition_unknown","stage":null,"operationId":"n/a","retryable":false,"nextAction":"Preserve control evidence; reconcile ownership/resources manually before retrying.","evidenceRef":"/private/tmp/af-r14-VinsSu/app/state/PAUSED","name":"SetupError"},"stopped":[]}
+# Subtest: R3 trusted emergency postcondition
+ok 62 - R3 trusted emergency postcondition
+  ---
+  duration_ms: 626.009583
+  type: 'test'
+  ...
+# R3_EVIDENCE {"id":"emergency-missing-status","actual_uid":501,"injected_uid":1000,"barrier":"current-bytes-read","generation":{"boot_id":"f324dcd7-4035-4430-ab39-ce31f9e396bf","pid":65878,"process_start_ticks":1,"nonce":"48854e10-109f-4178-b193-d5f1702b42f6","installation_id":"a214f52b-8d55-440a-8a94-0535683107e9","created_at":"2026-10-27T13:12:01.241Z"},"before":{"state.json":"e2e2f287125a9ecce0ae96e2fb025fe5dcf7e78262a87be6323fc4969671e5b0","state.json.previous":"2071e55b2c963c83cbdb5fa2d78cef55c7c95079a97a0d05b9a118793ea2ea9a","state-commit.json":"56ade6dc8b4f95e0c6b4391b1d9faba971b1f510ba7ad1e6d65278fb37d6f82f","events.jsonl":"93116cc8813e60b9634d451d5ef61e7aee12defc69f8398ebb1ef0fc62ede9d7","recovery-required.json":null},"after":{"state.json":"e2e2f287125a9ecce0ae96e2fb025fe5dcf7e78262a87be6323fc4969671e5b0","state.json.previous":"2071e55b2c963c83cbdb5fa2d78cef55c7c95079a97a0d05b9a118793ea2ea9a","state-commit.json":"56ade6dc8b4f95e0c6b4391b1d9faba971b1f510ba7ad1e6d65278fb37d6f82f","events.jsonl":"93116cc8813e60b9634d451d5ef61e7aee12defc69f8398ebb1ef0fc62ede9d7","recovery-required.json":null},"calls":[],"paused":false,"error":{"exitCode":5,"code":"emergency_deployment_unproven","stage":null,"operationId":"n/a","retryable":false,"nextAction":"Preserve control evidence; reconcile ownership/resources manually before retrying.","evidenceRef":"/private/tmp/af-r14-q1svE0/app/deployment-manifest.json","name":"SetupError"},"stopped":[]}
+# Subtest: R3 trusted emergency missing-status
+ok 63 - R3 trusted emergency missing-status
+  ---
+  duration_ms: 586.070791
+  type: 'test'
+  ...
+1..63
+# tests 63
+# suites 0
+# pass 63
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 13142.15675

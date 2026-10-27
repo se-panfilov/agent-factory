@@ -1,0 +1,11 @@
+{
+  "head": [
+    "b92e833c3d743d2f15975ee6433b453f07f173b8",
+    "dde4eb40ea514a7000714709773fd1a34906a6dd"
+  ],
+  "index_sha256": "e322277c93daf8b8fbaab665357b15778e4b27ed725b6548407be4248743d190",
+  "after_complete_capture_index_unchanged": true,
+  "pre_event_index_sha256": "7d93f9b3ffb62ae9eb7864ebfb363eb1a38503720369fd25f396e4a8fdf26ef8",
+  "pre_event_index_bytes_available": false,
+  "owner_binary_unchanged": true
+}

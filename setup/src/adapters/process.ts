@@ -28,6 +28,7 @@ export interface CommandOptions {
   timeoutMs: number;
   maxOutputBytes: number;
   operationId?: string;
+  cwd?: string;
 }
 
 export interface ProcessAdapter {
@@ -41,6 +42,8 @@ export interface ProcessAdapter {
   machineIdHash(): Promise<string>;
   processStartTicks(pid: number): Promise<number | null>;
   isPidAlive(pid: number): boolean;
+  nodeRuntime?(): Promise<{ executable: string; version: string; binarySha256: string }>;
+  pidLiveness?(pid: number): "alive" | "dead" | "unknown";
 }
 
 function sanitize(content: string): string {
@@ -93,6 +96,7 @@ export class NodeProcessAdapter implements ProcessAdapter {
     return new Promise<CommandResult>((resolve, reject) => {
       const child = spawn(options.binary, options.args, {
         shell: false,
+        cwd: options.cwd,
         stdio: ["ignore", "pipe", "pipe"],
         env: {
           PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
@@ -159,6 +163,27 @@ export class NodeProcessAdapter implements ProcessAdapter {
     });
   }
 
+  async nodeRuntime(): Promise<{ executable: string; version: string; binarySha256: string }> {
+    // The kernel reference identifies the running executable, even if its pathname was replaced.
+    if (process.platform !== "linux") throw Error("Running executable identity requires Linux procfs");
+    const handle = await open("/proc/self/exe", "r");
+    try {
+      const stat = await handle.stat();
+      if (!stat.isFile() || stat.size > 256 * 1024 * 1024) throw Error("Unsupported runtime identity");
+      const digest = createHash("sha256"), buffer = Buffer.alloc(1024 * 1024);
+      let total = 0;
+      for (;;) {
+        const r = await handle.read(buffer, 0, buffer.length, null);
+        if (!r.bytesRead) break;
+        total += r.bytesRead;
+        if (total > 256 * 1024 * 1024) throw Error("Runtime identity exceeded bound");
+        digest.update(buffer.subarray(0, r.bytesRead));
+      }
+      if (total !== stat.size) throw Error("Runtime changed during identity read");
+      return { executable: process.execPath, version: process.versions.node, binarySha256: digest.digest("hex") };
+    } finally { await handle.close(); }
+  }
+
   pid(): number {
     return process.pid;
   }
@@ -218,10 +243,9 @@ export class NodeProcessAdapter implements ProcessAdapter {
 
   async processStartTicks(pid: number): Promise<number | null> {
     try {
-      const statContent = await readFile(`/proc/${pid}/stat`, "utf8");
-      const fields = statContent.trim().split(" ");
-      const startTicks = Number.parseInt(fields[21] ?? "", 10);
-      return Number.isFinite(startTicks) ? startTicks : null;
+      if (!Number.isSafeInteger(pid) || pid <= 0 || pid > 2147483647) return null;
+      const statContent = await this.identityText(`/proc/${pid}/stat`, 16384);
+      return parseProcStartTicks(statContent, pid);
     } catch {
       return null;
     }
@@ -231,8 +255,30 @@ export class NodeProcessAdapter implements ProcessAdapter {
     try {
       process.kill(pid, 0);
       return true;
-    } catch {
-      return false;
+    } catch (error) {
+      // Legacy boolean callers must never interpret permission/unknown as dead.
+      return (error as NodeJS.ErrnoException).code !== "ESRCH";
     }
   }
+
+  pidLiveness(pid: number): "alive" | "dead" | "unknown" {
+    return probePidLiveness(pid, process.kill);
+  }
+}
+
+/** comm can contain whitespace and parentheses. Fields after its final ')' begin at field 3. */
+export function parseProcStartTicks(raw: string, pid: number): number | null {
+  if (raw.length > 16384 || !Number.isSafeInteger(pid) || pid <= 0) return null;
+  const end = raw.lastIndexOf(")");
+  if (!raw.startsWith(`${pid} (`) || end < 0) return null;
+  const fields = raw.slice(end + 1).trim().split(/\s+/);
+  const ticks = fields[19];
+  if (!/^[A-Za-z]$/.test(fields[0] ?? "") || !ticks || !/^(0|[1-9]\d*)$/.test(ticks)) return null;
+  const value = Number(ticks);
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+export function probePidLiveness(pid: number, signal: (pid: number, signal: 0) => unknown): "alive" | "dead" | "unknown" {
+  if (!Number.isSafeInteger(pid) || pid <= 0 || pid > 2147483647) return "unknown";
+  try { signal(pid, 0); return "alive"; }
+  catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH" ? "dead" : "unknown"; }
 }
