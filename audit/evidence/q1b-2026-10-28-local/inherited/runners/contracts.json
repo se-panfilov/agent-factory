@@ -1,0 +1,305 @@
+{
+  "context": {
+    "ids": [
+      "B01_same_context_positive",
+      "B02_foreign_machine",
+      "B03_new_boot_old_approval",
+      "B04_same_path_changed_version_lock",
+      "B05_unapproved_control",
+      "META"
+    ],
+    "marker": "META",
+    "cases": 5,
+    "predicates": {
+      "acceptance": true
+    }
+  },
+  "s03": {
+    "ids": [
+      "S03-none-control",
+      "S03-install-resume",
+      "S03-install-replan",
+      "S03-stage-resume",
+      "S03-stage-replan",
+      "S03-arm-resume",
+      "S03-arm-replan",
+      "S03-cutover-resume",
+      "S03-cutover-replan",
+      "S03-tailnet-resume",
+      "S03-tailnet-replan",
+      "S03-disarm-resume",
+      "S03-disarm-replan",
+      "META"
+    ],
+    "marker": "META",
+    "cases": 13,
+    "predicates": {
+      "acceptance": true,
+      "stage_status": "verified",
+      "timer_armed": false
+    }
+  },
+  "s03-legacy": {
+    "ids": [
+      "S03-none-control",
+      "S03-install-resume",
+      "S03-install-replan",
+      "S03-stage-resume",
+      "S03-stage-replan",
+      "S03-arm-resume",
+      "S03-arm-replan",
+      "S03-cutover-resume",
+      "S03-cutover-replan",
+      "S03-tailnet-resume",
+      "S03-tailnet-replan",
+      "S03-disarm-resume",
+      "S03-disarm-replan",
+      "META"
+    ],
+    "marker": "META",
+    "cases": 13,
+    "predicates": {
+      "acceptance": true,
+      "stage_status": "verified",
+      "timer_armed": false
+    }
+  },
+  "r2": {
+    "ids": [
+      "R2A01_valid_approved",
+      "R2A02_unapproved_control",
+      "R2A03_remove_all_gates_rehash",
+      "R2A04_one_sided_strip_control",
+      "R2A05_bad_hash_control",
+      "R2A06_fresh_gate_free_control",
+      "R2A07_expired_gate_free_plan",
+      "R2A08_future_created_plan",
+      "META"
+    ],
+    "marker": "META",
+    "cases": 8
+  },
+  "command": {
+    "ids": [
+      "W01_reviewed_js_positive",
+      "W02_cjs_wrong_entry",
+      "W03_extensionless_wrong_entry",
+      "W04_node_eval_option",
+      "META"
+    ],
+    "marker": "META",
+    "cases": 4
+  },
+  "new": {
+    "ids": [
+      "N01_hash_mismatch_plan",
+      "N01_hash_mismatch_verify",
+      "N01_hash_mismatch_status-refresh",
+      "N02a_real_adapter_permission_mapping",
+      "N02_docker_without_active_group",
+      "N03_ssh_include_outside_default_directory",
+      "META"
+    ],
+    "marker": "META",
+    "cases": 6,
+    "predicates": {
+      "acceptance": true,
+      "harness_ok": true
+    }
+  },
+  "comparison": {
+    "ids": [
+      "C01_engine_generated_safe_recovery",
+      "C02_newer_unknown_manifest_old_checkpoint",
+      "C03_manifest_only_not_fresh",
+      "C04_markerless_primary_ignores_unknown_quarantine",
+      "C05_S02_durable_progress_before_late_failure",
+      "C06_S05_failing_offline_probes_skipped",
+      "C07_S04_first_install_group_prerequisite_cycle",
+      "C08_S03_failed_tailnet_keeps_rollback",
+      "C09_prepared_conflicting_checkpoint_mutates_before_rejection",
+      "C10_empty_verify_only_apply_traps",
+      "C11_S03_approved_input_drift_not_rejected",
+      "C12_primary_restored_quarantine_admission_control",
+      "META"
+    ],
+    "marker": "META",
+    "cases": 12
+  },
+  "full": {
+    "ids": [
+      "U09_all_real_S00_S07_single_engine"
+    ],
+    "marker": null,
+    "cases": 1,
+    "predicates": {
+      "status": "PASS"
+    }
+  },
+  "controls": {
+    "ids": [
+      "P01_actual_S00_S01_lifecycle",
+      "P02_real_S02_lifecycle",
+      "META"
+    ],
+    "marker": "META",
+    "cases": 2,
+    "predicates": {
+      "passed": true
+    }
+  },
+  "s06": {
+    "ids": [
+      "P05_real_S06_empty_plan_fixed"
+    ],
+    "marker": null,
+    "cases": 1,
+    "predicates": {
+      "passed": true
+    }
+  },
+  "compat": {
+    "ids": [
+      "S03",
+      "S04",
+      "S05",
+      "S07",
+      "META"
+    ],
+    "marker": "META",
+    "cases": 4,
+    "predicates": {
+      "plan_exit": 0,
+      "apply_exit": 0,
+      "status_exit": 0,
+      "inflight": null
+    }
+  },
+  "final-recovery": {
+    "ids": [
+      "direct",
+      "plan-first"
+    ],
+    "marker": null,
+    "cases": 2,
+    "predicates": {
+      "resume": 8,
+      "explicit_review_resume": 0,
+      "checkpoint_retained": true
+    }
+  },
+  "boundary-context": {
+    "ids": [
+      "gate-after-probe-lock-control",
+      "gate-after-probe-lock-fault",
+      "gate-after-probe-config-control",
+      "gate-after-probe-config-fault",
+      "gate-after-probe-plan-control",
+      "gate-after-probe-plan-fault",
+      "effect-during-final-context-config-control",
+      "effect-during-final-context-config-fault",
+      "effect-during-final-context-plan-control",
+      "effect-during-final-context-plan-fault",
+      "META"
+    ],
+    "marker": "META",
+    "cases": 10,
+    "predicates": {
+      "expected_safe": true
+    }
+  },
+  "boundary-release": {
+    "ids": [
+      "release-final-hash-lock-control",
+      "release-final-hash-lock-fault",
+      "release-final-hash-config-fault",
+      "release-final-hash-plan-fault",
+      "META"
+    ],
+    "marker": "META",
+    "cases": 4,
+    "predicates": {
+      "expected_safe": true
+    }
+  },
+  "command-fixed": {
+    "ids": [
+      "W01_reviewed_js_positive",
+      "W02_cjs_wrong_entry",
+      "W03_extensionless_wrong_entry",
+      "W04_node_eval_option",
+      "META"
+    ],
+    "marker": "META",
+    "cases": 4,
+    "predicates": {
+      "acceptance": true
+    }
+  },
+  "r2-fixed": {
+    "ids": [
+      "R2A01_valid_approved",
+      "R2A02_unapproved_control",
+      "R2A03_remove_all_gates_rehash",
+      "R2A04_one_sided_strip_control",
+      "R2A05_bad_hash_control",
+      "R2A06_fresh_gate_free_control",
+      "R2A07_expired_gate_free_plan",
+      "R2A08_future_created_plan",
+      "META"
+    ],
+    "marker": "META",
+    "cases": 8,
+    "predicates": {
+      "acceptance": true
+    }
+  },
+  "r31": {
+    "ids": [
+      "C-none",
+      "C-valid",
+      "C-stale",
+      "C-legacy",
+      "C-broken-json",
+      "C-v2-missing-field",
+      "C-v2-extra-field",
+      "C-unknown-version",
+      "E-control",
+      "E-no-inventory",
+      "E-empty-inventory",
+      "E-return-failure",
+      "E-throw-stop",
+      "E-throw-after-prefix",
+      "META"
+    ],
+    "marker": "META",
+    "cases": 14,
+    "predicates": {
+      "desired_pass": true
+    }
+  },
+  "r3": {
+    "ids": [
+      "L-active",
+      "L-known-dead",
+      "L-unknown-start",
+      "L-invalid-json",
+      "L-invalid-shape",
+      "L-recovery-race",
+      "C-none",
+      "C-early",
+      "C-late",
+      "C-atomic-control",
+      "C-atomic-fault",
+      "E-missing",
+      "E-sudo",
+      "E-root",
+      "META"
+    ],
+    "marker": "META",
+    "cases": 14,
+    "predicates": {
+      "desired_pass": true
+    }
+  }
+}

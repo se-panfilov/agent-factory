@@ -1,0 +1,26 @@
+{
+  "baseline_commit": "01d804ffec9848c0e4e57da993971f50488c805e",
+  "actual_head": "9c9dc19f5ef7795e698c8f3ebaaa637621f38f8e",
+  "product_delta": "none; three audit-only tracked additions",
+  "node": "v24.22.1",
+  "actual_uid": 501,
+  "baseline_cases": 5,
+  "desired_pass": 2,
+  "desired_fail": 3,
+  "collector_exit": 0,
+  "baseline_oracle_exit": 0,
+  "desired_oracle_exit": 1,
+  "npm_ci": {
+    "argv": [
+      "npm",
+      "--prefix",
+      "/private/tmp/q1b-baseline/setup",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "exit_code": 0,
+    "tool_reported_wall_seconds": 1.03206975
+  }
+}

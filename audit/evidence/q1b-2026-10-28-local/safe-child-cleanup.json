@@ -1,0 +1,82 @@
+{
+  "actual_uid": 501,
+  "read_only_group_probes": true,
+  "group_signal_zero_only": true,
+  "mutating_signals_after_tests": 0,
+  "collector_group_facts": [
+    {
+      "owner": {
+        "runId": "dbe85209-c69f-42f9-816f-04b7263e8092",
+        "operationId": "fd1ab283-e877-4117-8b57-c7ac14bbe682",
+        "generation": "933ba665-cf57-4b6b-8ae7-37d83e5dcc25",
+        "pid": 7568
+      },
+      "reported_cleanup": "confirmed",
+      "reported_exit": 0,
+      "reported_signal": null,
+      "actual_group_fact": "ESRCH_absent"
+    },
+    {
+      "owner": {
+        "runId": "324a68aa-db21-4697-84d7-118f443ab22a",
+        "operationId": "b5eb828b-a143-4a67-abe4-e509ad7476e1",
+        "generation": "c5baf6fc-dccc-40a4-8fe0-b7fea4d6154b",
+        "pid": 7569
+      },
+      "reported_cleanup": "confirmed",
+      "reported_exit": 0,
+      "reported_signal": null,
+      "actual_group_fact": "ESRCH_absent"
+    },
+    {
+      "owner": {
+        "runId": "ced42a09-e31a-4e33-8866-8e3e8f29f123",
+        "operationId": "714610dd-0b37-4fe0-a6b6-90c04afdcb09",
+        "generation": "15250549-4ae2-45a6-9411-1aba8c913159",
+        "pid": 7570
+      },
+      "reported_cleanup": "confirmed",
+      "reported_exit": 0,
+      "reported_signal": null,
+      "actual_group_fact": "ESRCH_absent"
+    },
+    {
+      "owner": {
+        "runId": "7f3d21c9-c791-4655-910d-340c0270a3ef",
+        "operationId": "8bf17044-c86a-4443-a30a-bb1a0f8f178f",
+        "generation": "fc6e0b21-2048-4e95-89ae-e0bf7e094c55",
+        "pid": 7577
+      },
+      "reported_cleanup": "confirmed",
+      "reported_exit": 0,
+      "reported_signal": null,
+      "actual_group_fact": "ESRCH_absent"
+    },
+    {
+      "owner": {
+        "runId": "29b53200-7098-4748-b855-2b4324849fa0",
+        "operationId": "owned-0",
+        "generation": "13acae0b-ff3c-4d0a-8827-2fae39a562d6",
+        "pid": 7586
+      },
+      "reported_cleanup": "confirmed",
+      "reported_exit": null,
+      "reported_signal": "SIGTERM",
+      "actual_group_fact": "ESRCH_absent"
+    },
+    {
+      "owner": {
+        "runId": "85c0e4fd-63f5-4d34-9395-14089a8eb177",
+        "operationId": "3a473c9c-b86c-4a8f-9a35-c00fd20dad2e",
+        "generation": "9880e38e-e0ba-4ad7-998b-8e46feea71d9",
+        "pid": 7592
+      },
+      "reported_cleanup": "unknown",
+      "reported_exit": 0,
+      "reported_signal": null,
+      "actual_group_fact": "ESRCH_absent"
+    }
+  ],
+  "unit_production_escalation_evidence": "inherited/logs/test.stdout: Q1B production 10s escalation kills TERM-ignoring own group and held pipes; ready parent/child/grandchild, actual SIGKILL and confirmed group/I/O asserted; no detached escaping fixtures",
+  "verdict": "PASS"
+}

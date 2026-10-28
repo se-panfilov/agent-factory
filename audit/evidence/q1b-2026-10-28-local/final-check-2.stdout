@@ -1,0 +1,23 @@
+{
+  "suite": 696,
+  "preserved_baseline_names": 645,
+  "new_Q1B_tests": 51,
+  "preserved_R3_tests": 74,
+  "preserved_R31_tests": 56,
+  "source_runner_inputs": 299,
+  "command_entries": 56,
+  "inherited_matrices": 22,
+  "q1b_matrices": 2,
+  "environment": {
+    "node": "v24.22.1",
+    "npm": "11.17.0",
+    "os": "macOS-15.5-arm64-arm-64bit-Mach-O",
+    "arch": "arm64",
+    "uid": 501,
+    "injected_owner": 1000,
+    "real_host_qualification": "NOT RUN"
+  },
+  "no_splicing": true,
+  "historical_O02": "OPEN",
+  "linux_root_isolated": "NOT RUN"
+}

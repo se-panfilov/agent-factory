@@ -1,0 +1,66 @@
+✖ Q1B SIGINT before intent stops all effects (146.349292ms)
+✖ Q1B SIGTERM before intent stops all effects (118.0625ms)
+✔ Q1B SIGINT after confirmed prefix retains exact checkpoint and no replay (374.906083ms)
+✔ Q1B SIGTERM after confirmed prefix retains exact checkpoint and no replay (374.041833ms)
+✔ Q1B durable cancel reaches active interruptible supervisor; unknown operation is not replayed (311.715208ms)
+✔ Q1B fake critical cancellation never kills/replays an unknown mutation (226.441875ms)
+✖ Q1B unknown process cleanup retains lock and blocks overlapping apply (212.230708ms)
+✔ Q1B emergency total deadline admission preserves actual prefix (549.583167ms)
+✔ Q1B emergency total deadline before-first preserves actual prefix (611.262709ms)
+✔ Q1B emergency total deadline between-targets preserves actual prefix (618.525416ms)
+✔ Q1B emergency total deadline during-command preserves actual prefix (606.768791ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 8
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4266.094542
+
+✖ failing tests:
+
+test at setup/dist/tests/integration/q1b-lifecycle.test.js:20:29
+✖ Q1B SIGINT before intent stops all effects (146.349292ms)
+  Error: ENOENT: no such file or directory, open '/private/var/folders/9z/sxm5_spx2p9dmrkqbzd2dw0r0000gn/T/af-r14-u877iz/state/events.jsonl'
+      at async open (node:internal/fs/promises:1345:25)
+      at async Object.readFile (node:internal/fs/promises:2003:14)
+      at async TestContext.<anonymous> (/Users/splswrd/work/agent-factory/setup/dist/tests/integration/q1b-lifecycle.test.js:28:25)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    errno: -2,
+    code: 'ENOENT',
+    syscall: 'open',
+    path: '/private/var/folders/9z/sxm5_spx2p9dmrkqbzd2dw0r0000gn/T/af-r14-u877iz/state/events.jsonl'
+  }
+
+test at setup/dist/tests/integration/q1b-lifecycle.test.js:20:29
+✖ Q1B SIGTERM before intent stops all effects (118.0625ms)
+  Error: ENOENT: no such file or directory, open '/private/var/folders/9z/sxm5_spx2p9dmrkqbzd2dw0r0000gn/T/af-r14-uJbIbz/state/events.jsonl'
+      at async open (node:internal/fs/promises:1345:25)
+      at async Object.readFile (node:internal/fs/promises:2003:14)
+      at async TestContext.<anonymous> (/Users/splswrd/work/agent-factory/setup/dist/tests/integration/q1b-lifecycle.test.js:28:25)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    errno: -2,
+    code: 'ENOENT',
+    syscall: 'open',
+    path: '/private/var/folders/9z/sxm5_spx2p9dmrkqbzd2dw0r0000gn/T/af-r14-uJbIbz/state/events.jsonl'
+  }
+
+test at setup/dist/tests/integration/q1b-lifecycle.test.js:92:25
+✖ Q1B unknown process cleanup retains lock and blocks overlapping apply (212.230708ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  7 !== 8
+  
+      at TestContext.<anonymous> (/Users/splswrd/work/agent-factory/setup/dist/tests/integration/q1b-lifecycle.test.js:102:22)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 7,
+    expected: 8,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

@@ -1,0 +1,33 @@
+[
+  {
+    "argv": [
+      "node",
+      "/workspace/scratch/d38639edcc79/r31-review/evidence/q1b-baseline-probes.cjs",
+      "/workspace/scratch/d38639edcc79/agent-factory-review-01d804f"
+    ],
+    "exit_code": 0,
+    "duration_seconds": 1.469
+  },
+  {
+    "argv": [
+      "python3",
+      "/workspace/scratch/d38639edcc79/r31-review/evidence/check-q1b-baseline.py",
+      "/workspace/scratch/d38639edcc79/r31-review/evidence/q1b-baseline.jsonl",
+      "--mode",
+      "baseline"
+    ],
+    "exit_code": 0,
+    "duration_seconds": 0.027
+  },
+  {
+    "argv": [
+      "python3",
+      "/workspace/scratch/d38639edcc79/r31-review/evidence/check-q1b-baseline.py",
+      "/workspace/scratch/d38639edcc79/r31-review/evidence/q1b-baseline.jsonl",
+      "--mode",
+      "desired"
+    ],
+    "exit_code": 1,
+    "duration_seconds": 0.029
+  }
+]

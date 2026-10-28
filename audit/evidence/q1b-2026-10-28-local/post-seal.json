@@ -1,0 +1,16 @@
+{
+  "zip_sha256": "b50f273ed6df5fceb79e315cc14da8dd7b825634adc33b192a9eebf4d92e8404",
+  "zip_files": 666,
+  "zip_bytes": 1751790,
+  "zip_crc_and_all_checksums": "PASS",
+  "tested_inputs_unchanged": 303,
+  "reconstruction": "PASS",
+  "index_unchanged": true,
+  "final_artifacts": [
+    "docs/audits/remediation-q1b-2026-10-28.md",
+    "audit/evidence/q1b-2026-10-28-local/full-local.patch",
+    "audit/evidence/q1b-2026-10-28-local/tested-files.sha256",
+    "audit/evidence/q1b-2026-10-28-local/evidence.zip",
+    "audit/evidence/q1b-2026-10-28-local/evidence.zip.sha256"
+  ]
+}

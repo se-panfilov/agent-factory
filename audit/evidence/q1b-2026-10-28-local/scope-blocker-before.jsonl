@@ -1,0 +1,2 @@
+{"id":"scope-blocker","result":{"exitCode":0,"signal":null,"stdout":"OWNED_HARMLESS_TARGET\n","stderr":"","durationMs":49.967916,"timedOut":false,"outputInvalid":false,"outputLimitExceeded":false,"cancelled":false,"terminationReason":null,"cleanup":"confirmed","spawned":true,"spawnError":null,"owner":{"runId":"f6b861d0-e2e4-4db9-93bc-9c888b4cdecf","operationId":"fa17571c-7b3c-4d76-9d8c-92f60f5e5974","generation":"f90e99f1-b345-4ee3-97b6-a6eaa02d33e6","pid":4570},"observedBytes":22},"rejected":null}
+{"id":"META","complete":true,"cases":1}

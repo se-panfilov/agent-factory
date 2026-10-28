@@ -1,0 +1,23 @@
+{
+  "base": "9c9dc19f5ef7795e698c8f3ebaaa637621f38f8e",
+  "final_full_attempt": 3,
+  "suite": 697,
+  "baseline_names": 645,
+  "new_tests": 52,
+  "input_files": 303,
+  "inherited_matrices": 22,
+  "q1b_matrices": 2,
+  "supplemental_controls": 3,
+  "ledger_entries": 62,
+  "reconstruction": "PASS/single patch/303 tested+170 payload hashes",
+  "index_unchanged_sha256": "e5503faaadfaa12ee075548da143c08eae12c558ef870112387e6ee14a8451aa",
+  "files": {
+    "full-local.patch": "9eeb09f192e1ae0217a6244650a900a89dcec6ec9e5adb5e73abd99e56295eef",
+    "tested-files.sha256": "6ec5b32d406b0a721aadd2ee25afc3fb898e754118943822ef29af9be0cc6b6e",
+    "patch-payload.sha256": "ae5b74c4d1c4a3b0c2e1d23caca4777bf3b3a064d495534c7543de32574991e1",
+    "reconstruct.py": "74ccdde1c6f402fc48bf380bc24bc2f9f43619ece95bf800684350bc9d179d40"
+  },
+  "report_sha256": "ce13437aed975afb761dcc14863db38932cd766401372abc718807afa82796eb",
+  "root_linux_environment": "NOT RUN",
+  "O02": "historical cause OPEN"
+}

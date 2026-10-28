@@ -1,0 +1,19 @@
+{
+  "head": "9c9dc19f5ef7795e698c8f3ebaaa637621f38f8e",
+  "tree": "379636ade3a05190ee310e104248c2d20deea5bc",
+  "branch": "master",
+  "index_sha256": "e5503faaadfaa12ee075548da143c08eae12c558ef870112387e6ee14a8451aa",
+  "index_bytes_unchanged": true,
+  "entries_unchanged": true,
+  "staged_patch_unchanged": true,
+  "owner_bytes": {
+    "audit/evidence/q1a-r2-2-1-2026-10-27-local/runners/__pycache__/completion.cpython-313.pyc": "24e46c942f1766e1e79e81f6b3f264cde7c51c57aa606b43f595e6b67826af0b",
+    "audit/evidence/q1a-r3-1-2026-10-28-local/inherited/runners/__pycache__/completion.cpython-313.pyc": "0d8a52850c9e2cc1629b48bea2a57ec627ea57483fd7c1e64f9294ce8c837eaa",
+    "audit/evidence/q1a-r3-1-2026-10-28-local/runners/__pycache__/check-r3-adapted.cpython-313.pyc": "4d7233cb20b7dca63b25240a37160e76bfe951848f223105e71cf480cd13b7af",
+    "audit/evidence/q1a-r3-1-2026-10-28-local/runners/__pycache__/check-r31-boundaries.cpython-313.pyc": "48e078dfcaf4a43bb7cb15de402b17397cfd77ad62523bc4f02f97c3d8fddc3e",
+    "audit/evidence/q1a-r3-2026-10-27-local/inherited/runners/__pycache__/completion.cpython-313.pyc": "2238fe2678bd519b61dcd5e904582a78e832e0833cff9fd0eeb0811efaf9c0cf",
+    "audit/evidence/q1a-r3-2026-10-27-local/runners/__pycache__/check-r3-adapted.cpython-313.pyc": "0921b0f6f293e8bf730a39d7779b1cf043a1e7fbf103d539b4facfe4ebdb0987"
+  },
+  "external_head_or_index_change_observed": false,
+  "actual_uid": 501
+}

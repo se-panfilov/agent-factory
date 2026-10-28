@@ -1,0 +1,3 @@
+Attempt1: complete695/695,22 inherited matrices,2 Q1B matrices,56 ledger entries; source hashes stable. Superseded by reproduced cancel+checkpoint persistence defect6/cleared in-flight.
+Attempt2: complete696/696 and same matrices,56 ledger entries; hashes stable. Superseded by reproduced non-settling group observer and missing pre-spawn cleanupUnknown fence.
+Attempt3: final source bytes; no splicing with earlier attempts. Each attempt is preserved independently. Historical O02 cause remains OPEN. Deliberate observer-fault collector70 is a new isolated known defect, not evidence for historical O02.

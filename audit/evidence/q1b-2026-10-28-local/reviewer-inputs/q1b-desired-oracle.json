@@ -1,0 +1,29 @@
+{
+  "mode": "desired",
+  "complete_cases": 5,
+  "desired_pass": 2,
+  "desired_fail": 3,
+  "rows": [
+    {
+      "id": "B01-argv-control",
+      "desired_pass": true
+    },
+    {
+      "id": "B02-output-budget",
+      "desired_pass": false
+    },
+    {
+      "id": "B03-owned-tree-term",
+      "desired_pass": false
+    },
+    {
+      "id": "B04-explicit-preload-env",
+      "desired_pass": false
+    },
+    {
+      "id": "B05-ambient-env-control",
+      "desired_pass": true
+    }
+  ],
+  "verdict": "FAIL"
+}

@@ -1,0 +1,45 @@
+✔ Q1B normal literal argv, cwd, shell=false, actual exit/signal and no ambient env (30.672084ms)
+✔ Q1B invalid timeout zero refuses before spawn (0.282541ms)
+✔ Q1B invalid output bound zero refuses before spawn (0.072125ms)
+✔ Q1B invalid timeout negative refuses before spawn (0.07075ms)
+✔ Q1B invalid output bound negative refuses before spawn (0.074458ms)
+✔ Q1B invalid timeout infinite refuses before spawn (0.0485ms)
+✔ Q1B invalid output bound infinite refuses before spawn (0.047542ms)
+✔ Q1B invalid timeout nan refuses before spawn (0.046ms)
+✔ Q1B invalid output bound nan refuses before spawn (0.059625ms)
+✔ Q1B invalid timeout fractional refuses before spawn (0.085666ms)
+✔ Q1B invalid output bound fractional refuses before spawn (0.062208ms)
+✔ Q1B explicit env NODE_OPTIONS refuses without running target (0.10375ms)
+✔ Q1B explicit env NODE_PATH refuses without running target (0.061125ms)
+✔ Q1B explicit env LD_PRELOAD refuses without running target (0.045208ms)
+✔ Q1B explicit env DYLD_INSERT_LIBRARIES refuses without running target (0.043083ms)
+✔ Q1B explicit env BASH_ENV refuses without running target (0.03625ms)
+✔ Q1B explicit env ENV refuses without running target (0.035ms)
+✔ Q1B explicit env GIT_CONFIG_COUNT refuses without running target (0.046541ms)
+✔ Q1B explicit env GIT_SSH_COMMAND refuses without running target (0.0475ms)
+✔ Q1B explicit env DOCKER_HOST refuses without running target (0.038125ms)
+✔ Q1B explicit env DOCKER_CONTEXT refuses without running target (0.034959ms)
+✔ Q1B explicit env NODE_TLS_REJECT_UNAUTHORIZED refuses without running target (0.033833ms)
+✔ Q1B explicit env UNREVIEWED refuses without running target (0.03275ms)
+✔ Q1B documented proxy, CA and fixed dates env positives without network (23.307917ms)
+✔ Q1B proxy credentials, conflict and insecure URL are refused (0.181209ms)
+✔ Q1B spawn ENOENT and EACCES preserve absent exit code and confirmed no child (1.883042ms)
+✔ Q1B critical mutation is a typed blocker before any real spawn (0.1185ms)
+✔ Q1B combined interleaved output budget includes marker and prevents verified success (21.731083ms)
+✔ Q1B split UTF8 is reconstructed, malformed output never authenticates machine facts (174.713583ms)
+✔ Q1B chunk split and truncated synthetic secrets do not leak (46.9055ms)
+✔ Q1B cancel before spawn is registered, repeated abort settles once (0.165916ms)
+✔ Q1B own group TERM includes ready descendant; unrelated owned group is untouched (1229.762958ms)
+✔ Q1B production 10s escalation kills TERM-ignoring own group and held pipes (10092.533333ms)
+✔ Q1B parent exits with pipe-held descendant: finite residual cleanup is not ordinary success (147.307917ms)
+✔ Q1B operation generation and timer isolation (69.798709ms)
+✔ Q1B lifecycle first signal is stable and unknown cleanup dominates safe cancellation (0.285958ms)
+✔ Q1B monotonic emergency deadline never renews and fences late awaits (0.183166ms)
+ℹ tests 37
+ℹ suites 0
+ℹ pass 37
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 11882.874667
