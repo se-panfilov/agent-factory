@@ -272,7 +272,7 @@ import { POLICY_BASIS_KEY, type PolicyBasis } from "../../src/core/policy";
 test("A22-14 generic completed flags require exact checkpoint publication, not just valid metadata strings", async () => {
   for (const mutation of ["none", "attempt", "receipt", "catalog"] as const) {
     const q = await fixture(), refresh = q.apt.refreshMetadata;
-    q.apt.refreshMetadata = async () => { await refresh(); await requestCancel(q.x.f, q.x.config); };
+    q.apt.refreshMetadata = async () => { await refresh(); await requestCancel(q.x.f, q.x.config, q.proc); };
     await q.x.planAndApprove(q.make()); assert.equal((await q.make().run("apply", q.x.applyOptions)).exitCode, 130);
     const state = await q.x.state(), holder = state.stages.find(stage => stage.id === "S02")!;
     const basis = JSON.parse(holder.versions[POLICY_BASIS_KEY]!) as PolicyBasis;

@@ -1,0 +1,79 @@
+{
+  "mode": "desired",
+  "cases": 14,
+  "desired_pass": 14,
+  "desired_fail": 0,
+  "verdict": "PASS",
+  "rows": [
+    {
+      "id": "C-none",
+      "desired_pass": true,
+      "exit": 0
+    },
+    {
+      "id": "C-valid",
+      "desired_pass": true,
+      "exit": 130
+    },
+    {
+      "id": "C-stale",
+      "desired_pass": true,
+      "exit": 0
+    },
+    {
+      "id": "C-legacy",
+      "desired_pass": true,
+      "exit": 0
+    },
+    {
+      "id": "C-broken-json",
+      "desired_pass": true,
+      "exit": 8
+    },
+    {
+      "id": "C-v2-missing-field",
+      "desired_pass": true,
+      "exit": 8
+    },
+    {
+      "id": "C-v2-extra-field",
+      "desired_pass": true,
+      "exit": 8
+    },
+    {
+      "id": "C-unknown-version",
+      "desired_pass": true,
+      "exit": 8
+    },
+    {
+      "id": "E-control",
+      "desired_pass": true,
+      "exit": 0
+    },
+    {
+      "id": "E-no-inventory",
+      "desired_pass": true,
+      "exit": 0
+    },
+    {
+      "id": "E-empty-inventory",
+      "desired_pass": true,
+      "exit": 0
+    },
+    {
+      "id": "E-return-failure",
+      "desired_pass": true,
+      "exit": 8
+    },
+    {
+      "id": "E-throw-stop",
+      "desired_pass": true,
+      "exit": 8
+    },
+    {
+      "id": "E-throw-after-prefix",
+      "desired_pass": true,
+      "exit": 8
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+[
+  {
+    "name": "targeted-r31",
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-1-2026-10-28-local/runners/r31-boundary-probes.cjs",
+      "/private/tmp/q1a-r31-development"
+    ],
+    "cwd": "/private/tmp/q1a-r31-development",
+    "exit": 0,
+    "signal": null,
+    "duration": 6.862036709091626
+  },
+  {
+    "name": "targeted-r31-desired",
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-1-2026-10-28-local/runners/check-r31-boundaries.py",
+      "--mode",
+      "desired",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-1-2026-10-28-local/targeted-r31.stdout"
+    ],
+    "cwd": "/private/tmp/q1a-r31-development",
+    "exit": 0,
+    "signal": null,
+    "duration": 0.040957708028145134
+  }
+]

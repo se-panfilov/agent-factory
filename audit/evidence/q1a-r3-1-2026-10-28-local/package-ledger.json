@@ -1,0 +1,67 @@
+[
+  {
+    "name": "seal-inherited-check",
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-1-2026-10-28-local/inherited/runners/check-final-r221.py",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-1-2026-10-28-local/inherited",
+      "/private/tmp/q1a-r31-final-2"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit": 0,
+    "signal": null,
+    "duration": 0.06556804093997926
+  },
+  {
+    "name": "seal-r31-check",
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-1-2026-10-28-local/runners/check-final-r31.py",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-1-2026-10-28-local",
+      "/private/tmp/q1a-r31-final-2",
+      "/Users/splswrd/work/agent-factory"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit": 0,
+    "signal": null,
+    "duration": 0.07771187496837229
+  },
+  {
+    "name": "reconstruction-check",
+    "argv": [
+      "git",
+      "apply",
+      "--check",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-1-2026-10-28-local/full-local.patch"
+    ],
+    "cwd": "/private/tmp/r31-reconstructed-fr_w2bq2",
+    "exit": 0,
+    "signal": null,
+    "duration": 0.016405666945502162
+  },
+  {
+    "name": "reconstruction-apply",
+    "argv": [
+      "git",
+      "apply",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-1-2026-10-28-local/full-local.patch"
+    ],
+    "cwd": "/private/tmp/r31-reconstructed-fr_w2bq2",
+    "exit": 0,
+    "signal": null,
+    "duration": 0.04122033296152949
+  },
+  {
+    "name": "final-head",
+    "argv": [
+      "git",
+      "rev-parse",
+      "HEAD",
+      "HEAD^{tree}"
+    ],
+    "cwd": "/Users/splswrd/work/agent-factory",
+    "exit": 0,
+    "signal": null,
+    "duration": 0.007371500018052757
+  }
+]

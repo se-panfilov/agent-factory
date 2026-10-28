@@ -1,0 +1,79 @@
+{
+  "mode": "baseline",
+  "cases": 14,
+  "desired_pass": 7,
+  "desired_fail": 7,
+  "verdict": "BASELINE_CONFIRMED",
+  "rows": [
+    {
+      "id": "C-none",
+      "desired_pass": true,
+      "exit": 0
+    },
+    {
+      "id": "C-valid",
+      "desired_pass": true,
+      "exit": 130
+    },
+    {
+      "id": "C-stale",
+      "desired_pass": true,
+      "exit": 0
+    },
+    {
+      "id": "C-legacy",
+      "desired_pass": true,
+      "exit": 0
+    },
+    {
+      "id": "C-broken-json",
+      "desired_pass": true,
+      "exit": 8
+    },
+    {
+      "id": "C-v2-missing-field",
+      "desired_pass": false,
+      "exit": 0
+    },
+    {
+      "id": "C-v2-extra-field",
+      "desired_pass": false,
+      "exit": 0
+    },
+    {
+      "id": "C-unknown-version",
+      "desired_pass": false,
+      "exit": 0
+    },
+    {
+      "id": "E-control",
+      "desired_pass": true,
+      "exit": 0
+    },
+    {
+      "id": "E-no-inventory",
+      "desired_pass": false,
+      "exit": 0
+    },
+    {
+      "id": "E-empty-inventory",
+      "desired_pass": false,
+      "exit": 0
+    },
+    {
+      "id": "E-return-failure",
+      "desired_pass": true,
+      "exit": 8
+    },
+    {
+      "id": "E-throw-stop",
+      "desired_pass": false,
+      "exit": 6
+    },
+    {
+      "id": "E-throw-after-prefix",
+      "desired_pass": false,
+      "exit": 6
+    }
+  ]
+}

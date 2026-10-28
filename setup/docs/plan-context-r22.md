@@ -64,3 +64,5 @@ This is a finite final admission boundary, not a transactional OS filesystem sna
 ### Q1A-R3 finite cancel/review refinement (2026-10-27)
 
 Effect admission now observes durable generation-bound cancellation after bounded context/request reseal and before the existing final metadata fence and synchronous TTL/gates. All long cancellation reads precede that fence. Gate approval and prepared/committed semantics are unchanged. A restored prepared/unproven review reports exit8 plus machine-readable fresh-review requirement; it is never promoted. The original R211 auto-resume oracle remains historical known-red; see [lock-cancel-r3.md](lock-cancel-r3.md) for the separate honest-outcome contract and limits.
+
+R3.1 clarification (2026-10-28): cancel decode/schema checks are synchronous after the existing bounded control read and before generation comparison. Unknown/semantic-invalid formats refuse with8; valid stale and exact recognised legacy remain no-ops. No new await was added after the final metadata fence/TTL/gates. Process identity is explicit in every current-source cancellation caller; actual FS UID and injected application UID remain separate.

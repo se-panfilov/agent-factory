@@ -33,7 +33,7 @@ export function accessEngine(root: string, config: SetupConfig, options: {
   const effect = async (phase: Phase, change?: (facts: Facts) => void) => {
     const facts = await readFacts(root); facts.counts[phase]++; change?.(facts); await writeFacts(root, facts);
     await options.afterEffect?.(phase);
-    if (options.pause === phase && !cancelled) { cancelled = true; await requestCancel(f, config); }
+    if (options.pause === phase && !cancelled) { cancelled = true; await requestCancel(f, config, proc); }
   };
   const adapter: AccessAdapter = {
     observe: async () => (await readFacts(root)).observation,

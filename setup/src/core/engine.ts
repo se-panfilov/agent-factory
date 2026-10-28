@@ -23,7 +23,7 @@ import { createInferenceStage, runInferenceDisable } from "../stages/inference";
 import { createPlatformsStage } from "../stages/platforms";
 import { createUpdateStage } from "../stages/update";
 import { createBackup, verifyBackup } from "../operations/backup";
-import { emergencyCancel } from "../operations/emergency";
+import { emergencyCancel, EmergencyFailure } from "../operations/emergency";
 import { hashConfig, initConfig, loadConfig, stableStringify, systemClock, type Clock } from "./config";
 import { ExitCode, type ExecutionPlan, type JsonEnvelope, type SetupConfig, type SetupState, type StageId, type StageModule, type StageReceipt, type StageContext, type StageStatus, type StagePlan } from "./types";
 import { setupError, toSetupError } from "./errors";
@@ -1787,23 +1787,27 @@ export class SetupEngine {
       state = null;
     }
     if (options.emergency === true) {
-      const result = await emergencyCancel(
-        {
-          processAdapter: this.deps.processAdapter,
-          fsAdapter: this.deps.fsAdapter
-        },
-        config
-      );
       const envelope = envelopeBase("cancel", config, state, null);
-      envelope.overall_status = "ok";
-      envelope.data = {
-        emergency: true,
-        paused_marker: result.pausedMarkerPath,
-        stopped_containers: result.stoppedContainers,
-        skipped_foreign_containers: result.skippedForeignContainers
-      };
-      return { envelope, exitCode: ExitCode.Success };
+      try {
+        const result = await emergencyCancel({ processAdapter: this.deps.processAdapter, fsAdapter: this.deps.fsAdapter }, config);
+        envelope.overall_status = "ok";
+        envelope.data = { emergency: true, paused_marker: result.pausedMarkerPath,
+          stopped_containers: result.stoppedContainers, skipped_foreign_containers: result.skippedForeignContainers,
+          emergency_outcome: result.outcome };
+        return { envelope, exitCode: ExitCode.Success };
+      } catch (error) {
+        if (!(error instanceof EmergencyFailure)) throw error;
+        envelope.overall_status = "blocked";
+        envelope.manual_actions.push(error.nextAction);
+        envelope.error = { code: error.code, stage: error.stage, operation_id: error.operationId,
+          retryable: false, public_message: error.message, next_action: error.nextAction, evidence_ref: error.evidenceRef };
+        envelope.data = { emergency: true, paused_marker: error.outcome.paused.path,
+          stopped_containers: error.outcome.stopped_containers, skipped_foreign_containers: error.outcome.skipped_foreign_containers,
+          emergency_outcome: error.outcome };
+        return { envelope, exitCode: error.exitCode };
+      }
     }
+
     const cancelPath = await requestCancel(this.deps.fsAdapter, config, this.deps.processAdapter);
     const envelope = envelopeBase("cancel", config, state, null);
     envelope.overall_status = "ok";

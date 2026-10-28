@@ -59,18 +59,26 @@ export async function controlJson(fs: FilesystemAdapter, file: string, limit = 4
 }
 
 /** Unique private temp directory reserves the publication name without overwriting another writer's temp. */
-export async function publishControl(fs: FilesystemAdapter, file: string, body: string): Promise<void> {
+export type ControlPublicationPhase = "temp_created" | "file_written" | "file_synced" | "published" | "parent_synced";
+export async function publishControl(
+  fs: FilesystemAdapter, file: string, body: string, onPhase?: (phase: ControlPublicationPhase) => void
+): Promise<void> {
   if (Buffer.byteLength(body) > 1024 * 1024) controlError("control_output_oversized", file, "Control publication exceeds bound.");
   const parent = path.dirname(file);
   await controlDirectory(fs, parent);
   const temp = path.join(parent, `.publish-${randomUUID()}`);
   await fs.mkdir(temp, { mode: 0o700 });
+  onPhase?.("temp_created");
   const payload = path.join(temp, "payload");
   // On any failure keep the temp and/or final name as crash evidence. No destructive rollback.
   await fs.writeText(payload, body, 0o600);
+  onPhase?.("file_written");
   await fs.fsyncFile(payload);
+  onPhase?.("file_synced");
   await fs.rename(payload, file);
+  onPhase?.("published");
   await fs.fsyncDir(parent);
+  onPhase?.("parent_synced");
   await fs.remove(temp, { recursive: true });
   await fs.fsyncDir(parent);
 }

@@ -1,0 +1,34 @@
+--- original/access-continuation-probes.cjs
++++ portable-runners/access-continuation-explicit-identity.cjs
+@@ -38,7 +38,7 @@
+   let cancelled = false;
+   async function effect(name, action) {
+     calls[name]++; action?.();
+-    if (name === pause && !cancelled) { cancelled = true; await requestCancel(x.f, x.config); }
++    if (name === pause && !cancelled) { cancelled = true; await requestCancel(x.f, x.config, r14Process); }
+   }
+   const adapter = {
+     observe:async()=>structuredClone(observation),
+--- runners/r3-adapted-probes.cjs
++++ portable-runners/r3-explicit-identity.cjs
+@@ -49,7 +49,7 @@
+ async function cancelBoundary(kind){
+  const q=await aptFixture();await q.x.planAndApprove(q.make());let hits=0,lockReads=0,beforeRequest=null,request=null;
+  const lockDir=path.join(q.x.config.paths.setup_state_dir,'lock');
+- const submit=async()=>{hits++;beforeRequest={...q.counts};await requestCancel(q.x.f,q.x.config);request=JSON.parse(await fs.readFile(path.join(q.x.config.paths.setup_state_dir,'cancel-request.json'),'utf8'));};
++ const submit=async()=>{hits++;beforeRequest={...q.counts};await requestCancel(q.x.f,q.x.config,r14Process);request=JSON.parse(await fs.readFile(path.join(q.x.config.paths.setup_state_dir,'cancel-request.json'),'utf8'));};
+  const f=proxy(q.x.f,{
+   fsyncDir:async p=>{await q.x.f.fsyncDir(p);if(kind==='early'&&p===q.x.config.paths.setup_state_dir&&hits===0&&!(await q.x.f.exists(path.join(p,'lock-protocol')))&&await q.x.f.exists(path.join(lockDir,'owner.json')))await submit();},
+   readTextBounded:async(p,n)=>{const r=await q.x.f.readTextBounded(p,n);if(p===q.x.config.version_lock_path){lockReads++;if(kind==='late'&&hits===0&&new Error().stack?.includes('finalPlanAdmission'))await submit();}return r;}
+@@ -60,9 +60,9 @@
+  output({id:'C-'+kind,hits,lockReads,beforeRequest,request,result:brief(result),counts:q.counts,inflight:s.in_flight_operation,journal:events.filter(x=>x.stage==='S02').map(x=>({operation:x.operation_id,code:x.code})),desired_pass:kind==='none'?result.exitCode===0&&q.counts.install===1:result.exitCode===130&&Object.values(q.counts).every(n=>n===0)});
+ }
+ async function cancelAtomic(fault){
+- const q=await aptFixture();const handle=await acquireLock(q.x.f,r14Process,q.x.config);const filename=await requestCancel(q.x.f,q.x.config),before=await hash(filename);let hits=0,error=null;
++ const q=await aptFixture();const handle=await acquireLock(q.x.f,r14Process,q.x.config);const filename=await requestCancel(q.x.f,q.x.config,r14Process),before=await hash(filename);let hits=0,error=null;
+  const f=proxy(q.x.f,{writeText:async(p,body,mode)=>{if(p.endsWith('/payload')){hits++;if(fault){await q.x.f.writeText(p,'{"installation_id":',mode);throw Object.assign(Error('owned injected ENOSPC'),{code:'ENOSPC'});}}return q.x.f.writeText(p,body,mode);}});
+- try{await requestCancel(f,q.x.config);}catch(e){error=e.code;}
++ try{await requestCancel(f,q.x.config,r14Process);}catch(e){error=e.code;}
+  const after=await hash(filename);const consumed=await consumeCancelRequest(q.x.f,q.x.config,handle.owner);assert.equal(hits,1);
+  output({id:'C-atomic-'+(fault?'fault':'control'),hits,error,before,after,consumed,desired_pass:consumed===true});
+ }

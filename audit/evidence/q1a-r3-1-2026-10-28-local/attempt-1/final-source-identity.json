@@ -1,0 +1,12 @@
+{
+  "named_base": "ad274add0a7ed0a5e0923363ce9e9000bef7c013",
+  "product_baseline": "e217f397b952942b62e847788dc2e6698ad6d7e5",
+  "delta": "audit-only",
+  "source_count": 167,
+  "runner_fixture_count": 119,
+  "total": 286,
+  "fixed": "/private/tmp/q1a-r31-final",
+  "actual_uid": 501,
+  "injected_uid": 1000,
+  "index_sha256": "233115de2884abfdcdf8e08e393b3c32ea0fbb308be5cf8bca4872cd23b376ba"
+}

@@ -1,0 +1,120 @@
+{
+  "id": "explicit-current-callers",
+  "acceptance": true,
+  "count": 22,
+  "calls": [
+    {
+      "file": "setup/src/core/engine.ts",
+      "line": 1811,
+      "adapter": "this.deps.processAdapter"
+    },
+    {
+      "file": "setup/tests/helpers/r211-access.ts",
+      "line": 36,
+      "adapter": "proc"
+    },
+    {
+      "file": "setup/tests/integration/core-q1a.test.ts",
+      "line": 694,
+      "adapter": "proc"
+    },
+    {
+      "file": "setup/tests/integration/q1a-r22-context.test.ts",
+      "line": 275,
+      "adapter": "q.proc"
+    },
+    {
+      "file": "setup/tests/integration/q1a-r3-protocol.test.ts",
+      "line": 114,
+      "adapter": "r14Process"
+    },
+    {
+      "file": "setup/tests/integration/q1a-r3-protocol.test.ts",
+      "line": 122,
+      "adapter": "r14Process"
+    },
+    {
+      "file": "setup/tests/integration/q1a-r3-protocol.test.ts",
+      "line": 127,
+      "adapter": "r14Process"
+    },
+    {
+      "file": "setup/tests/integration/q1a-r3-protocol.test.ts",
+      "line": 129,
+      "adapter": "r14Process"
+    },
+    {
+      "file": "setup/tests/integration/q1a-r3-protocol.test.ts",
+      "line": 139,
+      "adapter": "r14Process"
+    },
+    {
+      "file": "setup/tests/integration/q1a-r3-protocol.test.ts",
+      "line": 141,
+      "adapter": "r14Process"
+    },
+    {
+      "file": "setup/tests/integration/q1a-r3-protocol.test.ts",
+      "line": 147,
+      "adapter": "r14Process"
+    },
+    {
+      "file": "setup/tests/integration/q1a-r3-protocol.test.ts",
+      "line": 148,
+      "adapter": "r14Process"
+    },
+    {
+      "file": "setup/tests/integration/q1a-r3-protocol.test.ts",
+      "line": 155,
+      "adapter": "r14Process"
+    },
+    {
+      "file": "setup/tests/integration/q1a-r3-protocol.test.ts",
+      "line": 179,
+      "adapter": "r14Process"
+    },
+    {
+      "file": "setup/tests/integration/q1a-r3-protocol.test.ts",
+      "line": 244,
+      "adapter": "r14Process"
+    },
+    {
+      "file": "setup/tests/integration/q1a-r3-protocol.test.ts",
+      "line": 253,
+      "adapter": "proc"
+    },
+    {
+      "file": "setup/tests/integration/q1a-r31-boundaries.test.ts",
+      "line": 33,
+      "adapter": "r14Process"
+    },
+    {
+      "file": "r31-boundary-probes.cjs",
+      "line": 35,
+      "adapter": "r14Process"
+    },
+    {
+      "file": "r3-explicit-identity.cjs",
+      "line": 52,
+      "adapter": "r14Process"
+    },
+    {
+      "file": "r3-explicit-identity.cjs",
+      "line": 63,
+      "adapter": "r14Process"
+    },
+    {
+      "file": "r3-explicit-identity.cjs",
+      "line": 65,
+      "adapter": "r14Process"
+    },
+    {
+      "file": "s03-explicit-identity.cjs",
+      "line": 41,
+      "adapter": "r14Process"
+    }
+  ],
+  "actual_uid": 501,
+  "global_identity_override": false,
+  "historical_old_api": "genuine legacy-to-c13 runner calls old module only before engine switch; originals retained"
+}

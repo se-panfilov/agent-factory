@@ -1,0 +1,33 @@
+--- a/setup/tests/helpers/r211-access.ts
++++ b/setup/tests/helpers/r211-access.ts
+@@ -33,7 +33,7 @@
+   const effect = async (phase: Phase, change?: (facts: Facts) => void) => {
+     const facts = await readFacts(root); facts.counts[phase]++; change?.(facts); await writeFacts(root, facts);
+     await options.afterEffect?.(phase);
+-    if (options.pause === phase && !cancelled) { cancelled = true; await requestCancel(f, config); }
++    if (options.pause === phase && !cancelled) { cancelled = true; await requestCancel(f, config, proc); }
+   };
+   const adapter: AccessAdapter = {
+     observe: async () => (await readFacts(root)).observation,
+--- a/setup/tests/integration/q1a-r22-context.test.ts
++++ b/setup/tests/integration/q1a-r22-context.test.ts
+@@ -272,7 +272,7 @@
+ test("A22-14 generic completed flags require exact checkpoint publication, not just valid metadata strings", async () => {
+   for (const mutation of ["none", "attempt", "receipt", "catalog"] as const) {
+     const q = await fixture(), refresh = q.apt.refreshMetadata;
+-    q.apt.refreshMetadata = async () => { await refresh(); await requestCancel(q.x.f, q.x.config); };
++    q.apt.refreshMetadata = async () => { await refresh(); await requestCancel(q.x.f, q.x.config, q.proc); };
+     await q.x.planAndApprove(q.make()); assert.equal((await q.make().run("apply", q.x.applyOptions)).exitCode, 130);
+     const state = await q.x.state(), holder = state.stages.find(stage => stage.id === "S02")!;
+     const basis = JSON.parse(holder.versions[POLICY_BASIS_KEY]!) as PolicyBasis;
+--- a/setup/tests/integration/core-q1a.test.ts
++++ b/setup/tests/integration/core-q1a.test.ts
+@@ -690,7 +690,7 @@
+     async apply(ctx: StageContext) {
+       await fs.promises.mkdir(path.dirname(effectA), { recursive: true, mode: 0o700 });
+       await fs.promises.writeFile(effectA, "a\n", "utf8");
+-      await requestCancel(new NodeFilesystemAdapter(), ctx.config);
++      await requestCancel(new NodeFilesystemAdapter(), ctx.config, new FakeProcessAdapter(1601, "f324dcd7-4035-4430-ab39-ce31f9e396bf", 500));
+       return [{
+         operationId: "s01-op",
+         stageId: "S01",

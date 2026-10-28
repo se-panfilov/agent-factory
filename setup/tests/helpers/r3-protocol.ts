@@ -16,13 +16,17 @@ export function proxyFs(f: FilesystemAdapter, overrides: Partial<FilesystemAdapt
 }
 export const ok = (stdout = ""): CommandResult => ({ exitCode: 0, stdout, stderr: "", timedOut: false, durationMs: 0 });
 /** Current files + genuine engine/journal/checkpoint S05 publication; no hand-drawn deployment receipt. */
-export async function trustedEmergencyFixture() {
+export async function trustedEmergencyFixture(options: { status?: boolean } = {}) {
   const x = await r14Fixture("S05"), a = new FakeApplicationAdapter(makeCheckout(x.config), makeRelease(x.config));
   const body = "// owned synthetic stop/status entry; only injected process adapter executes\n";
   const manifest = a.release.manifest!;
   manifest.content_hashes = { "runner.cjs": createHash("sha256").update(body).digest("hex") };
   manifest.capabilities = ["runner-readonly", "app-status"];
   manifest.commands = { runner_verify: ["node", "runner.cjs", "verify"], runner_stop: ["node", "runner.cjs", "stop"], app_status: ["node", "runner.cjs", "status"] };
+  if (options.status === false) {
+    manifest.capabilities = ["runner-readonly"];
+    delete manifest.commands.app_status;
+  }
   const write = async (root: string) => {
     await fs.mkdir(root, { recursive: true, mode: 0o700 });
     await fs.writeFile(path.join(root, "runner.cjs"), body, { mode: 0o600 });

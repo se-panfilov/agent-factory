@@ -62,12 +62,13 @@ Degraded health causes explicit non-verified S11 state with reasons.
 
 `cancel --emergency` does not require installation lock and performs durable pause plus bounded stop:
 
-1. writes `state/PAUSED`
-2. runs manifest stop command (`app_stop|app_stop_all|runner_stop`)
-3. stops only containers confirmed as owned by label `agent-factory.installation_id=<installation_id>`
-4. skips foreign containers and reports them
+1. admits the ordinary owner and journal-bound current deployment/content/runtime before effects
+2. atomically publishes `state/PAUSED`, recording actual publication/durability outcome
+3. invokes only the reviewed confined `runner_stop` and existing status capability
+4. independently discovers current Docker resources by fixed installation identity, regardless of advisory inventory
+5. confirms each owned stop and skips proven foreign resources; unknown/partial results return8 with attempted/confirmed/unknown prefix data and a manual recovery action
 
-If app stop capability is missing, emergency returns **blocked** with explicit manual runbook action.
+If trusted app stop capability is missing, emergency returns **blocked** before PAUSED/dispatch. Missing status after an attempted trusted stop returns8; no command is invented. See [lock-cancel-r3.md](lock-cancel-r3.md) for R3.1 outcome and supported Docker-deployment obligations.
 
 ## Manual runbook (SSH/VPS/reboot)
 

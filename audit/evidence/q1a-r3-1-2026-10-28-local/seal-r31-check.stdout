@@ -1,0 +1,10 @@
+{
+  "suite": 645,
+  "new_R31_tests": 56,
+  "preserved_R3_tests": 74,
+  "exact_source_runner_inputs": 286,
+  "all_ledger_exits_expected": true,
+  "no_splicing": true,
+  "historical_O02": "OPEN",
+  "root_isolated_environment": "NOT RUN"
+}

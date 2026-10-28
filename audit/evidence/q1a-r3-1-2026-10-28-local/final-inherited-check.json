@@ -1,0 +1,212 @@
+{
+  "original_replays": 1,
+  "instrumented_attempts": 0,
+  "no_splicing": true,
+  "matrices": [
+    {
+      "matrix": "boundaries/context-boundary-probes",
+      "exact_ids_unique_and_complete": true,
+      "rows": 11,
+      "predicates": {
+        "expected_safe": true
+      },
+      "pid": 89536
+    },
+    {
+      "matrix": "boundaries/release-boundary-probes",
+      "exact_ids_unique_and_complete": true,
+      "rows": 5,
+      "predicates": {
+        "expected_safe": true
+      },
+      "pid": 89538
+    },
+    {
+      "matrix": "r31",
+      "exact_ids_unique_and_complete": true,
+      "rows": 15,
+      "predicates": {
+        "desired_pass": true
+      },
+      "pid": 89540
+    },
+    {
+      "matrix": "r3",
+      "exact_ids_unique_and_complete": true,
+      "rows": 15,
+      "predicates": {
+        "desired_pass": true
+      },
+      "pid": 89548
+    },
+    {
+      "matrix": "context",
+      "exact_ids_unique_and_complete": true,
+      "rows": 6,
+      "predicates": {
+        "acceptance": true
+      },
+      "pid": 89583
+    },
+    {
+      "matrix": "s03",
+      "exact_ids_unique_and_complete": true,
+      "rows": 14,
+      "predicates": {
+        "acceptance": true,
+        "stage_status": "verified",
+        "timer_armed": false
+      },
+      "pid": 89593
+    },
+    {
+      "matrix": "v1",
+      "exact_ids_unique_and_complete": true,
+      "rows": 14,
+      "predicates": {
+        "acceptance": true,
+        "stage_status": "verified",
+        "timer_armed": false
+      },
+      "pid": 89620
+    },
+    {
+      "matrix": "v2",
+      "exact_ids_unique_and_complete": true,
+      "rows": 14,
+      "predicates": {
+        "acceptance": true,
+        "stage_status": "verified",
+        "timer_armed": false
+      },
+      "pid": 89650
+    },
+    {
+      "matrix": "final-recovery",
+      "exact_ids_unique_and_complete": true,
+      "rows": 2,
+      "predicates": {
+        "resume": 8,
+        "explicit_review_resume": 0,
+        "checkpoint_retained": true
+      },
+      "pid": 89663
+    },
+    {
+      "matrix": "comparisons/baseline-adapter-final.jsonl",
+      "exact_ids_unique_and_complete": true,
+      "rows": 5,
+      "predicates": {},
+      "pid": 89706
+    },
+    {
+      "matrix": "comparisons/baseline-stage-final.jsonl",
+      "exact_ids_unique_and_complete": true,
+      "rows": 5,
+      "predicates": {},
+      "pid": 89715
+    },
+    {
+      "matrix": "comparisons/fixed-adapter-final.jsonl",
+      "exact_ids_unique_and_complete": true,
+      "rows": 5,
+      "predicates": {
+        "acceptance": true
+      },
+      "pid": 89724
+    },
+    {
+      "matrix": "comparisons/fixed-stage-final.jsonl",
+      "exact_ids_unique_and_complete": true,
+      "rows": 5,
+      "predicates": {
+        "acceptance": true
+      },
+      "pid": 89731
+    },
+    {
+      "matrix": "comparisons/baseline-r2-final.log",
+      "exact_ids_unique_and_complete": true,
+      "rows": 9,
+      "predicates": {},
+      "pid": 89738
+    },
+    {
+      "matrix": "comparisons/fixed-r2-final.log",
+      "exact_ids_unique_and_complete": true,
+      "rows": 9,
+      "predicates": {
+        "acceptance": true
+      },
+      "pid": 89739
+    },
+    {
+      "matrix": "comparisons/frozen/fixed-new-probes.jsonl",
+      "exact_ids_unique_and_complete": true,
+      "rows": 7,
+      "predicates": {
+        "acceptance": true,
+        "harness_ok": true
+      },
+      "pid": 89741
+    },
+    {
+      "matrix": "comparisons/frozen/fixed-new-probes-adapted.jsonl",
+      "exact_ids_unique_and_complete": true,
+      "rows": 7,
+      "predicates": {
+        "acceptance": true,
+        "harness_ok": true
+      },
+      "pid": 89746
+    },
+    {
+      "matrix": "comparisons/frozen/fixed-comparison.jsonl",
+      "exact_ids_unique_and_complete": true,
+      "rows": 13,
+      "predicates": {},
+      "pid": 89747
+    },
+    {
+      "matrix": "comparisons/frozen/fixed-full-lifecycle.jsonl",
+      "exact_ids_unique_and_complete": true,
+      "rows": 1,
+      "predicates": {
+        "status": "PASS"
+      },
+      "pid": 89750
+    },
+    {
+      "matrix": "comparisons/frozen/fixed-lifecycle-controls.jsonl",
+      "exact_ids_unique_and_complete": true,
+      "rows": 3,
+      "predicates": {
+        "passed": true
+      },
+      "pid": 89755
+    },
+    {
+      "matrix": "comparisons/frozen/fixed-s06-noop.jsonl",
+      "exact_ids_unique_and_complete": true,
+      "rows": 1,
+      "predicates": {
+        "passed": true
+      },
+      "pid": 89756
+    },
+    {
+      "matrix": "comparisons/frozen/fixed-stage-compat.jsonl",
+      "exact_ids_unique_and_complete": true,
+      "rows": 5,
+      "predicates": {
+        "plan_exit": 0,
+        "apply_exit": 0,
+        "status_exit": 0,
+        "inflight": null
+      },
+      "pid": 89757
+    }
+  ],
+  "source_inputs_unchanged": 286,
+  "O02": "NOT REPRODUCED in this single attempt; cause OPEN, no runtime fix claimed"
+}

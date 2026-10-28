@@ -1,0 +1,15 @@
+{
+  "argv": [
+    "python3",
+    "/workspace/scratch/d38639edcc79/r3-review/evidence/independent-bundle/inherited/runners/validate-r3-inherited.py",
+    "--repo",
+    "/workspace/scratch/d38639edcc79/agent-factory",
+    "--fixed",
+    "/workspace/scratch/d38639edcc79/agent-factory-review-e217f39",
+    "--bundle",
+    "/workspace/scratch/d38639edcc79/r3-review/evidence/independent-bundle/inherited",
+    "--work",
+    "/workspace/scratch/d38639edcc79/r3-validation-work"
+  ],
+  "cwd": "/workspace/scratch/d38639edcc79"
+}

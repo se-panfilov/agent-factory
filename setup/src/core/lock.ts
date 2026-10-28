@@ -118,32 +118,64 @@ export async function acquireLock(fs: FilesystemAdapter, proc: ProcessAdapter, c
 }
 
 /** Separate protocol mutex, never the installation lock: cancel remains available during apply. */
-export async function requestCancel(fs: FilesystemAdapter, config: SetupConfig, proc?: ProcessAdapter): Promise<string> {
-  if (proc) ordinaryOwner(proc, config);
-  else {
-    // Internal stage/test callers already execute as the configured owner; production CLI always supplies proc.
-    if ((process.getuid?.() ?? 0) === 0) controlError("owner_identity_invalid", config.paths.setup_state_dir, "Root cancel requires an explicit ordinary-owner adapter.", ExitCode.UnsupportedHostOrMissingPrivileges);
-  }
+export async function requestCancel(fs: FilesystemAdapter, config: SetupConfig, proc: ProcessAdapter): Promise<string> {
+  if (!proc) controlError("owner_identity_invalid", config.paths.setup_state_dir,
+    "Cancellation requires an explicit process identity.", ExitCode.UnsupportedHostOrMissingPrivileges);
+  ordinaryOwner(proc, config);
   return protocol(fs, config, async () => {
     const owner = await readOwner(fs, config);
-    if (proc && await lockLiveness(proc, owner) !== "alive") controlError("cancel_run_unproven", buildLockPaths(config).ownerFile, "No proven active matching run can accept cancellation.", ExitCode.LockOwnedByAnotherInstaller);
+    if (await lockLiveness(proc, owner) !== "alive") controlError("cancel_run_unproven", buildLockPaths(config).ownerFile, "No proven active matching run can accept cancellation.", ExitCode.LockOwnedByAnotherInstaller);
     const cancel = path.join(config.paths.setup_state_dir, "cancel-request.json");
     await publishControl(fs, cancel, `${JSON.stringify({ schema_version: 2, owner })}\n`);
     return cancel;
   });
 }
 
-/** Observation is durable and non-destructive. Legacy unbound requests never authorize cancellation. */
+/** Only the exact historical unbound format is readable without schema_version. */
+function recognisedLegacyCancel(raw: Record<string, unknown>): boolean {
+  if (Object.keys(raw).sort().join(",") !== "installation_id,requested_at,target_lock_boot_id,target_lock_nonce,target_lock_pid") return false;
+  const time = raw.requested_at;
+  if (typeof time !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(time)
+    || !Number.isFinite(Date.parse(time)) || new Date(time).toISOString() !== time
+    || typeof raw.installation_id !== "string" || !UUID.test(raw.installation_id)) return false;
+  const unbound = raw.target_lock_boot_id === null && raw.target_lock_nonce === null && raw.target_lock_pid === null;
+  const identified = typeof raw.target_lock_boot_id === "string" && UUID.test(raw.target_lock_boot_id)
+    && typeof raw.target_lock_nonce === "string" && UUID.test(raw.target_lock_nonce)
+    && Number.isSafeInteger(raw.target_lock_pid) && Number(raw.target_lock_pid) > 0 && Number(raw.target_lock_pid) <= 2147483647;
+  return unbound || identified;
+}
+
+/** Decode a permitted format before deciding whether its generation matches. No writes. */
+function decodeCancel(value: unknown): LockOwner | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("cancel object required");
+  const raw = value as Record<string, unknown>;
+  if (!Object.hasOwn(raw, "schema_version")) {
+    if (!recognisedLegacyCancel(raw)) throw Error("unrecognised legacy cancellation");
+    return null; // Known legacy metadata never grants authority to cancel a new run.
+  }
+  if (raw.schema_version !== 2 || Object.keys(raw).sort().join(",") !== "owner,schema_version") {
+    throw Error("unsupported version or fields");
+  }
+  const installation = (raw.owner as Partial<LockOwner> | null)?.installation_id;
+  if (typeof installation !== "string" || !validOwner(raw.owner, installation)) throw Error("invalid cancel owner");
+  return raw.owner;
+}
+
+/** Observation is durable and non-destructive. Valid foreign/stale generations are no-ops. */
 export async function consumeCancelRequest(fs: FilesystemAdapter, config: SetupConfig, owner: LockOwner): Promise<boolean> {
   const file = path.join(config.paths.setup_state_dir, "cancel-request.json");
-  if (!(await fs.exists(file))) return false;
   try {
-    const raw = await controlJson(fs, file) as { schema_version?: unknown; owner?: unknown };
-    return raw.schema_version === 2 && Object.keys(raw).sort().join(",") === "owner,schema_version"
-      && validOwner(raw.owner, config.installation_id) && sameOwner(raw.owner, owner);
+    await fs.lstat(file); // ENOENT alone proves absence; access errors and broken symlinks are not absence.
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    controlError("cancel_evidence_unknown", file, "Cancellation metadata could not be observed safely.");
+  }
+  try {
+    const target = decodeCancel(await controlJson(fs, file));
+    return target !== null && sameOwner(target, owner);
   } catch {
-    // Unsafe/malformed cancellation cannot safely authorize continuation either.
-    controlError("cancel_evidence_unknown", file, "Cancellation evidence is malformed or unsafe; continuation requires reconciliation.");
+    controlError("cancel_evidence_unknown", file,
+      "Cancellation evidence has an unknown/invalid format or unsafe metadata; preserve it and reconcile before continuation.");
   }
 }
 

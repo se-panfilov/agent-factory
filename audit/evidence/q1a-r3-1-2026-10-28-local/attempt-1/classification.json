@@ -1,0 +1,7 @@
+{
+  "failure": "TypeScript TS2345 .map(JSON.parse) callback reviver/index type mismatch",
+  "suite_started": false,
+  "matrices_started": false,
+  "instrumentation_needed": false,
+  "O02_cause": "unrelated; historical OPEN"
+}

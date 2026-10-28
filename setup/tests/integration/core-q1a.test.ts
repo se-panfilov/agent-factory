@@ -652,6 +652,7 @@ test("A13 cancel requested in stage A stops before stage B mutation", async () =
   const config = makeConfig(root, ["S02"]);
   await writeConfig(configPath, config);
 
+  const proc = new FakeProcessAdapter(1601, "f324dcd7-4035-4430-ab39-ce31f9e396bf", 500);
   const s01: StageModule = {
     id: "S01",
     dependencies: ["S00"],
@@ -690,7 +691,7 @@ test("A13 cancel requested in stage A stops before stage B mutation", async () =
     async apply(ctx: StageContext) {
       await fs.promises.mkdir(path.dirname(effectA), { recursive: true, mode: 0o700 });
       await fs.promises.writeFile(effectA, "a\n", "utf8");
-      await requestCancel(new NodeFilesystemAdapter(), ctx.config);
+      await requestCancel(new NodeFilesystemAdapter(), ctx.config, proc);
       return [{
         operationId: "s01-op",
         stageId: "S01",
@@ -758,7 +759,7 @@ test("A13 cancel requested in stage A stops before stage B mutation", async () =
   const engine = new SetupEngine(
     {
       fsAdapter: new NodeFilesystemAdapter(),
-      processAdapter: new FakeProcessAdapter(1601, "f324dcd7-4035-4430-ab39-ce31f9e396bf", 500),
+      processAdapter: proc,
       httpAdapter: new FakeHttpAdapter(),
       installerVersion: "0.0.1",
       clock: { now: () => new Date("2026-10-23T10:00:00.000Z") }

@@ -1,0 +1,95 @@
+[
+  {
+    "name": "baseline-node",
+    "argv": [
+      "node",
+      "--version"
+    ],
+    "cwd": "/private/tmp/q1a-r31-baseline",
+    "exit": 0,
+    "signal": null,
+    "duration": 0.055697625037282705
+  },
+  {
+    "name": "baseline-npm",
+    "argv": [
+      "npm",
+      "--version"
+    ],
+    "cwd": "/private/tmp/q1a-r31-baseline",
+    "exit": 0,
+    "signal": null,
+    "duration": 0.14788750000298023
+  },
+  {
+    "name": "baseline-ci",
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "cwd": "/private/tmp/q1a-r31-baseline",
+    "exit": 0,
+    "signal": null,
+    "duration": 0.49397516692988575
+  },
+  {
+    "name": "baseline-build",
+    "argv": [
+      "npm",
+      "--prefix",
+      "setup",
+      "run",
+      "build",
+      "--silent"
+    ],
+    "cwd": "/private/tmp/q1a-r31-baseline",
+    "exit": 0,
+    "signal": null,
+    "duration": 1.648992541944608
+  },
+  {
+    "name": "r31-baseline",
+    "argv": [
+      "node",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-1-2026-10-28-local/runners/r31-boundary-probes.cjs",
+      "/private/tmp/q1a-r31-baseline"
+    ],
+    "cwd": "/private/tmp/q1a-r31-baseline",
+    "exit": 0,
+    "signal": null,
+    "duration": 7.546934542013332
+  },
+  {
+    "name": "baseline-oracle",
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-1-2026-10-28-local/runners/check-r31-boundaries.py",
+      "--mode",
+      "baseline",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-1-2026-10-28-local/r31-baseline.jsonl"
+    ],
+    "cwd": "/private/tmp/q1a-r31-baseline",
+    "exit": 0,
+    "signal": null,
+    "duration": 0.04404487495776266
+  },
+  {
+    "name": "baseline-desired",
+    "argv": [
+      "python3",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-1-2026-10-28-local/runners/check-r31-boundaries.py",
+      "--mode",
+      "desired",
+      "/Users/splswrd/work/agent-factory/audit/evidence/q1a-r3-1-2026-10-28-local/r31-baseline.jsonl"
+    ],
+    "cwd": "/private/tmp/q1a-r31-baseline",
+    "exit": 1,
+    "signal": null,
+    "duration": 0.023609541938640177
+  }
+]

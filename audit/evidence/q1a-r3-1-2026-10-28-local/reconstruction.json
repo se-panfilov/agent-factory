@@ -1,0 +1,19 @@
+{
+  "base": "ad274add0a7ed0a5e0923363ce9e9000bef7c013",
+  "base_tree": "63f15f339f7520f382ec9e5eb485c7572d5304b7",
+  "check_exit": 0,
+  "apply_exit": 0,
+  "tested_hashes_match": 286,
+  "payload_hashes_match": 503,
+  "patch_sha256": "a1d85e091b90aa42d2b909504ba06bc4c39f5d385868e963f43587fe1336639e",
+  "report_sha256": "22776ad556e08850c95d4eb92fe76c03fd845a1fd54b17c79e5a7b73d3f1e1f7",
+  "owner_hashes": {
+    "audit/evidence/q1a-r2-2-1-2026-10-27-local/runners/__pycache__/completion.cpython-313.pyc": "24e46c942f1766e1e79e81f6b3f264cde7c51c57aa606b43f595e6b67826af0b",
+    "audit/evidence/q1a-r3-2026-10-27-local/inherited/runners/__pycache__/completion.cpython-313.pyc": "2238fe2678bd519b61dcd5e904582a78e832e0833cff9fd0eeb0811efaf9c0cf",
+    "audit/evidence/q1a-r3-2026-10-27-local/runners/__pycache__/check-r3-adapted.cpython-313.pyc": "0921b0f6f293e8bf730a39d7779b1cf043a1e7fbf103d539b4facfe4ebdb0987"
+  },
+  "single_apply": true,
+  "no_index_used": true,
+  "new_files_tar": false,
+  "reconstructed": "/private/tmp/r31-reconstructed-fr_w2bq2"
+}
