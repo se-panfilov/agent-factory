@@ -1,3 +1,4 @@
+import { commandSucceeded } from "../adapters/process";
 import path from "node:path";
 import { type FilesystemAdapter } from "../adapters/filesystem";
 import { type CommandResult, type ProcessAdapter } from "../adapters/process";
@@ -314,13 +315,14 @@ async function readPinnedImageRef(fsAdapter: FilesystemAdapter, config: SetupCon
 
 async function toySourceSha(processAdapter: ProcessAdapter, config: SetupConfig): Promise<string> {
   const result = await processAdapter.runCommand({
+    policy: "interruptible",
     binary: "/usr/bin/git",
     args: ["-C", path.join(config.paths.application_work_dir, "factory-toy-fixture"), "rev-parse", "HEAD"],
     timeoutMs: OBSERVE_TIMEOUT_MS,
     maxOutputBytes: MAX_OUTPUT_BYTES
   });
   const value = result.stdout.trim();
-  if (result.exitCode !== 0 || result.timedOut || !/^[0-9a-f]{40}$/.test(value)) {
+  if (!commandSucceeded(result) || !/^[0-9a-f]{40}$/.test(value)) {
     throw setupError({
       exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
       code: "s08_toy_fixture_missing",
@@ -464,6 +466,7 @@ async function executeRunnerVerify(
 ): Promise<RunnerResultPayload> {
   const command = await resolveRunnerVerifyCommand(fsAdapter, config);
   const result = await processAdapter.runCommand({
+    policy: "interruptible",
     binary: command.binary,
     args: [
       ...command.args,
@@ -495,7 +498,7 @@ async function executeRunnerVerify(
       stage: "S08"
     });
   }
-  if (result.exitCode !== 0) {
+  if (!commandSucceeded(result)) {
     throw setupError({
       exitCode: ExitCode.OperationOrVerificationFailed,
       code: "s08_runner_verify_failed",
@@ -549,6 +552,7 @@ export async function runAuthLogin(
   const imageRef = await readPinnedImageRef(fsAdapter, config);
   await fsAdapter.mkdir(config.paths.application_auth_dir, { recursive: true, mode: 0o700 });
   const login = await processAdapter.runCommand({
+    policy: "critical",
     binary: "/usr/bin/docker",
     args: [
       "run",
@@ -577,7 +581,7 @@ export async function runAuthLogin(
       stage: "S08"
     });
   }
-  if (login.exitCode !== 0) {
+  if (!commandSucceeded(login)) {
     const ttyMissing = /tty|not a terminal|input device/i.test(login.stderr);
     throw setupError({
       exitCode: ExitCode.ManualActionRequired,

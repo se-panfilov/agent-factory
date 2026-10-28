@@ -129,6 +129,8 @@ export interface StageObservation {
 }
 
 export interface StageContext {
+  /** Run-owned notification; never an approval or replacement for durable cancellation. */
+  cancellationSignal?: AbortSignal | undefined;
   installationId: string;
   contractVersion: "1.0.0";
   profile: "supervised" | "service";

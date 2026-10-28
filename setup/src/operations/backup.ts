@@ -1,3 +1,4 @@
+import { commandSucceeded } from "../adapters/process";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { promises as fs } from "node:fs";
@@ -337,12 +338,13 @@ async function ensureServiceDbCapabilities(config: SetupConfig): Promise<void> {
 
 async function runSqliteBackup(processAdapter: ProcessAdapter, sourceDbPath: string, targetDbPath: string): Promise<void> {
   const result = await processAdapter.runCommand({
+    policy: "critical",
     binary: "/usr/bin/sqlite3",
     args: [sourceDbPath, ".timeout 5000", `.backup ${targetDbPath}`],
     timeoutMs: 30_000,
     maxOutputBytes: 128 * 1024
   });
-  if (result.exitCode !== 0 || result.timedOut) {
+  if (!commandSucceeded(result)) {
     const stderrLower = result.stderr.toLowerCase();
     const isBusy = stderrLower.includes("busy");
     const isSpace = stderrLower.includes("no space") || stderrLower.includes("enospc");
@@ -359,12 +361,13 @@ async function runSqliteBackup(processAdapter: ProcessAdapter, sourceDbPath: str
 
 async function runSqliteIntegrityCheck(processAdapter: ProcessAdapter, dbPath: string): Promise<void> {
   const result = await processAdapter.runCommand({
+    policy: "critical",
     binary: "/usr/bin/sqlite3",
     args: [dbPath, "PRAGMA integrity_check;"],
     timeoutMs: 30_000,
     maxOutputBytes: 128 * 1024
   });
-  if (result.exitCode !== 0 || result.timedOut || !/\bok\b/i.test(result.stdout)) {
+  if (!commandSucceeded(result) || !/\bok\b/i.test(result.stdout)) {
     throw setupError({
       exitCode: ExitCode.DriftOrRecoveryRequired,
       code: "s11_backup_integrity_failed",

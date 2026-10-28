@@ -1,3 +1,4 @@
+import { commandSucceeded } from "../adapters/process";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 import { type ProcessAdapter } from "../adapters/process";
@@ -34,12 +35,13 @@ function historyPath(config: SetupConfig): string {
 
 async function runCommand(processAdapter: ProcessAdapter, binary: string, args: string[]): Promise<string | null> {
   const result = await processAdapter.runCommand({
+    policy: "observe",
     binary,
     args,
     timeoutMs: 15_000,
     maxOutputBytes: 64 * 1024
   });
-  if (result.exitCode !== 0 || result.timedOut) {
+  if (!commandSucceeded(result)) {
     return null;
   }
   return result.stdout;
@@ -120,12 +122,14 @@ export async function collectHealth(deps: HealthDeps, config: SetupConfig): Prom
   const diskFreePercent = parseDiskFreePercent(await runCommand(deps.processAdapter, "/bin/df", ["-P", "/"]));
   const ramAvailablePercent = parseRamAvailablePercent(await runCommand(deps.processAdapter, "/usr/bin/free", []));
   const serviceStatus = await deps.processAdapter.runCommand({
+    policy: "observe",
     binary: "/usr/bin/systemctl",
     args: ["is-active", "agent-factory.service", "--quiet"],
     timeoutMs: 10_000,
     maxOutputBytes: 32 * 1024
   });
   const dockerStatus = await deps.processAdapter.runCommand({
+    policy: "observe",
     binary: "/usr/bin/docker",
     args: ["info", "--format", "{{.ServerVersion}}"],
     timeoutMs: 15_000,
@@ -165,10 +169,10 @@ export async function collectHealth(deps: HealthDeps, config: SetupConfig): Prom
   if (!ram5mHealthy) {
     degradedReasons.push("ram_5m_average_below_10_percent");
   }
-  if (serviceStatus.exitCode !== 0) {
+  if (!commandSucceeded(serviceStatus)) {
     degradedReasons.push("service_inactive");
   }
-  if (dockerStatus.exitCode !== 0) {
+  if (!commandSucceeded(dockerStatus)) {
     degradedReasons.push("docker_unhealthy");
   }
   if (externalHeartbeatConfigured && !externalHeartbeatReachable) {
@@ -177,8 +181,8 @@ export async function collectHealth(deps: HealthDeps, config: SetupConfig): Prom
 
   return {
     observedAt,
-    serviceHealthy: serviceStatus.exitCode === 0,
-    dockerHealthy: dockerStatus.exitCode === 0,
+    serviceHealthy: commandSucceeded(serviceStatus),
+    dockerHealthy: commandSucceeded(dockerStatus),
     diskFreePercent: diskFreePercent ?? 0,
     ramAvailablePercent: ramAvailablePercent ?? 0,
     ram5mHealthy,

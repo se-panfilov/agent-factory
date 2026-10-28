@@ -173,6 +173,15 @@ function asStageId(input: string | undefined): StageId | undefined {
   return STAGE_IDS.includes(input as StageId) ? (input as StageId) : undefined;
 }
 
+/** Production signal wiring is also exercised by owned harnesses with injected engines. */
+export async function runCliEngine(engine: SetupEngine, command: string, options: CommandOptions) {
+  const interrupt = () => engine.cancel("SIGINT");
+  const terminate = () => engine.cancel("SIGTERM");
+  process.on("SIGINT", interrupt); process.on("SIGTERM", terminate);
+  try { return await engine.run(command, options); }
+  finally { process.off("SIGINT", interrupt); process.off("SIGTERM", terminate); }
+}
+
 async function main(): Promise<void> {
   let parsed: ParsedCommand;
   try {
@@ -200,16 +209,18 @@ async function main(): Promise<void> {
         }
       })}\n`
     );
-    process.exit(ExitCode.CliOrSchemaError);
+    process.exitCode = ExitCode.CliOrSchemaError;
     return;
   }
   if (parsed.command === "help") {
     printHelp();
-    process.exit(ExitCode.Success);
+    process.exitCode = ExitCode.Success;
+    return;
   }
   if (parsed.command === "version") {
     process.stdout.write(`${packageJson.version}\n`);
-    process.exit(ExitCode.Success);
+    process.exitCode = ExitCode.Success;
+    return;
   }
 
   const configPathValue = parsed.options.config;
@@ -235,7 +246,8 @@ async function main(): Promise<void> {
         }
       })}\n`
     );
-    process.exit(ExitCode.CliOrSchemaError);
+    process.exitCode = ExitCode.CliOrSchemaError;
+    return;
   }
 
   const runOptions: CommandOptions = {
@@ -283,9 +295,9 @@ async function main(): Promise<void> {
 
   try {
     const engine = new SetupEngine({ installerVersion: packageJson.version });
-    const { envelope, exitCode } = await engine.run(parsed.command, runOptions);
+    const { envelope, exitCode } = await runCliEngine(engine, parsed.command, runOptions);
     process.stdout.write(`${JSON.stringify(envelope)}\n`);
-    process.exit(exitCode);
+    process.exitCode = exitCode;
   } catch {
     process.stdout.write(
       `${JSON.stringify({
@@ -308,8 +320,8 @@ async function main(): Promise<void> {
         }
       })}\n`
     );
-    process.exit(ExitCode.OperationOrVerificationFailed);
+    process.exitCode = ExitCode.OperationOrVerificationFailed;
   }
 }
 
-void main();
+if (require.main === module) void main();

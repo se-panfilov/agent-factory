@@ -1,3 +1,5 @@
+import type { CommandResult } from "./process";
+import { commandSucceeded } from "./process";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { cp } from "node:fs/promises";
@@ -199,13 +201,9 @@ export class NodeApplicationReleaseAdapter implements ApplicationReleaseAdapter 
     private readonly fsAdapter: FilesystemAdapter
   ) {}
 
-  private async run(binary: string, args: string[], timeoutMs: number): Promise<{
-    exitCode: number;
-    stdout: string;
-    stderr: string;
-    timedOut: boolean;
-  }> {
+  private async run(binary: string, args: string[], timeoutMs: number): Promise<CommandResult> {
     return this.processAdapter.runCommand({
+      policy: "interruptible",
       binary,
       args,
       timeoutMs,
@@ -213,12 +211,7 @@ export class NodeApplicationReleaseAdapter implements ApplicationReleaseAdapter 
     });
   }
 
-  private async git(args: string[], cwd: string): Promise<{
-    exitCode: number;
-    stdout: string;
-    stderr: string;
-    timedOut: boolean;
-  }> {
+  private async git(args: string[], cwd: string): Promise<CommandResult> {
     return this.run("/usr/bin/git", ["-C", cwd, ...args], OBSERVE_TIMEOUT_MS);
   }
 
@@ -275,16 +268,16 @@ export class NodeApplicationReleaseAdapter implements ApplicationReleaseAdapter 
     const dirty = status.stdout.trim().length > 0;
 
     const branchResult = await this.git(["rev-parse", "--abbrev-ref", "HEAD"], checkoutPath);
-    const branchRaw = branchResult.exitCode === 0 ? branchResult.stdout.trim() : "";
+    const branchRaw = commandSucceeded(branchResult) ? branchResult.stdout.trim() : "";
     const detachedHead = branchRaw === "HEAD";
     const branch = branchRaw.length > 0 ? branchRaw : null;
 
     const headCommitResult = await this.git(["rev-parse", "HEAD"], checkoutPath);
-    const headCommitCandidate = headCommitResult.exitCode === 0 ? headCommitResult.stdout.trim() : "";
+    const headCommitCandidate = commandSucceeded(headCommitResult) ? headCommitResult.stdout.trim() : "";
     const headCommit = isHex(headCommitCandidate, 40) ? headCommitCandidate : null;
 
     const remoteResult = await this.git(["remote", "get-url", "origin"], checkoutPath);
-    const originUrlCandidate = remoteResult.exitCode === 0 ? remoteResult.stdout.trim() : "";
+    const originUrlCandidate = commandSucceeded(remoteResult) ? remoteResult.stdout.trim() : "";
     const originUrl = originUrlCandidate.length > 0 ? originUrlCandidate : null;
 
     return {
@@ -321,7 +314,7 @@ export class NodeApplicationReleaseAdapter implements ApplicationReleaseAdapter 
     }
 
     const archiveHashResult = await this.run("/usr/bin/sha256sum", [archivePath], OBSERVE_TIMEOUT_MS);
-    if (archiveHashResult.exitCode !== 0 || archiveHashResult.timedOut) {
+    if (!commandSucceeded(archiveHashResult)) {
       throw setupError({
         exitCode: ExitCode.OperationOrVerificationFailed,
         code: "s05_archive_hash_failed",
@@ -343,7 +336,7 @@ export class NodeApplicationReleaseAdapter implements ApplicationReleaseAdapter 
     }
 
     const listNames = await this.run("/usr/bin/tar", ["-tf", archivePath], OBSERVE_TIMEOUT_MS);
-    if (listNames.exitCode !== 0 || listNames.timedOut) {
+    if (!commandSucceeded(listNames)) {
       throw setupError({
         exitCode: ExitCode.OperationOrVerificationFailed,
         code: "s05_archive_list_failed",
@@ -359,7 +352,7 @@ export class NodeApplicationReleaseAdapter implements ApplicationReleaseAdapter 
       ["--full-time", "-tvf", archivePath],
       OBSERVE_TIMEOUT_MS
     );
-    if (listVerbose.exitCode !== 0 || listVerbose.timedOut) {
+    if (!commandSucceeded(listVerbose)) {
       throw setupError({
         exitCode: ExitCode.OperationOrVerificationFailed,
         code: "s05_archive_verbose_list_failed",
@@ -399,7 +392,7 @@ export class NodeApplicationReleaseAdapter implements ApplicationReleaseAdapter 
     let manifestErrors: string[] = [];
     if (manifestEntry !== null) {
       const manifestRead = await this.run("/usr/bin/tar", ["-xOf", archivePath, manifestEntry], OBSERVE_TIMEOUT_MS);
-      if (manifestRead.exitCode === 0 && !manifestRead.timedOut) {
+      if (commandSucceeded(manifestRead)) {
         try {
           const parsed = JSON.parse(manifestRead.stdout) as ApplicationManifestData;
           const validation = validateContractSchema("application-manifest", parsed);
@@ -449,7 +442,7 @@ export class NodeApplicationReleaseAdapter implements ApplicationReleaseAdapter 
       ],
       MUTATION_TIMEOUT_MS
     );
-    if (result.exitCode !== 0 || result.timedOut) {
+    if (!commandSucceeded(result)) {
       throw setupError({
         exitCode: ExitCode.OperationOrVerificationFailed,
         code: "s05_archive_extract_failed",
@@ -480,7 +473,7 @@ export class NodeApplicationReleaseAdapter implements ApplicationReleaseAdapter 
       }
       if (!safe) { mismatches.push(`${relativePath}:missing-unreadable-or-unsafe`); continue; }
       const hashResult = await this.run("/usr/bin/sha256sum", [current], OBSERVE_TIMEOUT_MS);
-      if (hashResult.exitCode !== 0 || hashResult.timedOut) { mismatches.push(`${relativePath}:hash-read-failed`); continue; }
+      if (!commandSucceeded(hashResult)) { mismatches.push(`${relativePath}:hash-read-failed`); continue; }
       const actual = parseSha256sum(hashResult.stdout);
       if (actual === null || actual !== expectedHash) mismatches.push(`${relativePath}:hash-mismatch`);
     }
@@ -505,7 +498,7 @@ export class NodeApplicationReleaseAdapter implements ApplicationReleaseAdapter 
         publicMessage: "Current deployment integrity failed before offline command invocation.", nextAction: "Restore reviewed deployment bytes before any executable probe.", stage: "S05", evidenceRef: rootDir });
       const result = await this.run(command.executable, [...command.args], OBSERVE_TIMEOUT_MS);
       details.push(`${commandName}:exit=${result.exitCode}:timeout=${result.timedOut}`);
-      return result.exitCode === 0 && !result.timedOut;
+      return commandSucceeded(result);
     };
 
     const runnerVerifyHelpOk = await runHelp(prepared.runner_verify, "runner_verify");
@@ -520,7 +513,7 @@ export class NodeApplicationReleaseAdapter implements ApplicationReleaseAdapter 
   async commitExists(repoDir: string, commit: string): Promise<boolean> {
     assertSafeCommit(commit);
     const result = await this.git(["cat-file", "-e", `${commit}^{commit}`], repoDir);
-    return result.exitCode === 0 && !result.timedOut;
+    return commandSucceeded(result);
   }
 
   async fetchReadOnly(_request: ReadOnlyFetchRequest): Promise<void> {

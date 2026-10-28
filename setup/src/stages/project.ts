@@ -1,3 +1,4 @@
+import { commandSucceeded } from "../adapters/process";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { type FilesystemAdapter } from "../adapters/filesystem";
@@ -499,6 +500,7 @@ export class NodeProjectStageAdapter implements ProjectStageAdapter {
 
   private async git(args: string[], cwd: string, timeoutMs: number): Promise<CommandResult> {
     return this.processAdapter.runCommand({
+      policy: "interruptible",
       binary: "/usr/bin/git",
       args: ["-C", cwd, ...args],
       timeoutMs,
@@ -534,14 +536,14 @@ export class NodeProjectStageAdapter implements ProjectStageAdapter {
       this.git(["rev-parse", "HEAD"], checkoutPath, OBSERVE_TIMEOUT_MS),
       this.git(["remote", "get-url", "origin"], checkoutPath, OBSERVE_TIMEOUT_MS)
     ]);
-    const headCandidate = head.exitCode === 0 ? head.stdout.trim() : "";
+    const headCandidate = commandSucceeded(head) ? head.stdout.trim() : "";
     return {
       exists: true,
       gitDirExists: true,
-      detachedHead: branch.exitCode === 0 && branch.stdout.trim() === "HEAD",
+      detachedHead: commandSucceeded(branch) && branch.stdout.trim() === "HEAD",
       headSha: isValidSha(headCandidate) ? headCandidate : null,
-      dirty: status.exitCode !== 0 || status.stdout.trim().length > 0,
-      originUrl: origin.exitCode === 0 ? origin.stdout.trim() : null
+      dirty: !commandSucceeded(status) || status.stdout.trim().length > 0,
+      originUrl: commandSucceeded(origin) ? origin.stdout.trim() : null
     };
   }
 
@@ -550,7 +552,7 @@ export class NodeProjectStageAdapter implements ProjectStageAdapter {
     const gitDir = path.join(input.checkoutDir, ".git");
     if (!(await this.fsAdapter.exists(gitDir))) {
       const init = await this.git(["init", "-q"], input.checkoutDir, MUTATION_TIMEOUT_MS);
-      if (init.exitCode !== 0 || init.timedOut) {
+      if (!commandSucceeded(init)) {
         throw setupError({
           exitCode: ExitCode.OperationOrVerificationFailed,
           code: "s09_checkout_init_failed",
@@ -565,7 +567,7 @@ export class NodeProjectStageAdapter implements ProjectStageAdapter {
         input.checkoutDir,
         MUTATION_TIMEOUT_MS
       );
-      if (setRemote.exitCode !== 0 || setRemote.timedOut) {
+      if (!commandSucceeded(setRemote)) {
         throw setupError({
           exitCode: ExitCode.OperationOrVerificationFailed,
           code: "s09_checkout_remote_set_failed",
@@ -582,7 +584,7 @@ export class NodeProjectStageAdapter implements ProjectStageAdapter {
       input.checkoutDir,
       MUTATION_TIMEOUT_MS
     );
-    if (fetch.exitCode !== 0 || fetch.timedOut) {
+    if (!commandSucceeded(fetch)) {
       throw setupError({
         exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
         code: "s09_checkout_fetch_failed",
@@ -594,7 +596,7 @@ export class NodeProjectStageAdapter implements ProjectStageAdapter {
     }
 
     const checkout = await this.git(["checkout", "--detach", "FETCH_HEAD"], input.checkoutDir, MUTATION_TIMEOUT_MS);
-    if (checkout.exitCode !== 0 || checkout.timedOut) {
+    if (!commandSucceeded(checkout)) {
       throw setupError({
         exitCode: ExitCode.OperationOrVerificationFailed,
         code: "s09_checkout_detach_failed",

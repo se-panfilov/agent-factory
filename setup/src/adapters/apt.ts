@@ -1,3 +1,5 @@
+import type { CommandResult } from "./process";
+import { commandSucceeded } from "./process";
 import { type FilesystemAdapter } from "./filesystem";
 import { type ProcessAdapter } from "./process";
 import { ExitCode } from "../core/types";
@@ -134,13 +136,9 @@ export class NodeAptAdapter implements AptAdapter {
     private readonly now: () => Date = () => new Date()
   ) {}
 
-  private async run(binary: string, args: string[], timeoutMs: number): Promise<{
-    exitCode: number;
-    stdout: string;
-    stderr: string;
-    timedOut: boolean;
-  }> {
+  private async run(binary: string, args: string[], timeoutMs: number): Promise<CommandResult> {
     return this.processAdapter.runCommand({
+      policy: binary === "/usr/bin/sudo" ? "critical" : "observe",
       binary,
       args,
       timeoutMs,
@@ -148,12 +146,7 @@ export class NodeAptAdapter implements AptAdapter {
     });
   }
 
-  private async runSudoApt(args: string[], timeoutMs: number): Promise<{
-    exitCode: number;
-    stdout: string;
-    stderr: string;
-    timedOut: boolean;
-  }> {
+  private async runSudoApt(args: string[], timeoutMs: number): Promise<CommandResult> {
     return this.run("/usr/bin/sudo", ["-n", "/usr/bin/apt-get", ...args], timeoutMs);
   }
 
@@ -191,7 +184,7 @@ export class NodeAptAdapter implements AptAdapter {
 
   private async ensureSudoAvailable(): Promise<void> {
     const result = await this.run("/usr/bin/sudo", ["-n", "/usr/bin/true"], OBSERVE_TIMEOUT_MS);
-    if (result.exitCode !== 0) {
+    if (!commandSucceeded(result)) {
       throw setupError({
         exitCode: ExitCode.UnsupportedHostOrMissingPrivileges,
         code: "sudo_unavailable",
@@ -209,7 +202,7 @@ export class NodeAptAdapter implements AptAdapter {
     }
 
     const sudoCheck = await this.run("/usr/bin/sudo", ["-n", "/usr/bin/true"], OBSERVE_TIMEOUT_MS);
-    const sudoAvailable = sudoCheck.exitCode === 0;
+    const sudoAvailable = commandSucceeded(sudoCheck);
 
     const metadataUpdatedAt = await this.readMetadataUpdatedAt();
     const metadataFresh = metadataUpdatedAt !== null
@@ -286,7 +279,7 @@ export class NodeAptAdapter implements AptAdapter {
         stage: "S02"
       });
     }
-    if (result.exitCode !== 0) {
+    if (!commandSucceeded(result)) {
       const stderr = trimOutput(result.stderr);
       if (stderr.includes("NO_PUBKEY") || stderr.includes("InRelease is not signed") || stderr.includes("not signed")) {
         throw setupError({
@@ -331,7 +324,7 @@ export class NodeAptAdapter implements AptAdapter {
         stage: "S02"
       });
     }
-    if (result.exitCode !== 0) {
+    if (!commandSucceeded(result)) {
       throw setupError({
         exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
         code: "apt_simulation_failed",
@@ -364,7 +357,7 @@ export class NodeAptAdapter implements AptAdapter {
         stage: "S02"
       });
     }
-    if (result.exitCode !== 0) {
+    if (!commandSucceeded(result)) {
       const stderr = trimOutput(result.stderr);
       if (stderr.includes("dpkg was interrupted")) {
         throw setupError({

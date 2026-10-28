@@ -1,3 +1,4 @@
+import { commandSucceeded, commandFinished } from "./process";
 import path from "node:path";
 import { type FilesystemAdapter } from "./filesystem";
 import { type ProcessAdapter } from "./process";
@@ -22,8 +23,8 @@ export interface AppCommandInput {
   timeoutMs: number;
 }
 
-export interface AppCommandResult {
-  exitCode: number;
+export interface AppCommandResult extends Partial<import("./process").CommandResult> {
+  exitCode: number | null;
   stdout: string;
   stderr: string;
   timedOut: boolean;
@@ -83,12 +84,12 @@ export class NodeSystemdAdapter implements SystemdAdapter {
     timeoutMs: number,
     env?: Record<string, string>
   ): Promise<AppCommandResult> {
-    return this.processAdapter.runCommand(env === undefined ? {
+    return this.processAdapter.runCommand(env === undefined ? { policy: binary === "/usr/bin/sudo" ? "critical" : "observe",
       binary,
       args,
       timeoutMs,
       maxOutputBytes: MAX_OUTPUT_BYTES
-    } : {
+    } : { policy: binary === "/usr/bin/sudo" ? "critical" : "observe",
       binary,
       args,
       timeoutMs,
@@ -99,7 +100,7 @@ export class NodeSystemdAdapter implements SystemdAdapter {
 
   private async runSudo(args: string[], operationCode: string, publicMessage: string): Promise<void> {
     const result = await this.run("/usr/bin/sudo", args, MUTATION_TIMEOUT_MS);
-    if (result.exitCode !== 0 || result.timedOut) {
+    if (!commandSucceeded(result)) {
       throw setupError({
         exitCode: ExitCode.OperationOrVerificationFailed,
         code: operationCode,
@@ -117,7 +118,7 @@ export class NodeSystemdAdapter implements SystemdAdapter {
       ["show", unitName, "--property", "LoadState,UnitFileState,ActiveState,FragmentPath", "--no-pager"],
       OBSERVE_TIMEOUT_MS
     );
-    if (result.exitCode !== 0 && !result.stdout.includes("LoadState=not-found")) {
+    if (!commandFinished(result) || (!commandSucceeded(result) && !result.stdout.includes("LoadState=not-found"))) {
       throw setupError({
         exitCode: ExitCode.OperationOrVerificationFailed,
         code: "s10_systemctl_show_failed",
@@ -132,7 +133,7 @@ export class NodeSystemdAdapter implements SystemdAdapter {
 
   async verifyUnitFile(unitPath: string): Promise<void> {
     const result = await this.run("/usr/bin/systemd-analyze", ["verify", unitPath], OBSERVE_TIMEOUT_MS);
-    if (result.exitCode !== 0 || result.timedOut) {
+    if (!commandSucceeded(result)) {
       throw setupError({
         exitCode: ExitCode.OperationOrVerificationFailed,
         code: "s10_unit_verify_failed",

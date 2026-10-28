@@ -1,3 +1,5 @@
+import type { CommandResult } from "../adapters/process";
+import { commandSucceeded } from "../adapters/process";
 import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
@@ -863,13 +865,9 @@ export class NodeAccessAdapter implements AccessAdapter {
     this.allowMutations = process.env.FACTORY_SETUP_ALLOW_S03_MUTATIONS === "1";
   }
 
-  private async run(binary: string, args: string[], timeoutMs = OBSERVE_TIMEOUT_MS): Promise<{
-    exitCode: number;
-    stdout: string;
-    stderr: string;
-    timedOut: boolean;
-  }> {
+  private async run(binary: string, args: string[], timeoutMs = OBSERVE_TIMEOUT_MS): Promise<CommandResult> {
     return this.processAdapter.runCommand({
+      policy: binary === "/usr/bin/sudo" ? "critical" : "observe",
       binary,
       args,
       timeoutMs,
@@ -966,7 +964,7 @@ export class NodeAccessAdapter implements AccessAdapter {
         configHash: stableHash(sshdDump.stdout)
       },
       firewall: {
-        manager: ufwStatus.exitCode === 0 ? "ufw" : "unknown",
+        manager: commandSucceeded(ufwStatus) ? "ufw" : "unknown",
         enabled: firewallEnabled,
         defaultIncomingPolicy:
           defaultIncoming === "deny" || defaultIncoming === "allow" || defaultIncoming === "reject"
@@ -1006,7 +1004,7 @@ export class NodeAccessAdapter implements AccessAdapter {
   async validateSshdCandidate(_ctx: StageContext): Promise<void> {
     this.requireMutationsEnabled();
     const syntax = await this.run("/usr/bin/sudo", ["-n", "/usr/sbin/sshd", "-t"], MUTATION_TIMEOUT_MS);
-    if (syntax.exitCode !== 0 || syntax.timedOut) {
+    if (!commandSucceeded(syntax)) {
       throw setupError({
         exitCode: ExitCode.DriftOrRecoveryRequired,
         code: "s03_sshd_validation_failed",
@@ -1021,7 +1019,7 @@ export class NodeAccessAdapter implements AccessAdapter {
       ["-n", "/usr/sbin/sshd", "-T", "-C", "addr=127.0.0.1,user=root,host=localhost"],
       MUTATION_TIMEOUT_MS
     );
-    if (effective.exitCode !== 0 || effective.timedOut) {
+    if (!commandSucceeded(effective)) {
       throw setupError({
         exitCode: ExitCode.DriftOrRecoveryRequired,
         code: "s03_sshd_effective_validation_failed",

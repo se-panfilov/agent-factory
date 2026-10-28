@@ -1,3 +1,4 @@
+import { commandSucceeded } from "../adapters/process";
 import path from "node:path";
 import { type FilesystemAdapter } from "../adapters/filesystem";
 import { type ProcessAdapter } from "../adapters/process";
@@ -46,13 +47,14 @@ async function writeAtomic(
 
 async function toySourceSha(processAdapter: ProcessAdapter, config: SetupConfig): Promise<string> {
   const result = await processAdapter.runCommand({
+    policy: "interruptible",
     binary: "/usr/bin/git",
     args: ["-C", path.join(config.paths.application_work_dir, "factory-toy-fixture"), "rev-parse", "HEAD"],
     timeoutMs: OBSERVE_TIMEOUT_MS,
     maxOutputBytes: MAX_OUTPUT_BYTES
   });
   const value = result.stdout.trim();
-  if (result.exitCode !== 0 || result.timedOut || !/^[0-9a-f]{40}$/.test(value)) {
+  if (!commandSucceeded(result) || !/^[0-9a-f]{40}$/.test(value)) {
     throw setupError({
       exitCode: ExitCode.BlockedByMissingCapabilityOrEvidence,
       code: "s07_toy_fixture_missing",
@@ -103,6 +105,7 @@ async function validateNoSecretDockerBoundary(
   imageRef: string
 ): Promise<void> {
   const create = await processAdapter.runCommand({
+    policy: "critical",
     binary: "/usr/bin/docker",
     args: [
       "create",
@@ -121,7 +124,7 @@ async function validateNoSecretDockerBoundary(
     timeoutMs: OBSERVE_TIMEOUT_MS,
     maxOutputBytes: MAX_OUTPUT_BYTES
   });
-  if (create.exitCode !== 0 || create.timedOut) {
+  if (!commandSucceeded(create)) {
     throw setupError({
       exitCode: ExitCode.OperationOrVerificationFailed,
       code: "s07_docker_boundary_create_failed",
@@ -132,12 +135,13 @@ async function validateNoSecretDockerBoundary(
   }
   try {
     const inspect = await processAdapter.runCommand({
+      policy: "interruptible",
       binary: "/usr/bin/docker",
       args: ["inspect", "--format", "{{json .Mounts}}", NO_SECRET_CHECK_CONTAINER],
       timeoutMs: OBSERVE_TIMEOUT_MS,
       maxOutputBytes: MAX_OUTPUT_BYTES
     });
-    if (inspect.exitCode !== 0 || inspect.timedOut) {
+    if (!commandSucceeded(inspect)) {
       throw setupError({
         exitCode: ExitCode.OperationOrVerificationFailed,
         code: "s07_docker_boundary_inspect_failed",
@@ -157,12 +161,13 @@ async function validateNoSecretDockerBoundary(
     }
   } finally {
     const cleanup = await processAdapter.runCommand({
+      policy: "critical",
       binary: "/usr/bin/docker",
       args: ["rm", "-f", NO_SECRET_CHECK_CONTAINER],
       timeoutMs: OBSERVE_TIMEOUT_MS,
       maxOutputBytes: MAX_OUTPUT_BYTES
     });
-    if (cleanup.exitCode !== 0 || cleanup.timedOut) {
+    if (!commandSucceeded(cleanup)) {
       throw setupError({
         exitCode: ExitCode.DriftOrRecoveryRequired,
         code: "s07_cleanup_failed",

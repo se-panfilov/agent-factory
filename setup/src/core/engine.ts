@@ -1,3 +1,5 @@
+import { publishControl } from "./control-files";
+import { executionScope, RunLifecycle, type CancellationReason } from "../adapters/process-lifecycle";
 import path from "node:path";
 import os from "node:os";
 import { createHash, randomUUID } from "node:crypto";
@@ -320,8 +322,34 @@ export class SetupEngine {
     this.registry = registry ?? defaultRegistry(this.deps.fsAdapter, this.deps.processAdapter);
   }
 
+  private activeLifecycle: RunLifecycle | null = null;
+
+  /** CLI signals use the same run authority as durable generation-bound cancellation. */
+  cancel(reason: CancellationReason): void { this.activeLifecycle?.cancel(reason); }
+
   async run(command: string, options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
+    if (this.activeLifecycle !== null) throw new Error("Concurrent use of one engine is unsupported");
+    const lifecycle = new RunLifecycle();
+    this.activeLifecycle = lifecycle;
     try {
+      const result = await executionScope.run(lifecycle, () => this.execute(command, options));
+      if (result.exitCode === 0 && lifecycle.reason !== null) {
+        result.exitCode = lifecycle.cleanupUnknown ? ExitCode.DriftOrRecoveryRequired
+          : lifecycle.reason === "SIGTERM" ? ExitCode.SigTermCleanupConfirmed : ExitCode.SigIntCleanupConfirmed;
+        result.envelope.overall_status = "failed";
+        result.envelope.error = { code: lifecycle.cleanupUnknown ? "process_cleanup_unknown" : "cancel_requested", stage: null,
+          operation_id: "n/a", retryable: false, public_message: "Run cancelled after its confirmed durable boundary.",
+          next_action: "Inspect checkpoint and reconcile any recorded unknown resources before explicitly resuming.", evidence_ref: "state/events.jsonl" };
+        result.envelope.manual_actions = [result.envelope.error.next_action];
+      }
+      return result;
+    }
+    finally { this.activeLifecycle = null; }
+  }
+
+  private async execute(command: string, options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
+    try {
+      executionScope.getStore()?.assertAdmission();
       switch (command) {
         case "init":
           return await this.runInit(options);
@@ -426,7 +454,8 @@ export class SetupEngine {
       profile: config.profile,
       desiredHash,
       planHash,
-      config
+      config,
+      cancellationSignal: executionScope.getStore()?.controller.signal
     };
   }
 
@@ -825,8 +854,25 @@ export class SetupEngine {
     }
   }
 
+  private async releaseRunLock(lock: { owner: LockOwner; release(): Promise<void> }, config: SetupConfig): Promise<void> {
+    const lifecycle = executionScope.getStore();
+    if (lifecycle?.cleanupUnknown) {
+      try {
+        await publishControl(this.deps.fsAdapter, path.join(config.paths.setup_state_dir, "process-cleanup-required.json"),
+          JSON.stringify({ schema_version: 1, installation_id: config.installation_id, lock_owner: lock.owner,
+            run_id: lifecycle.id, cleanup: "unknown", processes: [...lifecycle.processes.values()] }) + "\n");
+      } catch { /* Lock retention is mandatory even when evidence publication fails. */ }
+      throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired,
+      code: "process_cleanup_unknown", publicMessage: "Installation lock retained because owned process cleanup is unconfirmed.",
+      nextAction: "Preserve lock/in-flight evidence and reconcile owned processes before another apply." });
+    }
+    await lock.release();
+  }
+
   private async consumeCancelOrThrow(config: SetupConfig, owner: LockOwner): Promise<void> {
+    executionScope.getStore()?.assertAdmission();
     const cancelRequested = await consumeCancelRequest(this.deps.fsAdapter, config, owner);
+    executionScope.getStore()?.assertAdmission();
     if (cancelRequested) {
       throw setupError({
         exitCode: ExitCode.SigIntCleanupConfirmed,
@@ -835,6 +881,35 @@ export class SetupEngine {
         nextAction: "Inspect state and run resume if needed."
       });
     }
+  }
+
+  private observeActiveCancellation(config: SetupConfig, owner: LockOwner): { stop(): Promise<void> } {
+    const lifecycle = executionScope.getStore();
+    let stopped = false, timer: ReturnType<typeof setTimeout> | undefined;
+    let wake: (() => void) | undefined;
+    const task = (async () => {
+      while (!stopped) {
+        await new Promise<void>(resolve => { wake = resolve; timer = setTimeout(resolve, 100); });
+        timer = undefined;
+        if (stopped) break;
+        try {
+          let readTimer: ReturnType<typeof setTimeout> | undefined;
+          try {
+            const requested = await Promise.race([
+              consumeCancelRequest(this.deps.fsAdapter, config, owner),
+              new Promise<never>((_, reject) => {
+                readTimer = setTimeout(() => reject(new Error("Cancellation observation deadline")), 1000);
+              })
+            ]);
+            if (requested) lifecycle?.cancel("cancel");
+          } finally { if (readTimer) clearTimeout(readTimer); }
+        } catch {
+          // Corrupt/unreadable cancellation evidence cannot authorize continued work.
+          if (lifecycle) { lifecycle.cleanupUnknown = true; lifecycle.cancel("cancel"); }
+        }
+      }
+    })();
+    return { async stop() { stopped = true; if (timer) clearTimeout(timer); wake?.(); await task; } };
   }
 
   private mandatoryStagesSucceeded(state: SetupState, plan: ExecutionPlan): boolean {
@@ -940,7 +1015,7 @@ export class SetupEngine {
     try {
       state = await this.loadStateWithOptions(config, { initializeIfMissing: true });
     } finally {
-      await lock.release();
+      await this.releaseRunLock(lock, config);
     }
     const envelope = envelopeBase("init", config, state, null);
     envelope.overall_status = "ok";
@@ -979,7 +1054,7 @@ export class SetupEngine {
       state = updateObservedStage(state, observation, observation.status);
       await saveState(this.deps.fsAdapter, config, state);
     } finally {
-      await lock.release();
+      await this.releaseRunLock(lock, config);
     }
 
     const envelope = envelopeBase("preflight", config, state, null);
@@ -1096,6 +1171,7 @@ export class SetupEngine {
     await this.assertRequestUnchanged(options, configBytes, planBytes);
     if (owner) await this.consumeCancelOrThrow(config, owner);
     await assertFileWitnesses(this.deps.fsAdapter, [...capture.files, ...requestFiles]);
+    executionScope.getStore()?.assertAdmission();
   }
 
   private async runPlan(options: CommandOptions): Promise<{ envelope: JsonEnvelope; exitCode: number }> {
@@ -1214,7 +1290,7 @@ export class SetupEngine {
       state = publishReview(state, result.plan.native!, "committed");
       await saveState(this.deps.fsAdapter, config, state);
     } finally {
-      await lock.release();
+      await this.releaseRunLock(lock, config);
     }
     if (result === null) {
       throw setupError({
@@ -1258,6 +1334,7 @@ export class SetupEngine {
     const lock = await acquireLock(this.deps.fsAdapter, this.deps.processAdapter, config);
     let state: SetupState | null = null;
     let activeStage: StageId | null = null;
+    let activeInFlight: SetupState["in_flight_operation"] = null;
     let persistFailure = false;
     const policies = new Map<StageId, PolicyBasis>();
     try {
@@ -1346,6 +1423,7 @@ export class SetupEngine {
             await this.finalPlanAdmission(options, configBytes, planBytes, config, state, plan, lock.owner);
             for (const gateId of stagePlan.required_gates) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, `stage:${stagePlan.stage_id}`);
             for (const gateId of operation.gate_ids) ensureGateApproved(state, plan.plan_hash, gateId, this.deps.clock, operation.id);
+            executionScope.getStore()?.assertAdmission();
             const attemptId = randomUUID();
             persistFailure = true;
             state = updateObservedStage(state, observation, "applying");
@@ -1355,6 +1433,7 @@ export class SetupEngine {
               kind: operation.kind,
               started_at: this.deps.clock.now().toISOString()
             });
+            activeInFlight = state.in_flight_operation;
             await saveState(this.deps.fsAdapter, config, state);
             await appendEvent(this.deps.fsAdapter, config, {
               operation_id: operation.id,
@@ -1364,7 +1443,11 @@ export class SetupEngine {
               attempt_id: attemptId
             });
 
-            const receipts = await stage.apply(
+            executionScope.getStore()?.assertAdmission();
+            const lifecycle = executionScope.getStore();
+            if (lifecycle) lifecycle.operationId = operation.id;
+            const watcher = this.observeActiveCancellation(config, lock.owner);
+            const receipts = await (async () => { try { return await stage.apply(
               stageCtx,
               {
                 stageId: stagePlan.stage_id,
@@ -1388,6 +1471,8 @@ export class SetupEngine {
                 requiredGates: stagePlan.required_gates
               }
             );
+            } finally { await watcher.stop(); if (lifecycle) lifecycle.operationId = null; } })();
+            if (executionScope.getStore()?.cleanupUnknown) executionScope.getStore()!.assertAdmission();
             const matchedReceipts = this.validateEffectReceipts(stagePlan, [operation], receipts);
             const receipt = matchedReceipts.get(operation.id);
             if (receipt === undefined) {
@@ -1449,6 +1534,7 @@ export class SetupEngine {
               receipt
             });
             persistFailure = false;
+            activeInFlight = null;
             stageCtx.previousOperationReceipt = receipt;
             if (progressCtx.operationProgress) stageCtx.operationProgress = progressCtx.operationProgress;
             stageCtx.completedOperationReceipts = [...(stageCtx.completedOperationReceipts ?? []), receipt];
@@ -1524,7 +1610,13 @@ export class SetupEngine {
       return { envelope, exitCode: aggregate.exitCode };
     } catch (error) {
       let setup = toSetupError(error);
-      if ((setup.exitCode === ExitCode.SigIntCleanupConfirmed || setup.exitCode === ExitCode.SigTermCleanupConfirmed)
+      // Cancellation cannot turn failed checkpoint persistence into a cleared frontier.
+      // Only the complete receipt/checkpoint publication clears this saved operation identity.
+      if (executionScope.getStore()?.reason && persistFailure && state !== null && activeInFlight !== null) {
+        state = withInFlightOperation(state, activeInFlight);
+      }
+      if ((executionScope.getStore()?.reason !== null && executionScope.getStore()?.reason !== undefined
+        || setup.exitCode === ExitCode.SigIntCleanupConfirmed || setup.exitCode === ExitCode.SigTermCleanupConfirmed)
         && state !== null && state.in_flight_operation !== null) {
         setup = setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "cleanup_unconfirmed",
           publicMessage: "Cancellation interrupted an operation without a confirmed durable safe boundary.",
@@ -1539,7 +1631,9 @@ export class SetupEngine {
       }
       const failedStagePlan = failedStage === null ? null : plan.stages.find((entry) => entry.stage_id === failedStage);
       if (
-        failedStagePlan?.optional === true
+        !executionScope.getStore()?.cleanupUnknown
+        && !executionScope.getStore()?.reason
+        && failedStagePlan?.optional === true
         && this.registry.byId.get(failedStagePlan.stage_id)?.optional === true
         && setup.exitCode !== ExitCode.OptionalRequestedStageFailed
         && state !== null
@@ -1577,7 +1671,7 @@ export class SetupEngine {
       }
       throw setup;
     } finally {
-      try { await lock.release(); }
+      try { await this.releaseRunLock(lock, config); }
       catch { throw setupError({ exitCode: ExitCode.DriftOrRecoveryRequired, code: "cleanup_unconfirmed",
         publicMessage: "Run cleanup/release could not be confirmed.", nextAction: "Preserve lock and operation evidence; reconcile before resume.", evidenceRef: config.paths.setup_state_dir }); }
     }
@@ -1613,7 +1707,7 @@ export class SetupEngine {
         }
         await saveState(this.deps.fsAdapter, config, state);
       } finally {
-        await lock.release();
+        await this.releaseRunLock(lock, config);
       }
     } else {
       state = await this.loadStateWithOptions(config, {
@@ -1650,7 +1744,7 @@ export class SetupEngine {
       try {
         this.assertOrdinaryEffectAdmission(await this.loadStateWithOptions(config,{initializeIfMissing:false,readOnly:true}));
         throw setupError({exitCode:ExitCode.CliOrSchemaError,code:"plan_required",publicMessage:"Resume requires an existing reviewed plan.",nextAction:"Generate/review a plan explicitly before resume."});
-      } finally { await lock.release(); }
+      } finally { await this.releaseRunLock(lock, config); }
     }
     const result = await this.runApply({...options,planPath});
     return {...result,envelope:{...result.envelope,command:"resume"}};
@@ -1690,7 +1784,7 @@ export class SetupEngine {
       }
       throw error;
     } finally {
-      await lock.release();
+      await this.releaseRunLock(lock, config);
     }
     if (state === null) {
       throw setupError({
@@ -1766,7 +1860,7 @@ export class SetupEngine {
       state = approveGate(state, options.gateId, options.planHash, this.deps.clock);
       await saveState(this.deps.fsAdapter, config, state);
     } finally {
-      await lock.release();
+      await this.releaseRunLock(lock, config);
     }
     const envelope = envelopeBase("gate approve", config, state, options.planHash);
     envelope.overall_status = "ok";
@@ -2130,7 +2224,7 @@ export class SetupEngine {
       };
       return { envelope, exitCode: setup.exitCode };
     } finally {
-      await lock.release();
+      await this.releaseRunLock(lock, config);
     }
   }
 
@@ -2154,7 +2248,7 @@ export class SetupEngine {
       state = await this.refreshStageObservation(state, config, "S11", "backup-create");
       await saveState(this.deps.fsAdapter, config, state);
     } finally {
-      await lock.release();
+      await this.releaseRunLock(lock, config);
     }
     const envelope = envelopeBase("backup create", config, state, null);
     envelope.overall_status = "ok";
@@ -2186,7 +2280,7 @@ export class SetupEngine {
       state = await this.refreshStageObservation(state, config, "S11", "backup-verify");
       await saveState(this.deps.fsAdapter, config, state);
     } finally {
-      await lock.release();
+      await this.releaseRunLock(lock, config);
     }
     const envelope = envelopeBase("backup verify", config, state, null);
     envelope.overall_status = "ok";
@@ -2227,7 +2321,7 @@ export class SetupEngine {
       state = await this.refreshStageObservation(state, config, "S08", "auth-login");
       await saveState(this.deps.fsAdapter, config, state);
     } finally {
-      await lock.release();
+      await this.releaseRunLock(lock, config);
     }
     const envelope = envelopeBase("auth login", config, state, null);
     envelope.overall_status = "ok";
@@ -2251,7 +2345,7 @@ export class SetupEngine {
       state = await this.refreshStageObservation(state, config, "S08", "auth-status");
       await saveState(this.deps.fsAdapter, config, state);
     } finally {
-      await lock.release();
+      await this.releaseRunLock(lock, config);
     }
     const envelope = envelopeBase("auth status", config, state, null);
     envelope.overall_status = "ok";
@@ -2295,7 +2389,7 @@ export class SetupEngine {
       state = await this.refreshStageObservation(state, config, result.provider === "live" ? "S08" : "S07", "smoke");
       await saveState(this.deps.fsAdapter, config, state);
     } finally {
-      await lock.release();
+      await this.releaseRunLock(lock, config);
     }
     const envelope = envelopeBase("smoke", config, state, null);
     envelope.overall_status = "ok";
@@ -2327,7 +2421,7 @@ export class SetupEngine {
       state = await this.refreshStageObservation(state, config, "S12", "inference-disable");
       await saveState(this.deps.fsAdapter, config, state);
     } finally {
-      await lock.release();
+      await this.releaseRunLock(lock, config);
     }
     const envelope = envelopeBase("inference disable", config, state, null);
     envelope.overall_status = "ok";

@@ -1,3 +1,5 @@
+import type { CommandResult } from "./process";
+import { commandSucceeded } from "./process";
 import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
@@ -300,21 +302,19 @@ export class NodeDockerAdapter implements DockerAdapter {
     this.allowMutations = process.env.FACTORY_SETUP_ALLOW_S04_MUTATIONS === "1";
   }
 
-  private async run(binary: string, args: string[], timeoutMs = OBSERVE_TIMEOUT_MS): Promise<{
-    exitCode: number;
-    stdout: string;
-    stderr: string;
-    timedOut: boolean;
-  }> {
+  private async run(binary: string, args: string[], timeoutMs = OBSERVE_TIMEOUT_MS): Promise<CommandResult> {
     try {
       return await this.processAdapter.runCommand({
+        policy: binary === "/usr/bin/sudo" || ["build", "run", "rm", "pull"].includes(args[0] ?? "") ? "critical" : "observe",
         binary,
         args,
         timeoutMs,
         maxOutputBytes: MAX_OUTPUT_BYTES
       });
     } catch (error) {
+      if (error instanceof Error && error.name === "SetupError") throw error;
       return {
+        durationMs: 0,
         exitCode: 127,
         stdout: "",
         stderr: error instanceof Error ? error.message : "command failed",
@@ -323,12 +323,7 @@ export class NodeDockerAdapter implements DockerAdapter {
     }
   }
 
-  private async runSudo(args: string[], timeoutMs = MUTATION_TIMEOUT_MS): Promise<{
-    exitCode: number;
-    stdout: string;
-    stderr: string;
-    timedOut: boolean;
-  }> {
+  private async runSudo(args: string[], timeoutMs = MUTATION_TIMEOUT_MS): Promise<CommandResult> {
     return this.run("/usr/bin/sudo", ["-n", ...args], timeoutMs);
   }
 
@@ -442,7 +437,7 @@ export class NodeDockerAdapter implements DockerAdapter {
     const allPackages = [...dockerPackages, ...conflictPackages];
 
     const sudoCheck = await this.run("/usr/bin/sudo", ["-n", "/usr/bin/true"]);
-    const sudoAvailable = sudoCheck.exitCode === 0;
+    const sudoAvailable = commandSucceeded(sudoCheck);
 
     const policyResult = await this.run("/usr/bin/apt-cache", ["policy", ...allPackages]);
     const policy = parsePolicyBlocks(policyResult.stdout, allPackages);
@@ -465,13 +460,13 @@ export class NodeDockerAdapter implements DockerAdapter {
     const managedByInstaller = await this.readMarker(ctx, "managed-installation");
 
     const contextShow = await this.run("/usr/bin/docker", ["context", "show"]);
-    const currentContext = contextShow.exitCode === 0 ? contextShow.stdout.trim() : null;
+    const currentContext = commandSucceeded(contextShow) ? contextShow.stdout.trim() : null;
     const contextInspect = currentContext === null
       ? null
       : await this.run("/usr/bin/docker", ["context", "inspect", currentContext, "--format", "{{json .Endpoints.docker.Host}}"]);
 
     let contextHost: string | null = null;
-    if (contextInspect !== null && contextInspect.exitCode === 0 && contextInspect.stdout.trim().length > 0) {
+    if (contextInspect !== null && commandSucceeded(contextInspect) && contextInspect.stdout.trim().length > 0) {
       try {
         contextHost = JSON.parse(contextInspect.stdout.trim()) as string;
       } catch {
@@ -483,7 +478,7 @@ export class NodeDockerAdapter implements DockerAdapter {
     const versionResult = await this.run("/usr/bin/docker", ["version", "--format", "{{json .}}"]);
     let clientVersion: string | null = null;
     let serverVersion: string | null = null;
-    if (versionResult.exitCode === 0 && !versionResult.timedOut && versionResult.stdout.trim().length > 0) {
+    if (commandSucceeded(versionResult) && versionResult.stdout.trim().length > 0) {
       try {
         const parsed = JSON.parse(versionResult.stdout) as {
           Client?: { Version?: string };
@@ -506,7 +501,7 @@ export class NodeDockerAdapter implements DockerAdapter {
     let memoryBytes = 0;
     let cgroupVersion = "unknown";
     let pidsLimitSupported = false;
-    if (infoResult.exitCode === 0 && !infoResult.timedOut && infoResult.stdout.trim().length > 0) {
+    if (commandSucceeded(infoResult) && infoResult.stdout.trim().length > 0) {
       try {
         const info: unknown = JSON.parse(infoResult.stdout);
         if (typeof info !== "object" || info === null || Array.isArray(info) || !("NCPU" in info) || !("MemTotal" in info)
@@ -531,7 +526,7 @@ export class NodeDockerAdapter implements DockerAdapter {
     const foreignContainerIds: string[] = [];
     let publicPublishedPortCount = 0;
     let workloadInspection: NonNullable<DockerRuntimeObservation["workloads"]["inspection"]> = "unavailable";
-    if (psResult.exitCode === 0 && !psResult.timedOut) {
+    if (commandSucceeded(psResult)) {
       workloadInspection = "verified";
       for (const line of psResult.stdout.split("\n")) {
         if (line.trim().length === 0) {
@@ -575,16 +570,16 @@ export class NodeDockerAdapter implements DockerAdapter {
     }
 
     const ssResult = await this.run("/usr/bin/ss", ["-lnt"]);
-    const tcpListening = ssResult.exitCode === 0
+    const tcpListening = commandSucceeded(ssResult)
       && (ssResult.stdout.includes(":2375") || ssResult.stdout.includes(":2376"));
     const tcpConfigured = daemonConfig.hosts.some((host) => host.startsWith("tcp://"));
 
     const groupsResult = await this.run("/usr/bin/id", ["-nG"]);
     const accountGroups = await this.run("/usr/bin/id", ["-nG", this.processAdapter.username()]);
-    const currentGroups = groupsResult.exitCode === 0
+    const currentGroups = commandSucceeded(groupsResult)
       ? groupsResult.stdout.trim().split(/\s+/).filter((item) => item.length > 0)
       : [];
-    const dockerGroupExists = (await this.run("/usr/bin/getent", ["group", "docker"])).exitCode === 0;
+    const dockerGroupExists = commandSucceeded((await this.run("/usr/bin/getent", ["group", "docker"])));
     const currentUserInGroup = currentGroups.includes("docker");
     const reloginMarker = await this.readMarker(ctx, "docker-group-updated");
     const reloginRequired = reloginMarker && !currentUserInGroup;
@@ -616,7 +611,7 @@ export class NodeDockerAdapter implements DockerAdapter {
       },
       tcpApi: {
         configured: tcpConfigured,
-        inspectionVerified: ssResult.exitCode === 0 && !ssResult.timedOut,
+        inspectionVerified: commandSucceeded(ssResult),
         listening: tcpListening
       },
       workloads: {
@@ -633,7 +628,7 @@ export class NodeDockerAdapter implements DockerAdapter {
       },
       dockerGroup: {
         exists: dockerGroupExists,
-        accountUserInGroup: accountGroups.exitCode === 0 && accountGroups.stdout.trim().split(/\s+/).includes("docker"),
+        accountUserInGroup: commandSucceeded(accountGroups) && accountGroups.stdout.trim().split(/\s+/).includes("docker"),
         currentUserInGroup: currentUserInGroup
       },
       reloginRequired
@@ -659,7 +654,7 @@ export class NodeDockerAdapter implements DockerAdapter {
         stage: "S04"
       });
     }
-    if (result.exitCode !== 0) {
+    if (!commandSucceeded(result)) {
       throw setupError({
         exitCode: ExitCode.OperationOrVerificationFailed,
         code: "s04_docker_package_install_failed",
@@ -718,7 +713,7 @@ export class NodeDockerAdapter implements DockerAdapter {
       daemon.path
     ]);
     await this.fsAdapter.remove(tempFile, { force: true });
-    if (install.exitCode !== 0 || install.timedOut) {
+    if (!commandSucceeded(install)) {
       throw setupError({
         exitCode: ExitCode.OperationOrVerificationFailed,
         code: "s04_daemon_config_write_failed",
@@ -743,7 +738,7 @@ export class NodeDockerAdapter implements DockerAdapter {
       "--config-file",
       "/etc/docker/daemon.json"
     ]);
-    if (result.exitCode !== 0 || result.timedOut) {
+    if (!commandSucceeded(result)) {
       throw setupError({
         exitCode: ExitCode.ManualActionRequired,
         code: "s04_daemon_config_validate_failed",
@@ -758,7 +753,7 @@ export class NodeDockerAdapter implements DockerAdapter {
   async restartDaemon(): Promise<void> {
     this.requireMutationsEnabled();
     const restart = await this.runSudo(["/usr/bin/systemctl", "restart", "docker"]);
-    if (restart.exitCode !== 0 || restart.timedOut) {
+    if (!commandSucceeded(restart)) {
       throw setupError({
         exitCode: ExitCode.ManualActionRequired,
         code: "s04_daemon_restart_failed",
@@ -769,7 +764,7 @@ export class NodeDockerAdapter implements DockerAdapter {
       });
     }
     const active = await this.runSudo(["/usr/bin/systemctl", "is-active", "--quiet", "docker"]);
-    if (active.exitCode !== 0) {
+    if (!commandSucceeded(active)) {
       throw setupError({
         exitCode: ExitCode.OperationOrVerificationFailed,
         code: "s04_daemon_inactive_after_restart",
@@ -784,13 +779,13 @@ export class NodeDockerAdapter implements DockerAdapter {
     this.requireMutationsEnabled();
     const username = this.processAdapter.username();
     const currentGroups = await this.run("/usr/bin/id", ["-nG", username]);
-    const alreadyMember = currentGroups.exitCode === 0
+    const alreadyMember = commandSucceeded(currentGroups)
       && currentGroups.stdout.trim().split(/\s+/).includes("docker");
     if (alreadyMember) {
       return { changed: false };
     }
     const addResult = await this.runSudo(["/usr/sbin/usermod", "-aG", "docker", username]);
-    if (addResult.exitCode !== 0 || addResult.timedOut) {
+    if (!commandSucceeded(addResult)) {
       throw setupError({
         exitCode: ExitCode.OperationOrVerificationFailed,
         code: "s04_group_membership_update_failed",
@@ -811,7 +806,7 @@ export class NodeDockerAdapter implements DockerAdapter {
     const labelOperation = `com.agent-factory.operation_id=${operationId}`;
 
     const pull = await this.run("/usr/bin/docker", ["pull", fixtureRef], MUTATION_TIMEOUT_MS);
-    if (pull.exitCode !== 0 || pull.timedOut) {
+    if (!commandSucceeded(pull)) {
       throw setupError({
         exitCode: ExitCode.OperationOrVerificationFailed,
         code: "s04_fixture_pull_failed",
@@ -851,7 +846,7 @@ export class NodeDockerAdapter implements DockerAdapter {
       ],
       MUTATION_TIMEOUT_MS
     );
-    if (runResult.exitCode !== 0 || runResult.timedOut) {
+    if (!commandSucceeded(runResult)) {
       throw setupError({
         exitCode: ExitCode.OperationOrVerificationFailed,
         code: "s04_fixture_run_failed",
@@ -868,7 +863,7 @@ export class NodeDockerAdapter implements DockerAdapter {
       OBSERVE_TIMEOUT_MS
     );
     const cleanup = await this.run("/usr/bin/docker", ["rm", "-f", containerName], OBSERVE_TIMEOUT_MS);
-    if (cleanup.exitCode !== 0 || cleanup.timedOut) {
+    if (!commandSucceeded(cleanup)) {
       throw setupError({
         exitCode: ExitCode.DriftOrRecoveryRequired,
         code: "s04_fixture_cleanup_failed",
@@ -878,7 +873,7 @@ export class NodeDockerAdapter implements DockerAdapter {
         evidenceRef: sanitizeEvidence(cleanup.stderr)
       });
     }
-    if (inspect.exitCode !== 0 || inspect.timedOut) {
+    if (!commandSucceeded(inspect)) {
       throw setupError({
         exitCode: ExitCode.OperationOrVerificationFailed,
         code: "s04_fixture_inspect_failed",

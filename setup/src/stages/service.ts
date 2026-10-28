@@ -1,3 +1,4 @@
+import { commandSucceeded } from "../adapters/process";
 import path from "node:path";
 import { type FilesystemAdapter } from "../adapters/filesystem";
 import { type AppCommandResult, type SystemdAdapter } from "../adapters/systemd";
@@ -367,7 +368,7 @@ async function snapshot(
       },
       timeoutMs: OBSERVE_TIMEOUT_MS
     });
-    pausedStateConfirmed = statusResult.exitCode === 0 && /paused/i.test(statusResult.stdout);
+    pausedStateConfirmed = commandSucceeded(statusResult) && /paused/i.test(statusResult.stdout);
   }
 
   return {
@@ -529,7 +530,7 @@ async function runCommandStrict(
     env,
     timeoutMs
   });
-  if (result.exitCode !== 0 || result.timedOut) {
+  if (!commandSucceeded(result)) {
     throw setupError({
       exitCode: ExitCode.OperationOrVerificationFailed,
       code,

@@ -1,3 +1,6 @@
+import { AttemptDeadline } from "../core/deadline";
+import { executionScope, TERM_GRACE_MS, KILL_SETTLE_MS, GROUP_OBSERVATION_MS } from "../adapters/process-lifecycle";
+import { commandSucceeded } from "../adapters/process";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { NodeFilesystemAdapter, type FilesystemAdapter } from "../adapters/filesystem";
@@ -12,7 +15,13 @@ import { parseStrictJson } from "../core/strict-json";
 import { inspectStateEvidence, receiptHash, readStateCommitManifest } from "../core/state";
 import { controlDirectory, controlError, controlJson, ensureControlDirectory, ordinaryOwner, publishControl } from "../core/control-files";
 
-export interface EmergencyDeps { processAdapter: ProcessAdapter; fsAdapter?: FilesystemAdapter }
+export const EMERGENCY_BUDGET_MS = 60_000;
+export const EMERGENCY_OBSERVATION_GRACE_MS = 2_000;
+export const EMERGENCY_COMMAND_CLEANUP_MS = TERM_GRACE_MS + KILL_SETTLE_MS + 3 * GROUP_OBSERVATION_MS;
+export interface EmergencyDeps { processAdapter: ProcessAdapter; fsAdapter?: FilesystemAdapter;
+  /** Internal deterministic clock only; not accepted from public JSON/config. */
+  deadline?: AttemptDeadline }
+
 export interface EmergencyOutcome {
   phase: "pre_admission" | "pause_publication" | "application_stop" | "application_status" | "docker_discovery" | "container_inspect" | "container_stop" | "complete";
   boundary: string | null;
@@ -137,7 +146,15 @@ async function observeInventory(fs: FilesystemAdapter, config: SetupConfig): Pro
 }
 
 export async function emergencyCancel(deps: EmergencyDeps, config: SetupConfig): Promise<EmergencyResult> {
-  const fs = deps.fsAdapter ?? new NodeFilesystemAdapter();
+  const deadline = deps.deadline ?? new AttemptDeadline(EMERGENCY_BUDGET_MS, undefined, executionScope.getStore()?.controller.signal);
+  const rawFs = deps.fsAdapter ?? new NodeFilesystemAdapter();
+  let observingFailure = false;
+  let observation = new AttemptDeadline(EMERGENCY_OBSERVATION_GRACE_MS);
+  const fs = new Proxy(rawFs, { get(target, key) {
+    const value = Reflect.get(target, key);
+    if (typeof value !== "function") return value;
+    return (...args: unknown[]) => (observingFailure ? observation : deadline).wait(() => Promise.resolve(value.apply(target, args)));
+  } });
   const paused = path.join(config.paths.application_state_dir, "PAUSED");
   const outcome: EmergencyOutcome = {
     phase: "pre_admission", boundary: null,
@@ -148,7 +165,7 @@ export async function emergencyCancel(deps: EmergencyDeps, config: SetupConfig):
   let priorIdentity: string | null = null;
   const pauseBody = `${new Date().toISOString()}\n`;
   try {
-    const { proc, root, stop, status, witnesses } = await admitEmergency({ ...deps, fsAdapter: fs }, config);
+    const { proc, root, stop, status, witnesses } = await deadline.wait(() => admitEmergency({ ...deps, fsAdapter: fs }, config));
     outcome.advisory_inventory = await observeInventory(fs, config);
     await ensureControlDirectory(fs, config.paths.application_state_dir);
     try {
@@ -175,9 +192,35 @@ export async function emergencyCancel(deps: EmergencyDeps, config: SetupConfig):
     const run = async (binary: string, args: string[], resource: string, mutation: boolean, cwd?: string): Promise<string> => {
       outcome.boundary = resource;
       await assertFileWitnesses(fs, witnesses);
+      deadline.assert();
       if (mutation && !outcome.attempted.includes(resource)) outcome.attempted.push(resource);
-      const r = await proc.runCommand({ binary, args, ...(cwd ? { cwd } : {}), timeoutMs: 20_000, maxOutputBytes: 128 * 1024 });
-      if (r.exitCode !== 0 || r.timedOut || r.outputLimitExceeded) {
+      const cancellation = new AbortController();
+      const signal = executionScope.getStore()?.controller.signal;
+      const command = proc.runCommand({
+        policy: "interruptible", binary, args, ...(cwd ? { cwd } : {}),
+        signal: signal ? AbortSignal.any([signal, cancellation.signal]) : cancellation.signal,
+        timeoutMs: Math.min(20_000, deadline.remaining()), maxOutputBytes: 128 * 1024 });
+      let r;
+      try { r = await deadline.wait(() => command); }
+      catch (error) {
+        cancellation.abort();
+        // A command already admitted may need the fixed supervisor TERM/KILL grace.
+        // This does not renew admission or authorize another command.
+        let grace: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([command.catch(() => undefined), new Promise(resolve => {
+            grace = setTimeout(() => {
+              const scope = executionScope.getStore();
+              if (scope) scope.cleanupUnknown = true;
+              resolve(undefined);
+            }, EMERGENCY_COMMAND_CLEANUP_MS);
+          })]);
+        } finally { if (grace) clearTimeout(grace); }
+        throw error;
+      }
+      deadline.assert();
+      if (r.cleanup === "unknown" && executionScope.getStore()) executionScope.getStore()!.cleanupUnknown = true;
+      if (!commandSucceeded(r)) {
         controlError("emergency_stop_unconfirmed", paused, "Emergency command failed or exceeded its execution bounds; cleanup is unconfirmed.");
       }
       return r.stdout;
@@ -233,11 +276,14 @@ export async function emergencyCancel(deps: EmergencyDeps, config: SetupConfig):
       outcome.stopped_containers.push(id);
       outcome.confirmed_stopped.push(resource);
     }
+    deadline.assert();
     outcome.phase = "complete";
     outcome.boundary = null;
     return { pausedMarkerPath: paused, stoppedContainers: outcome.stopped_containers,
       skippedForeignContainers: outcome.skipped_foreign_containers, outcome };
   } catch (error) {
+    observingFailure = true;
+    observation = new AttemptDeadline(EMERGENCY_OBSERVATION_GRACE_MS);
     if (outcome.phase !== "pre_admission") {
       // A rename adapter can reject after performing the syscall. Observe actual bytes/identity;
       // do not mistake mere existence (or an old PAUSED) for a newly durable publication.
@@ -256,6 +302,14 @@ export async function emergencyCancel(deps: EmergencyDeps, config: SetupConfig):
         // Metadata/read failure leaves existence unknown, never a claim of cleanup.
       }
       if (outcome.boundary) outcome.unknown.push(outcome.boundary);
+    }
+    const scope = executionScope.getStore();
+    if (scope?.cleanupUnknown && outcome.phase !== "pre_admission") {
+      try {
+        await publishControl(fs, path.join(config.paths.setup_state_dir, "process-cleanup-required.json"),
+          JSON.stringify({ schema_version: 1, installation_id: config.installation_id, run_id: scope.id,
+            lock_owner: null, cleanup: "unknown", processes: [...scope.processes.values()] }) + "\n");
+      } catch { /* Unknown durability remains a manual blocker; never claim cleanup. */ }
     }
     throw new EmergencyFailure(outcome, error);
   }

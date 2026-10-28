@@ -90,6 +90,13 @@ async function protocol<T>(fs: FilesystemAdapter, config: SetupConfig, action: (
     catch { controlError("lock_protocol_cleanup_unconfirmed", guard, "Protocol cleanup is unconfirmed."); }
   }
 }
+async function assertNoUnknownProcesses(fs: FilesystemAdapter, config: SetupConfig): Promise<void> {
+  const file = path.join(config.paths.setup_state_dir, "process-cleanup-required.json");
+  try { await fs.lstat(file); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; }
+  controlError("process_cleanup_unknown", file, "Owned process cleanup evidence requires manual reconciliation before acquisition/takeover.");
+}
+
 export async function acquireLock(fs: FilesystemAdapter, proc: ProcessAdapter, config: SetupConfig): Promise<LockHandle> {
   return protocol(fs, config, async () => {
     const p = buildLockPaths(config);
@@ -98,6 +105,7 @@ export async function acquireLock(fs: FilesystemAdapter, proc: ProcessAdapter, c
       controlError(live === "alive" ? "duplicate_invocation" : "stale_lock_detected", p.ownerFile,
         `Installation lock is ${live}; explicit resource-aware recovery is required.`, ExitCode.LockOwnedByAnotherInstaller);
     }
+    await assertNoUnknownProcesses(fs, config);
     const owner: LockOwner = { boot_id: await proc.bootId(), pid: proc.pid(),
       process_start_ticks: await proc.processStartTicks(proc.pid()), nonce: randomUUID(),
       installation_id: config.installation_id, created_at: new Date().toISOString() };
@@ -180,6 +188,7 @@ export async function consumeCancelRequest(fs: FilesystemAdapter, config: SetupC
 }
 
 async function noLiveEvidence(fs: FilesystemAdapter, config: SetupConfig): Promise<void> {
+  await assertNoUnknownProcesses(fs, config);
   const e = await inspectStateEvidence(fs, config);
   await assertEvidenceAdmission(fs, config, e);
   if (e.quarantineEntries.length || e.journal.oversized || e.journal.parseError || e.journal.unknownOrder

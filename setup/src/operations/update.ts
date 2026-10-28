@@ -1,3 +1,4 @@
+import { commandSucceeded } from "../adapters/process";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 import { type FilesystemAdapter } from "../adapters/filesystem";
@@ -429,13 +430,14 @@ async function runCommand(
 ): Promise<void> {
   const parsed = validateCommand(argv, label);
   const result = await processAdapter.runCommand({
+    policy: "critical",
     binary: parsed.binary,
     args: parsed.args,
     timeoutMs: COMMAND_TIMEOUT_MS,
     maxOutputBytes: COMMAND_MAX_OUTPUT_BYTES,
     operationId
   });
-  if (result.exitCode !== 0 || result.timedOut) {
+  if (!commandSucceeded(result)) {
     throw setupError({
       exitCode: ExitCode.OperationOrVerificationFailed,
       code: `s14_command_${label}_failed`,

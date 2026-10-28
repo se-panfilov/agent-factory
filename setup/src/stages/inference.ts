@@ -1,3 +1,5 @@
+import type { CommandResult } from "../adapters/process";
+import { commandSucceeded } from "../adapters/process";
 import path from "node:path";
 import { type FilesystemAdapter } from "../adapters/filesystem";
 import { type ProcessAdapter } from "../adapters/process";
@@ -506,16 +508,19 @@ function parseFreeAvailableBytes(output: string): number | null {
 class NodeInferenceAdapter implements InferenceAdapter {
   constructor(private readonly processAdapter: ProcessAdapter) {}
 
-  private async run(binary: string, args: string[], timeoutMs: number): Promise<{ exitCode: number; stdout: string; stderr: string; timedOut: boolean }> {
+  private async run(binary: string, args: string[], timeoutMs: number): Promise<CommandResult> {
     try {
       return await this.processAdapter.runCommand({
+        policy: binary === "/usr/bin/docker" && args[0] === "compose" ? "critical" : "observe",
         binary,
         args,
         timeoutMs,
         maxOutputBytes: MAX_OUTPUT_BYTES
       });
     } catch (error) {
+      if (error instanceof Error && error.name === "SetupError") throw error;
       return {
+        durationMs: 0,
         exitCode: 127,
         stdout: "",
         stderr: error instanceof Error ? error.message : "command failed",
@@ -526,7 +531,7 @@ class NodeInferenceAdapter implements InferenceAdapter {
 
   async observeRuntime(_config: SetupConfig, pins: InferencePins): Promise<RuntimeStatus> {
     const ps = await this.run("/usr/bin/docker", ["ps", "--filter", `name=^${pins.runtime.service_name}$`, "--format", "{{.Names}}\t{{.Ports}}"], OBSERVE_TIMEOUT_MS);
-    if (ps.exitCode !== 0 || ps.timedOut) {
+    if (!commandSucceeded(ps)) {
       return {
         dockerAvailable: false,
         running: false,
@@ -560,9 +565,9 @@ class NodeInferenceAdapter implements InferenceAdapter {
     const diskAvailableBytes = parseDfOutput(disk.stdout);
     const diskAvailableInodes = parseDfOutput(inodes.stdout);
     if (
-      memory.exitCode !== 0
-      || disk.exitCode !== 0
-      || inodes.exitCode !== 0
+      !commandSucceeded(memory)
+      || !commandSucceeded(disk)
+      || !commandSucceeded(inodes)
       || memory.timedOut
       || disk.timedOut
       || inodes.timedOut
@@ -596,7 +601,7 @@ class NodeInferenceAdapter implements InferenceAdapter {
       });
     }
     const pull = await this.run("/usr/bin/docker", ["compose", "-f", composePathValue, "pull", pins.runtime.service_name], MUTATION_TIMEOUT_MS);
-    if (pull.exitCode !== 0 || pull.timedOut) {
+    if (!commandSucceeded(pull)) {
       const stderr = pull.stderr.toLowerCase();
       const code = stderr.includes("not found") ? "s12_model_404" : stderr.includes("no space left") ? "s12_disk_full" : "s12_pull_failed";
       const next = code === "s12_model_404"
@@ -614,7 +619,7 @@ class NodeInferenceAdapter implements InferenceAdapter {
       });
     }
     const up = await this.run("/usr/bin/docker", ["compose", "-f", composePathValue, "up", "-d", pins.runtime.service_name], MUTATION_TIMEOUT_MS);
-    if (up.exitCode !== 0 || up.timedOut) {
+    if (!commandSucceeded(up)) {
       const stderr = up.stderr.toLowerCase();
       const code = stderr.includes("out of memory") || stderr.includes("oom") ? "s12_oom" : "s12_up_failed";
       throw setupError({
@@ -630,7 +635,7 @@ class NodeInferenceAdapter implements InferenceAdapter {
 
   async stopServing(_config: SetupConfig, pins: InferencePins, composePathValue: string): Promise<{ stopped: boolean }> {
     const stop = await this.run("/usr/bin/docker", ["compose", "-f", composePathValue, "stop", pins.runtime.service_name], OBSERVE_TIMEOUT_MS);
-    if (stop.exitCode !== 0 || stop.timedOut) {
+    if (!commandSucceeded(stop)) {
       throw setupError({
         exitCode: ExitCode.OperationOrVerificationFailed,
         code: "s12_disable_stop_failed",
@@ -804,12 +809,13 @@ async function runAppSchedulingDisable(
     });
   }
   const result = await processAdapter.runCommand({
+    policy: "critical",
     binary,
     args,
     timeoutMs: OBSERVE_TIMEOUT_MS,
     maxOutputBytes: MAX_OUTPUT_BYTES
   });
-  if (result.exitCode !== 0 || result.timedOut) {
+  if (!commandSucceeded(result)) {
     throw setupError({
       exitCode: ExitCode.OperationOrVerificationFailed,
       code: "s12_app_disable_failed",

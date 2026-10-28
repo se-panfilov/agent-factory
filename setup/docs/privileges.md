@@ -85,3 +85,5 @@ C13 review requires ordinary configured owner identity and checked Linux audit l
 ### Q1A-R3 correction (2026-10-27)
 
 Cancel, full/lock-only recover and emergency now enforce ordinary configured owner before control/target mutation. Acquire/release/recover/cancel publication share a short atomic-mkdir protocol mutex; lock-only takeover admits state/journal/resource evidence **before** moving a generation. Unknown ownership/identity/FS/resources block without deleting evidence. Lock-only success means lock protocol only, never readiness to resume. The earlier table's cancel/recover/emergency descriptions are superseded by [lock-cancel-r3.md](lock-cancel-r3.md), including durable cancellation, trusted stop and explicit recovery-review outcomes. No service/root executor or process-tree qualification is added.
+
+Q1B real-process admission explicitly blocks critical mutation (including real sudo/APT/dpkg and unqualified privileged descendants) before spawn. Fake resource tests are not privileged qualification. See [policy matrix and bounds](process-lifecycle-q1b.md).

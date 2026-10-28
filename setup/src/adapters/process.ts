@@ -1,27 +1,32 @@
-import { createHash, randomUUID } from "node:crypto";
-import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { supervise } from "./process-supervisor";
+import type { ExecutionPolicy } from "./process-lifecycle";
 import os from "node:os";
 import { readFile, open } from "node:fs/promises";
 import { ExitCode } from "../core/types";
 import { setupError } from "../core/errors";
 
-const SECRET_PATTERNS = [
-  /Bearer\s+[A-Za-z0-9._-]+/g,
-  /-----BEGIN [A-Z ]+-----[\s\S]*?-----END [A-Z ]+-----/g,
-  /\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,})\b/g,
-  /\b(?:token|secret|password)\s*[:=]\s*[^\s]+/gi
-];
-
 export interface CommandResult {
-  exitCode: number;
+  exitCode: number | null;
   stdout: string;
   stderr: string;
   timedOut: boolean;
   durationMs: number;
   outputLimitExceeded?: boolean;
+  outputInvalid?: boolean;
+  signal?: NodeJS.Signals | null;
+  cancelled?: boolean;
+  terminationReason?: "cancel" | "timeout" | "output_limit" | "descendant" | "error" | null;
+  cleanup?: "confirmed" | "unknown";
+  spawned?: boolean;
+  spawnError?: string | null;
+  observedBytes?: number;
+  owner?: { runId: string; operationId: string; generation: string; pid: number | null };
 }
 
 export interface CommandOptions {
+  policy: ExecutionPolicy;
+  signal?: AbortSignal;
   binary: string;
   args: string[];
   env?: Record<string, string>;
@@ -46,20 +51,13 @@ export interface ProcessAdapter {
   pidLiveness?(pid: number): "alive" | "dead" | "unknown";
 }
 
-function sanitize(content: string): string {
-  let sanitized = content;
-  for (const pattern of SECRET_PATTERNS) {
-    sanitized = sanitized.replace(pattern, "[REDACTED]");
-  }
-  return sanitized;
+export function commandFinished(result: Pick<CommandResult, "exitCode" | "timedOut"> & Partial<CommandResult>): boolean {
+  return !result.timedOut && !result.outputInvalid && !result.outputLimitExceeded && !result.cancelled
+    && !result.terminationReason && result.cleanup !== "unknown";
 }
 
-function trimToBytes(content: string, maxBytes: number): string {
-  const buffer = Buffer.from(content, "utf8");
-  if (buffer.byteLength <= maxBytes) {
-    return content;
-  }
-  return `${buffer.subarray(0, maxBytes).toString("utf8")}\n...[truncated]`;
+export function commandSucceeded(result: Pick<CommandResult, "exitCode" | "timedOut"> & Partial<CommandResult>): boolean {
+  return result.exitCode === 0 && commandFinished(result);
 }
 
 export function parseSupportedHost(release: string, platform: string, architecture: string): { os: "ubuntu-24.04"; arch: "amd64" | "arm64" } {
@@ -81,86 +79,7 @@ export function parseSupportedHost(release: string, platform: string, architectu
 
 export class NodeProcessAdapter implements ProcessAdapter {
   async runCommand(options: CommandOptions): Promise<CommandResult> {
-    const startedAt = Date.now();
-    const operationId = options.operationId ?? randomUUID();
-    if (!options.binary.startsWith("/")) {
-      throw setupError({
-        exitCode: ExitCode.SecurityBoundaryViolation,
-        code: "process_untrusted_binary",
-        publicMessage: `Refusing to execute non-absolute binary path: ${options.binary}`,
-        nextAction: "Use a trusted absolute path from reviewed release locks.",
-        operationId
-      });
-    }
-
-    return new Promise<CommandResult>((resolve, reject) => {
-      const child = spawn(options.binary, options.args, {
-        shell: false,
-        cwd: options.cwd,
-        stdio: ["ignore", "pipe", "pipe"],
-        env: {
-          PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
-          LC_ALL: "C",
-          ...Object.fromEntries(Object.entries(options.env ?? {}).filter(([key]) => key !== "PATH"))
-        }
-      });
-
-      let stdout = "";
-      let stderr = "";
-      let timedOut = false;
-      let outputBytes = 0;
-      let outputLimitExceeded = false;
-      let settled = false;
-
-      const timer = setTimeout(() => {
-        timedOut = true;
-        child.kill("SIGTERM");
-        setTimeout(() => child.kill("SIGKILL"), 10_000).unref();
-      }, options.timeoutMs);
-
-      const onChunk = (kind: "stdout" | "stderr", chunk: Buffer): void => {
-        outputBytes += chunk.byteLength;
-        const value = chunk.toString("utf8");
-        if (kind === "stdout") {
-          stdout += value;
-        } else {
-          stderr += value;
-        }
-        if (outputBytes > options.maxOutputBytes) {
-          outputLimitExceeded = true;
-          child.kill("SIGTERM");
-        }
-      };
-
-      child.stdout.on("data", (chunk: Buffer) => onChunk("stdout", chunk));
-      child.stderr.on("data", (chunk: Buffer) => onChunk("stderr", chunk));
-
-      child.on("error", (error) => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        clearTimeout(timer);
-        reject(error);
-      });
-
-      child.on("close", (code) => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        clearTimeout(timer);
-        const durationMs = Date.now() - startedAt;
-        resolve({
-          exitCode: code ?? 1,
-          stdout: trimToBytes(sanitize(stdout), options.maxOutputBytes),
-          stderr: trimToBytes(sanitize(stderr), options.maxOutputBytes),
-          timedOut,
-          durationMs,
-          outputLimitExceeded
-        });
-      });
-    });
+    return supervise(options);
   }
 
   async nodeRuntime(): Promise<{ executable: string; version: string; binarySha256: string }> {

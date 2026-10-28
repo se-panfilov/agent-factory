@@ -1,3 +1,5 @@
+import type { CommandResult } from "../adapters/process";
+import { commandSucceeded } from "../adapters/process";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { type FilesystemAdapter } from "../adapters/filesystem";
@@ -550,16 +552,20 @@ async function probeCodex(
     };
   }
 
-  const run = async (args: string[]): Promise<{ exitCode: number; stdout: string; timedOut: boolean }> => {
+  const run = async (args: string[]): Promise<CommandResult> => {
     try {
       return await processAdapter.runCommand({
+        policy: "interruptible",
         binary: codexBinary,
         args,
         timeoutMs: OBSERVE_TIMEOUT_MS,
         maxOutputBytes: MAX_OUTPUT_BYTES
       });
     } catch (error) {
+      if (error instanceof Error && error.name === "SetupError") throw error;
       return {
+        durationMs: 0,
+        stderr: "command_failed",
         exitCode: 127,
         stdout: error instanceof Error ? error.message : "command_failed",
         timedOut: false
@@ -571,7 +577,7 @@ async function probeCodex(
   const execHelpResult = await run(["exec", "--help"]);
   const loginHelpResult = await run(["login", "--help"]);
 
-  const versionRaw = versionResult.exitCode === 0 ? versionResult.stdout.trim() : null;
+  const versionRaw = commandSucceeded(versionResult) ? versionResult.stdout.trim() : null;
   const normalizedObserved = versionRaw === null ? null : normalizeVersion(versionRaw.split(/\s+/)[0] ?? "");
   const normalizedExpected = expectedVersion === null ? null : normalizeVersion(expectedVersion);
 
@@ -579,8 +585,8 @@ async function probeCodex(
     binaryExists: true,
     versionRaw: normalizedObserved,
     versionMatch: normalizedObserved !== null && normalizedExpected !== null && normalizedObserved === normalizedExpected,
-    execHelpOk: execHelpResult.exitCode === 0 && !execHelpResult.timedOut,
-    loginHelpOk: loginHelpResult.exitCode === 0 && !loginHelpResult.timedOut
+    execHelpOk: commandSucceeded(execHelpResult),
+    loginHelpOk: commandSucceeded(loginHelpResult)
   };
 }
 
@@ -993,6 +999,7 @@ async function ensureToyFixture(
 
   const run = async (args: string[], env?: Record<string, string>): Promise<void> => {
     const command = {
+      policy: "interruptible" as const,
       binary: "/usr/bin/git",
       args: ["-C", fixtureDir, ...args],
       timeoutMs: MUTATION_TIMEOUT_MS,
@@ -1006,7 +1013,7 @@ async function ensureToyFixture(
             env
           }
     );
-    if (result.exitCode !== 0 || result.timedOut) {
+    if (!commandSucceeded(result)) {
       throw setupError({
         exitCode: ExitCode.OperationOrVerificationFailed,
         code: "s06_toy_fixture_git_failed",
@@ -1062,6 +1069,7 @@ async function buildPinnedAgentImage(
 ): Promise<ImageStateRecord> {
   const tag = `agent-factory-s06:${config.installation_id.slice(0, 12)}`;
   const buildResult = await processAdapter.runCommand({
+    policy: "critical",
     binary: "/usr/bin/docker",
     args: [
       "build",
@@ -1083,7 +1091,7 @@ async function buildPinnedAgentImage(
     timeoutMs: MUTATION_TIMEOUT_MS,
     maxOutputBytes: MAX_OUTPUT_BYTES
   });
-  if (buildResult.exitCode !== 0 || buildResult.timedOut) {
+  if (!commandSucceeded(buildResult)) {
     throw setupError({
       exitCode: ExitCode.OperationOrVerificationFailed,
       code: "s06_agent_image_build_failed",
@@ -1095,18 +1103,20 @@ async function buildPinnedAgentImage(
   }
 
   const digestResult = await processAdapter.runCommand({
+    policy: "interruptible",
     binary: "/usr/bin/docker",
     args: ["image", "inspect", "--format", "{{join .RepoDigests \",\"}}", tag],
     timeoutMs: OBSERVE_TIMEOUT_MS,
     maxOutputBytes: MAX_OUTPUT_BYTES
   });
   const idResult = await processAdapter.runCommand({
+    policy: "interruptible",
     binary: "/usr/bin/docker",
     args: ["image", "inspect", "--format", "{{.Id}}", tag],
     timeoutMs: OBSERVE_TIMEOUT_MS,
     maxOutputBytes: MAX_OUTPUT_BYTES
   });
-  if (digestResult.exitCode !== 0 || idResult.exitCode !== 0) {
+  if (!commandSucceeded(digestResult) || !commandSucceeded(idResult)) {
     throw setupError({
       exitCode: ExitCode.OperationOrVerificationFailed,
       code: "s06_agent_image_inspect_failed",
